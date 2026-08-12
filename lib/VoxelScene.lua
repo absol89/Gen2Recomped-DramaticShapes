@@ -305,15 +305,16 @@ local function leanAngle()
   return VoxelScene.spriteLean or V.require("VoxelState").angle
 end
 
-local function billboardMatrix(px, py, y, mirror)
+local function billboardMatrix(px, py, y, mirror, half)
+  half = half or 8
   local b = FirstPerson.cardBlend()
-  local m = Mat4.translate(px + 8, y, py + 8)
+  local m = Mat4.translate(px + half, y, py + half)
   if b > 0 then
-    m = Mat4.mul(m, Mat4.rotateY(FirstPerson.cardYaw(px + 8, py + 8) * b))
+    m = Mat4.mul(m, Mat4.rotateY(FirstPerson.cardYaw(px + half, py + half) * b))
   end
   m = Mat4.mul(m, Mat4.rotateX((leanAngle() - math.pi / 2) * (1 - b)))
   if mirror then m = Mat4.mul(m, Mat4.scale(-1, 1, 1)) end
-  return Mat4.mul(m, Mat4.translate(-8, 0, 0))
+  return Mat4.mul(m, Mat4.translate(-half, 0, 0))
 end
 
 local function billboardPull()
@@ -397,7 +398,11 @@ local function drawEntity(sprite, px, py, facing, phase, flip, gh, colors,
   -- (castShadows draws this mesh through ShadowMap.snug) -- is where each
   -- vertex asks whether the light reached it; see ShadowMap.snug for why
   -- the lookup must match the stored transform to the letter
-  Voxel3D.draw(mesh, tex, billboardMatrix(px, py, y, mirror),
+  --
+  -- halfWidth: 8 for normal 16x16 walkers, 16 for 32x32 big dolls (Snorlax)
+  -- so the card is centred on the 2x2 footprint rather than the top-left cell.
+  local half = (SpriteBillboards.halfWidth and SpriteBillboards.halfWidth(def)) or 8
+  Voxel3D.draw(mesh, tex, billboardMatrix(px, py, y, mirror, half),
                billboardPull(),
                ShadowMap.snug(Voxel3D.casterMatrix(px, py, y, mirror)))
   return true
@@ -425,7 +430,8 @@ local function drawGhost(p)
     tex = TerrainAtlas.forSprite(def.image, p.colors) or tex
   end
   local y = p.gh + (p.lift or 0)
-  Voxel3D.draw(mesh, tex, billboardMatrix(p.px, p.py, y, mirror),
+  local half = (SpriteBillboards.halfWidth and SpriteBillboards.halfWidth(def)) or 8
+  Voxel3D.draw(mesh, tex, billboardMatrix(p.px, p.py, y, mirror, half),
                billboardPull())
 end
 

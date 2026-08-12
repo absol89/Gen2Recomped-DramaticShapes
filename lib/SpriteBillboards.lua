@@ -1,28 +1,11 @@
 -- Voxel world mode: characters as flat forward-facing sprite billboards.
 --
--- Every character -- the player, NPCs, the ghosts standing on a neighbour
--- map -- is its CURRENT 2D sprite frame on a single flat quad. The sheets
--- carry real alpha and the shader discards it, so the quad cuts the
--- sprite's exact silhouette out of itself; no geometry is built from the
--- pixels and nothing about a sprite is voxelized.
---
--- That is deliberate. A sprite is a DRAWING, not an object seen from one
--- side: Gen 1's overworld figures are 16x16 icons with a fixed front-on
--- reading, and turning one into a solid -- whether a contoured slab or a
--- carved visual hull -- reconstructs a body the artist never drew and the
--- game never implied. It also had the mod ship a description of the ROM
--- art. One quad wearing the real frame is both more faithful and cheaper:
--- it needs no pixel access at all, only the sheet's dimensions.
---
--- The card always faces SOUTH -- the direction the 2D game implies -- and
--- only LEANS BACK, pivoting at its feet, by exactly the camera's pitch
--- (VoxelScene's billboardMatrix), so at every tilt level it reads face-on
--- like the flat game. Right-facing and the alternating walk step are
--- matrix mirrors, not extra meshes. UVs point into the live sheet image,
--- so RED++ OBP bakes, SGB palette bakes and sprite-replacing mods all
--- texture it with no rebuild.
+-- Gen2 patch: SPRITE_BIG_SNORLAX / SPRITE_BIG_LAPRAS (and any def.big sheet)
+-- are 32x32 over a 2x2 cell footprint.  The stock card was hard-coded 16x16
+-- and only sampled the top-left face tile — that is why DramaticShapes showed
+-- a quarter of Snorlax.  Big sheets get a 32x32 card; 16-wide mirrored strips
+-- get a dual-quad card that mirrors the left half in UV space.
 
--- the mod namespace (see main.lua): V.require loads a sibling module
 local V = ...
 
 local Assets = require("src.render.Assets")
@@ -32,12 +15,17 @@ local SpriteBillboards = {}
 
 local meshes = {}
 
--- One flat 16x16 quad UV-mapped to a whole frame. A hair of inset keeps
--- the sampler inside this frame rather than picking up the neighbouring
--- one along the shared edge.
-local function buildCard(def, frame)
-  local ok, img = pcall(Assets.image, def.image)
-  if not (ok and img) then return nil end
+local function isBigDef(def)
+  if not def then return false end
+  if def.big then return true end
+  local id = def.id or ""
+  return id == "SPRITE_BIG_SNORLAX"
+    or id == "SPRITE_BIG_LAPRAS"
+    or id == "SPRITE_BIG_DOLL"
+end
+
+-- Standard 16x16 walker frame (Gen1 / normal Gen2 NPCs).
+local function buildCard16(img, frame)
   local iw, ih = img:getDimensions()
   local fy = frame * 16
   if fy + 16 > ih then fy = 0 end
@@ -52,17 +40,59 @@ local function buildCard(def, frame)
   return Voxel3D.newMesh(verts, indices)
 end
 
--- The card for one (sprite def, frame index), or nil (headless / no
--- image), cached like every other derived GPU object.
---
--- The solid draw, the sun pass and the player's occlusion silhouette all
--- take THIS mesh. That the three agree is load-bearing, not tidiness: the
--- silhouette is drawn with the depth test INVERTED, so any self-overlap in
--- the mesh would read as "behind something" and repaint the figure on open
--- ground whether or not anything hides it; and the sun must see the same
--- outline the camera does, or a shadow stops matching what casts it.
+-- Full 32x32 body (extractor already mirrored the left half into the sheet).
+local function buildCard32(img)
+  local iw, ih = img:getDimensions()
+  local u0, u1 = 0.02 / iw, (math.min(32, iw) - 0.02) / iw
+  local v0, v1 = 0.05 / ih, (math.min(32, ih) - 0.05) / ih
+  local verts = {
+    { 0, 0, 0, u0, v1, 1 }, { 32, 0, 0, u1, v1, 1 },
+    { 32, 32, 0, u1, v0, 1 }, { 0, 32, 0, u0, v0, 1 },
+  }
+  local indices = {}
+  Voxel3D.pushQuad(indices, 0)
+  return Voxel3D.newMesh(verts, indices)
+end
+
+-- 16x32 left-half strip: two side-by-side quads, right one mirrors U.
+local function buildCardMirrored16x32(img)
+  local iw, ih = img:getDimensions()
+  local h = math.min(32, ih)
+  local u0, u1 = 0.02 / iw, (16 - 0.02) / iw
+  local v0, v1 = 0.05 / ih, (h - 0.05) / ih
+  -- left half
+  local verts = {
+    { 0, 0, 0, u0, v1, 1 }, { 16, 0, 0, u1, v1, 1 },
+    { 16, h, 0, u1, v0, 1 }, { 0, h, 0, u0, v0, 1 },
+    -- right half = mirror of left (u1→u0)
+    { 16, 0, 0, u1, v1, 1 }, { 32, 0, 0, u0, v1, 1 },
+    { 32, h, 0, u0, v0, 1 }, { 16, h, 0, u1, v0, 1 },
+  }
+  local indices = {}
+  Voxel3D.pushQuad(indices, 0)
+  Voxel3D.pushQuad(indices, 4)
+  return Voxel3D.newMesh(verts, indices)
+end
+
+local function buildCard(def, frame)
+  local ok, img = pcall(Assets.image, def.image)
+  if not (ok and img) then return nil end
+  local iw, ih = img:getDimensions()
+
+  if isBigDef(def) or iw >= 32 then
+    if iw >= 32 and ih >= 32 then
+      return buildCard32(img)
+    end
+    -- Still a 16-wide FacingBigDollSymmetric strip
+    return buildCardMirrored16x32(img)
+  end
+
+  return buildCard16(img, frame or 0)
+end
+
 function SpriteBillboards.mesh(def, frame)
-  local key = def.image .. "#" .. frame
+  local big = isBigDef(def)
+  local key = def.image .. "#" .. (big and "big" or tostring(frame))
   if meshes[key] == nil then
     local ok, m = pcall(buildCard, def, frame)
     meshes[key] = (ok and m) or false
@@ -70,13 +100,17 @@ function SpriteBillboards.mesh(def, frame)
   return meshes[key] or nil
 end
 
--- Kept as its own name because the shadow and ghost passes read as their
--- own thing at the call sites; it once carried a different mesh from the
--- solid draw, and now deliberately does not.
 SpriteBillboards.shadowQuad = SpriteBillboards.mesh
 
 function SpriteBillboards.invalidate()
   meshes = {}
+end
+
+-- World-space half-width used by VoxelScene to centre the card on the
+-- footprint (8 for 16px walkers, 16 for 32px big dolls).
+function SpriteBillboards.halfWidth(def)
+  if isBigDef(def) then return 16 end
+  return 8
 end
 
 Assets.register(SpriteBillboards.invalidate)
