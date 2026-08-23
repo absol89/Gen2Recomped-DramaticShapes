@@ -1256,8 +1256,8 @@ function OverworldBattle.install()
   innerAnim = BattleState.drawAnimLayer
   function BattleState:drawAnimLayer(colorized)
     local shot = self.dramaticShapeShot
+    if session and not BattleVisibility.animationLayerVisible(self) then return end
     if not shot then return innerAnim(self, colorized) end
-    if not BattleVisibility.animationLayerVisible(self) then return end
     if shot.animInWorld then return end
     -- Move animations are authored against the pics' old fixed slots, and one
     -- animation reaches across both sides, so there is no per-side offset to

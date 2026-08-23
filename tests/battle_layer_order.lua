@@ -13,6 +13,14 @@ local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true)
 assert(apply < reassert and reassert < pics,
   "animated ownership is not reclaimed after Battle Art and before capture")
 local capture = assert(overworld:find("OverworldBattle.animTexture", 1, true))
+local animWrapper = assert(overworld:find("function BattleState:drawAnimLayer", capture, true))
+local introAnimGuard = assert(overworld:find(
+  "if session and not BattleVisibility.animationLayerVisible(self) then return end",
+  animWrapper, true))
+local preShotAnim = assert(overworld:find(
+  "if not shot then return innerAnim(self, colorized) end", introAnimGuard, true))
+assert(introAnimGuard < preShotAnim,
+  "native intro animation is not suppressed before the staged shot exists")
 local render = assert(overworld:find("BattleScene.render", capture, true))
 local hud = assert(overworld:find("OverworldBattle.snapHUDs", render, true))
 assert(capture < render and render < hud,

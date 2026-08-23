@@ -22,4 +22,11 @@ battle.introBalls = nil
 assert(Visibility.animationLayerVisible(battle),
   "battle animations stayed hidden after the intro message")
 
+battle.introSlide = 72
+assert(not Visibility.animationLayerVisible(battle),
+  "the native intro silhouette stayed visible during the slide")
+battle.introSlide = 0
+assert(Visibility.animationLayerVisible(battle),
+  "battle animations stayed hidden after the intro slide")
+
 print("capture visibility regression: ok")

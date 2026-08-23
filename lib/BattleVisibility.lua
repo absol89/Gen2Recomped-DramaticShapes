@@ -21,7 +21,8 @@ function BattleVisibility.sideVisible(battle, side)
 end
 
 function BattleVisibility.animationLayerVisible(battle)
-  return not (battle and battle.introBalls)
+  if not battle then return true end
+  return not (battle.introBalls or (tonumber(battle.introSlide) or 0) > 0)
 end
 
 return BattleVisibility
