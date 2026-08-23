@@ -351,12 +351,16 @@ local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
   -- marked as the CAST, so a fight staged at the water's edge does not lay a
   -- cut-out of a Pokemon across the lake (see ShadowMap.sprites); the arena's
   -- own floor still takes them, which is the shadow that matters here
-  ShadowMap.sprites(true)
-  for _, card in ipairs(cards or {}) do
-    ShadowMap.draw(BattleBillboard.mesh(), card.tex,
-                   ShadowMap.snug(card.model))
+  -- SPRITE LIGHT: UNLIT cards cast no ground shadow either, or the sun pass
+  -- would still paint one under a mon drawn full bright (see the card pass).
+  if not UiBackplates.spritesUnlit() then
+    ShadowMap.sprites(true)
+    for _, card in ipairs(cards or {}) do
+      ShadowMap.draw(BattleBillboard.mesh(), card.tex,
+                     ShadowMap.snug(card.model))
+    end
+    ShadowMap.sprites(false)
   end
-  ShadowMap.sprites(false)
 
   ShadowMap.finish(sig)
 end
