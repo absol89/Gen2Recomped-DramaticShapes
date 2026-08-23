@@ -318,6 +318,9 @@ local function shadowSignature(state, arena, terrain, nbMesh, token)
   local host = arena.map or state.map
   local parts = { "battle", host.id, arena.x, arena.y, arena.shape,
                   tostring(terrain), tostring(token or 0),
+                  -- SPRITE LIGHT changes whether the mons cast at all, so a
+                  -- cached map must be re-cast when it flips.
+                  tostring(UiBackplates.spritesUnlit()),
                   -- the cycle keeps running through a fight, and an arena lit
                   -- from somewhere new must be re-cast from there
                   math.floor(ShadowMap.KX * 128),
