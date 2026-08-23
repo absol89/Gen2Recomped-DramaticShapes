@@ -57,32 +57,13 @@ $battleDirs = @(Get-ChildItem -LiteralPath $battleRoot -Recurse -Directory |
   })
 $battleDirs += 'assets/battle/'
 
-# Keep contracts/non-art metadata while never shipping private BYO Pokemon/
-# trainer collections. front-static art (gen6, bosses, ...) is NOT shipped:
-# those folders travel only as directory entries (see $battleDirs below) with
-# their README/non-image metadata -- the .jpg/.png/.webp stay out of the clean
-# package, matching the gitignore that blanket-excludes assets/battle/**.
+# Keep Markdown contracts while never shipping private BYO Pokemon/trainer
+# collections. The folders remain visible, but all image and animation formats
+# are reserved for the local package_mod.ps1 build.
 $battleFiles = @(Get-ChildItem -LiteralPath $battleRoot -Recurse -File -Force |
   Where-Object {
     $relative = Relative-Path $_.FullName
-    -not (Test-ExcludedFolder $relative) -and (
-      $_.Extension -notmatch '(?i)^\.(png|jpe?g|webp)$'
-    )
-  } |
-  ForEach-Object { Relative-Path $_.FullName })
-
-# World-fill scenery shares the BYO-art treatment: the committed README/asset
-# notes travel in the clean package (directory entry + non-image metadata) but
-# the supplied PNGs stay local-only, matching the gitignore that excludes
-# assets/world-fill/** while keeping assets/world-fill/README.txt tracked.
-$worldFillRoot = Join-Path $repo 'assets\world-fill'
-$worldFillDirs = @('assets/world-fill/')
-$worldFillFiles = @(Get-ChildItem -LiteralPath $worldFillRoot -Recurse -File -Force |
-  Where-Object {
-    $relative = Relative-Path $_.FullName
-    -not (Test-ExcludedFolder $relative) -and (
-      $_.Extension -notmatch '(?i)^\.(png|jpe?g|webp)$'
-    )
+    -not (Test-ExcludedFolder $relative) -and $_.Extension -ieq '.md'
   } |
   ForEach-Object { Relative-Path $_.FullName })
 
@@ -93,7 +74,7 @@ $vrFiles = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\vr') `
     Relative-Path $_.FullName
   })
 
-$entries = @($source + $battleDirs + $battleFiles + $worldFillDirs + $worldFillFiles + $vrFiles | Sort-Object -Unique)
+$entries = @($source + $battleDirs + $battleFiles + $vrFiles | Sort-Object -Unique)
 if (-not $entries.Count) { throw "no package entries found" }
 
 if (Test-Path -LiteralPath $Output) {
@@ -136,7 +117,9 @@ try {
   $checkArchive.Dispose()
 }
 $privateBattleArt = @($packed | Where-Object {
-  $_ -match '(?i)^assets/battle/.*\.(png|jpe?g|webp)$'
+  $_ -match '(?i)^assets/battle/' -and
+  -not $_.EndsWith('/') -and
+  $_ -notmatch '(?i)\.md$'
 })
 if ($packed | Where-Object { Test-ExcludedFolder $_ }) {
   throw "clean package unexpectedly contains an _source or backup folder"
@@ -145,10 +128,24 @@ if ($privateBattleArt.Count) {
   throw "clean package unexpectedly contains private battle art: " +
     ($privateBattleArt -join ', ')
 }
+$unsupportedAssets = @($packed | Where-Object {
+  $_ -match '(?i)^assets/' -and
+  $_ -notmatch '(?i)^assets/battle/' -and
+  $_ -notmatch '(?i)^assets/vr/'
+})
+if ($unsupportedAssets.Count) {
+  throw "clean package unexpectedly contains unsupported assets: " +
+    ($unsupportedAssets -join ', ')
+}
 
 foreach ($required in @('manifest.json', 'main.lua', 'mod.card')) {
   if ($packed -notcontains $required) {
     throw "clean package is missing required install entry: $required"
+  }
+}
+foreach ($requiredPrefix in @('data/', 'lib/')) {
+  if (-not ($packed | Where-Object { $_.StartsWith($requiredPrefix) })) {
+    throw "clean package is missing required install tree: $requiredPrefix"
   }
 }
 
@@ -157,6 +154,7 @@ foreach ($required in @('manifest.json', 'main.lua', 'mod.card')) {
   Entries = $packed.Count
   PrivateBattleArt = $privateBattleArt.Count
   BattleFolders = $battleDirs.Count
+  VrFiles = $vrFiles.Count
   Bytes = (Get-Item -LiteralPath $Output).Length
   SHA256 = (Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash
 }

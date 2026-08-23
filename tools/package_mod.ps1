@@ -38,34 +38,15 @@ foreach ($dir in @('data', 'lib')) {
     }
 }
 $source += @('CHANGELOG.md', 'main.lua', 'manifest.json', 'mod.card', 'README.md')
-$contracts = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\battle') `
-  -Recurse -File -Filter 'README.md' | ForEach-Object {
-    $relative = Relative-Path $_.FullName
-    if (-not (Test-ExcludedFolder $relative)) { $relative }
-  })
-
 # These files are deliberately ignored by Git, but a local test build should
-# include them. This bridges a clean public branch and private BYO artwork.
+# include them. Only PNG is a supported packaged battle-art format; source
+# animations and conversion inputs stay outside the distributable archive.
 $localArt = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\battle') `
-  -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
-    $_.Extension -match '(?i)^\.(png|jpe?g|webp)$'
-  } | ForEach-Object {
+  -Recurse -File -Filter '*.png' -ErrorAction SilentlyContinue | ForEach-Object {
     $relative = Relative-Path $_.FullName
     # Authoring drafts may live beside a collection in a folder literally
     # named "backup". They are never runtime candidates and must not inflate
     # or leak into the private test package.
-    if (-not (Test-ExcludedFolder $relative)) { $relative }
-  })
-# World-fill scenery (assets/world-fill) is committed public art, not private
-# BYO artwork: it must ship in the package or the distant biome trees/rocks
-# have no textures. Include every file (textures AND the integration README)
-# except _source/backup drafts.
-$worldFill = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\world-fill') `
-  -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
-    $relative = Relative-Path $_.FullName
-    -not (Test-ExcludedFolder $relative)
-  } | ForEach-Object {
-    $relative = Relative-Path $_.FullName
     if (-not (Test-ExcludedFolder $relative)) { $relative }
   })
 # The OpenXR loader DLL is read through mod:read at runtime (VRXR); without it
@@ -74,7 +55,7 @@ $vrRuntime = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\vr') `
   -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     Relative-Path $_.FullName
   })
-$files = @($source + $contracts + $localArt + $worldFill + $vrRuntime | Sort-Object -Unique)
+$files = @($source + $localArt + $vrRuntime | Sort-Object -Unique)
 if (-not $files.Count) { throw "no package files found" }
 
 if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Force }
@@ -100,10 +81,30 @@ $entries = @(tar -tf $Output)
 if ($entries | Where-Object { Test-ExcludedFolder $_ }) {
   throw "package unexpectedly contains an _source or backup folder"
 }
+$unsupportedAssets = @($entries | Where-Object {
+  $_ -match '(?i)^assets/' -and
+  $_ -notmatch '(?i)^assets/battle/.*\.png$' -and
+  $_ -notmatch '(?i)^assets/vr/'
+})
+if ($unsupportedAssets.Count) {
+  throw "package unexpectedly contains unsupported assets: " +
+    ($unsupportedAssets -join ', ')
+}
+foreach ($required in @('manifest.json', 'main.lua', 'mod.card')) {
+  if ($entries -notcontains $required) {
+    throw "package is missing required install entry: $required"
+  }
+}
+foreach ($requiredPrefix in @('data/', 'lib/')) {
+  if (-not ($entries | Where-Object { $_.StartsWith($requiredPrefix) })) {
+    throw "package is missing required install tree: $requiredPrefix"
+  }
+}
 [PSCustomObject]@{
   Path = $Output
   Entries = $entries.Count
-  LocalImages = $localArt.Count
+  BattlePngs = $localArt.Count
+  VrFiles = $vrRuntime.Count
   Bytes = (Get-Item -LiteralPath $Output).Length
   SHA256 = (Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash
 }
