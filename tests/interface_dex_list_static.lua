@@ -11,6 +11,12 @@ assert(interface:find("function InterfaceSprites.installDexList()", 1, true),
 assert(not interface:find("dexListStates", 1, true)
   and not interface:find("advance(dexList", 1, true),
   "Pokedex list resumed animated playback")
+local listDraw = assert(interface:find("function InterfaceSprites.installDexList()", 1, true))
+local entryDraw = assert(interface:find("function InterfaceSprites.installDex()", listDraw, true))
+local listBlock = interface:sub(listDraw, entryDraw - 1)
+assert(listBlock:find('love.graphics.setColor(1, 1, 1, 1)', 1, true)
+  and listBlock:find('love.graphics.rectangle("fill", 6, 6, 58, 60)', 1, true),
+  "Pokedex list preview does not restore its white paper backdrop")
 assert(interface:find("InterfaceSprites.installDex()", 1, true),
   "selected Pokedex entry page lost its animated playback")
 assert(interface:find("function InterfaceSprites.installDex()", 1, true),
