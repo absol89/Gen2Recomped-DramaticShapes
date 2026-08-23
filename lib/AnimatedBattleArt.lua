@@ -323,11 +323,6 @@ local function updateBattler(battler, side, dt, mode)
               original = battler.sprite,
               frames = frames, frame = 1, elapsed = 0 }
     states[battler] = state
-  elseif battler.sprite ~= state.frames[state.frame]
-     and battler.sprite ~= state.original then
-    -- Transform or another battle effect owns the sprite now.
-    states[battler] = nil
-    return
   end
 
   state.elapsed = state.elapsed + (tonumber(dt) or 0)
@@ -338,6 +333,7 @@ local function updateBattler(battler, side, dt, mode)
     state.frame = state.frame % #state.frames + 1
     duration = math.max(1, tonumber(durations[state.frame]) or 100) / 1000
   end
+  -- Earlier update wrappers may refresh this battler's sprite each frame.
   battler.sprite = state.frames[state.frame]
 end
 
