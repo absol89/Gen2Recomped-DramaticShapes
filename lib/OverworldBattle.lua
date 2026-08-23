@@ -1202,6 +1202,12 @@ function OverworldBattle.install()
       return innerPics(self, slide, sx, sy, onlySide, skipMenuClip)
     end
     if OverworldBattle.backPinned() and onlySide ~= "enemy" then
+      -- Another sprite mod (HGSS_SPRITES et al) re-asserts its own frame on
+      -- the battler inside BattleState:update, every frame. Whatever it set
+      -- last would flicker against the image we staged in sideTexture. We
+      -- own this picture (DUPLICATE FIX: BATTLE ART), so re-install ours at
+      -- draw time; apply() is a no-op under MODDED.
+      pcall(BattleArt.apply, self)
       -- under the hour's own light, like everything else in the frame -- see
       -- withTint, and the tint BattleScene hands over with the shot.
       --
