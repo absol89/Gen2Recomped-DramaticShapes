@@ -227,20 +227,13 @@ BattleScene.monCards = monCards
 -- eye, for the GB-frame effects texture OverworldBattle.animTexture
 -- renders (the engine's own drawAnimLayer, caught on a canvas).
 --
--- Effects are 2D drawings like the pics, and the pics' answer holds for
--- them too: a drawing must FACE the eye that is looking (the mon cards
--- yaw toward it per eye -- see monMatrix). So the frame stands on the
--- arena's midpoint, yawed at the eye like the cards are, and the classic
--- layout's two slot marks are pinned where each CELL lands on that plane
--- along this very eye's own ray -- so from the eye that is looking, a
--- burst authored at a slot sits exactly over the mon standing in for it,
--- and a projectile crossing the frame crosses the arena. The vertical
--- scale is the mon cards' own (FULL_W / FULL_PIC), so an effect is sized
--- like the pics it plays over.
+-- Effects are 2D drawings like the pics, so the frame faces the viewing eye
+-- and stays upright. Its horizontal scale pins both slot columns to their
+-- cells; any perspective-only vertical mismatch is shared between the two
+-- sides instead of shearing the pixels, which made a Poké Ball look tilted.
 --
--- An eye standing (nearly) ON the arena's axis sees the two cells in
--- line and the pinning degenerates; the frame then falls back to the
--- fixed plane through both cells, which that eye views edge-on anyway.
+-- An eye nearly on the arena axis makes the two projected columns converge;
+-- that case uses a centred fixed-scale card rather than turning edge-on.
 --
 -- Reads Voxel3D.eye at CALL time, like the cards -- call it per eye.
 -- Returns the model matrix for BattleBillboard's unit card (x -0.5..0.5,
@@ -280,7 +273,16 @@ function BattleScene.fxCard(arena, groundY, anchors)
   local eax, eay = inPlane(Ex, Ey, Ez)
 
   if math.abs(eax - pax) < 4 then
-    -- edge-on: the fixed plane through both cells, world-axis mapping
+    if eye then
+      local mx = (p[1] + e[1]) / 2
+      local my = (p[2] + e[2]) / 2
+      local ox = s * (0.5 * GW - mx)
+      return { rx * s * GW, 0, nx, Mx + rx * ox,
+               0, s * GH, 0, My + s * (my - GH),
+               rz * s * GW, 0, nz, Mz + rz * ox,
+               0, 0, 0, 1 }
+    end
+    -- Headless fallback: the fixed plane through both cells.
     local ux = (Ex - Px) / dgb
     local uy = (Ey - Py - s * (p[2] - e[2])) / dgb
     local uz = (Ez - Pz) / dgb
@@ -296,12 +298,14 @@ function BattleScene.fxCard(arena, groundY, anchors)
              0, 0, 0, 1 }
   end
 
-  -- in-plane travel per GB pixel of frame x, solved so both marks land:
+  -- In-plane travel per GB pixel of frame x pins both slot columns:
   -- inPlane(gb) = (pax, pay) + U * (gbx - p.x) + (0, s) * (p.y - gby)
   local ux = (eax - pax) / dgb
-  local uy = (eay - pay - s * (p[2] - e[2])) / dgb
+  local verticalResidual = eay - pay - s * (p[2] - e[2])
+  local uy = eye and 0 or verticalResidual / dgb
   local cxp = pax + ux * (0.5 * GW - p[1])
-  local cyp = pay + uy * (0.5 * GW - p[1]) + s * (p[2] - GH)
+  local yBias = eye and verticalResidual / 2 or 0
+  local cyp = pay + yBias + uy * (0.5 * GW - p[1]) + s * (p[2] - GH)
   return { rx * ux * GW, 0, nx, Mx + rx * cxp,
            uy * GW, s * GH, 0, My + cyp,
            rz * ux * GW, 0, nz, Mz + rz * cxp,
