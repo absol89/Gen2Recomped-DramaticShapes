@@ -491,6 +491,11 @@ function OverworldBattle.finish()
   restoreCast()
   pcall(AnimatedBattleArt.finish, session.battle)
   StadiumModels.release()
+  if OverworldBattle.trace and session.battle then
+    trace("battle finished (shot frames drawn this fight: %s)",
+      tostring(OverworldBattle._suppressTrace and OverworldBattle._suppressTrace.n or 0))
+    OverworldBattle._suppressTrace = nil
+  end
   session = nil
   Voxel3D.camera = nil
 end
@@ -638,6 +643,15 @@ function OverworldBattle.update(dt)
     end
   end
   session.shot = shot
+  -- First composed shot of the fight: the moment the world override takes
+  -- over from the white/staging hold. One line per battle.
+  if shot and shot.canvas and not session.firstShotLogged then
+    session.firstShotLogged = true
+    if OverworldBattle.trace then
+      trace("first shot ready (token %s) -- billboards take over",
+        tostring(session.token))
+    end
+  end
 end
 
 -- The finished shot for this frame, or nil when there is none and the battle
@@ -1182,30 +1196,32 @@ function OverworldBattle.install()
   -- at the scale the GB always put them -- feet on the box, 2x, back view.
   innerPics = BattleState.drawPicsLayer
   local TraceLog = pcall(require, "src.core.Logger") and require("src.core.Logger")
+  -- Event logger for the staged-battle draw path. Logs the decisions that
+  -- decide what is actually on screen during a fight: whether a battle
+  -- staged, when its first shot exists, and every flat-pics draw that slips
+  -- through (or is suppressed) before then. Capped per battle so a normal
+  -- session cannot flood log.txt; the cap resets when the battle ends.
+  local function trace(fmt, ...)
+    if not TraceLog then return end
+    TraceLog.warn("[BATTLE_ART_VOXEL_GEN2] " .. fmt, ...)
+  end
+  OverworldBattle.trace = trace
   function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
     local shot = self.dramaticShapeShot
-    -- TEMP DIAGNOSTIC: intro flicker between ROM pic and billboard. Logger
-    -- writes to the engine log; plain print does not in fused builds.
-    if TraceLog then
-      if not OverworldBattle._picTrace then
-        OverworldBattle._picTrace = { n = 0 }
-      end
-      local t = OverworldBattle._picTrace
-      if t.n < 150 then
-        t.n = t.n + 1
-        TraceLog.warn("[BATTLE_ART_VOXEL_GEN2] pics #%d slide=%s side=%s shot=%s backPinned=%s",
-          t.n, tostring(slide), tostring(onlySide),
-          tostring(shot ~= nil), tostring(OverworldBattle.backPinned()))
-      end
-    end
     if not shot then
-      -- A session is staging (or staged and its first shot is still
-      -- rendering): the mons belong to the 3D world, so the flat pics layer
-      -- draws nothing. Letting the engine's ROM sprites slide in here
-      -- glitched against our billboard once the shot arrived, most visibly
-      -- with animated atlases. Battles that never stage (no session) fall
-      -- through to the flat pics as usual.
-      if session and OverworldBattle.enabled() then return end
+      if session and OverworldBattle.enabled() then
+        -- staged but no shot yet: suppressed. Log only transitions into
+        -- this state and every Nth frame, so an intro's worth of frames is
+        -- visible without flooding.
+        local t = OverworldBattle._suppressTrace
+        if not t then t = { n = 0 }; OverworldBattle._suppressTrace = t end
+        t.n = t.n + 1
+        if t.n == 1 or t.n % 20 == 0 then
+          trace("pics SUPPRESSED (staging) frame=%d slide=%s side=%s backPinned=%s",
+            t.n, tostring(slide), tostring(onlySide),
+            tostring(OverworldBattle.backPinned()))
+        end
+      end
       return innerPics(self, slide, sx, sy, onlySide, skipMenuClip)
     end
     if OverworldBattle.backPinned() and onlySide ~= "enemy" then
