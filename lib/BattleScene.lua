@@ -201,6 +201,7 @@ local function monCards(arena, groundY, textures)
     local cell = (side == "player") and arena.player or arena.enemy
     if tex and tex.canvas and cell then
       local mirror = (side == "player") and not tex.trainer
+                     and not tex.noMirror
       out[#out + 1] = { tex = tex.canvas,
                         model = monMatrix(tex, cell[1], groundY, cell[2],
                                           mirror) }

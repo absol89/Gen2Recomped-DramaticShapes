@@ -1000,7 +1000,12 @@ function OverworldBattle.sideTexture(battle, side)
   elseif side == "player" and battle.showPlayerBack and battle.playerBackPic then
     trainer = true
   end
-  return { canvas = canvas, ax = ax, ay = ay, trainer = trainer }
+  -- FLIP FRONT SPRITE: DEFAULT marks an external player front that is already
+  -- authored facing the foe, so BattleScene must not mirror it a second time.
+  local playerNoMirror = side == "player"
+                         and not BattleArt.flipsPlayerFront()
+  return { canvas = canvas, ax = ax, ay = ay, trainer = trainer,
+           noMirror = playerNoMirror }
 end
 
 -- Whether the hit flash is showing this frame.
