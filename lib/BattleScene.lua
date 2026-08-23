@@ -41,6 +41,7 @@ local VoxelScene = V.require("VoxelScene")
 local BattleCam = V.require("BattleCam")
 local BattleBillboard = V.require("BattleBillboard")
 local StadiumModels = V.require("StadiumModels")
+local BattleArt = V.require("BattleArt")
 local UiBackplates = V.require("UiBackplates")
 local VoxelGrid = V.require("VoxelGrid")
 local DayNight = V.require("DayNight")
@@ -203,6 +204,15 @@ local function monCards(arena, groundY, textures)
     if tex and tex.canvas and cell then
       local mirror = (side == "player") and not tex.trainer
                      and not tex.noMirror
+      if not BattleScene._mirrorTrace then
+        BattleScene._mirrorTrace = true
+        local okL, L = pcall(require, "src.core.Logger")
+        if okL and L then
+          L.warn("[DRAMATIC_SHAPE] mirror player=%s trainer=%s noMirror=%s flips=%s",
+            tostring(side == "player"), tostring(tex.trainer),
+            tostring(tex.noMirror), tostring(BattleArt.flipsPlayerFront()))
+        end
+      end
       out[#out + 1] = { tex = tex.canvas,
                         model = monMatrix(tex, cell[1], groundY, cell[2],
                                           mirror) }
