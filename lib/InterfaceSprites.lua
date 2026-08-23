@@ -467,7 +467,37 @@ function InterfaceSprites.installSummary()
       self.spriteTrueColor = self.__battleArtOriginalTrueColor
       self.picAnim = self.__battleArtOriginalPicAnim
     end
-    originalDraw(self, ...)
+    local preserveAuthored = state and BattleArt.flipsPlayerFront
+      and not BattleArt.flipsPlayerFront()
+    if not (preserveAuthored and love and love.graphics
+            and type(love.graphics.draw) == "function") then
+      return originalDraw(self, ...)
+    end
+
+    -- SummaryMenu mirrors every front with scaleX=-1. DEFAULT means authored
+    -- orientation, so undo that one draw while leaving every other UI image
+    -- and the engine's ROM fallback on its native path.
+    local sprite = self.sprite
+    local originalGraphicsDraw = love.graphics.draw
+    love.graphics.draw = function(drawable, x, y, rotation, scaleX, scaleY, ...)
+      if drawable == sprite and type(x) == "number"
+          and (tonumber(scaleX) or 1) < 0 then
+        local width = drawable.getWidth and drawable:getWidth() or nil
+        if not width and drawable.getDimensions then
+          width = select(1, drawable:getDimensions())
+        end
+        if width then
+          x = x + width * scaleX
+          scaleX = -scaleX
+        end
+      end
+      return originalGraphicsDraw(
+        drawable, x, y, rotation, scaleX, scaleY, ...)
+    end
+    local ok, result = pcall(originalDraw, self, ...)
+    love.graphics.draw = originalGraphicsDraw
+    if not ok then error(result, 0) end
+    return result
   end
   summaryInstalled = true
 end
