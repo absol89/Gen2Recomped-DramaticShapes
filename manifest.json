@@ -6,16 +6,23 @@
   "entry": "main.lua",
   "profile": "content",
   "category": "GRAPHICS",
-  "game_version": "0.0.0-dev || >=0.1.37 <3.0.0",
+  "games": ["gold", "silver"],
+  "game_version": "0.0.0-dev || >=0.2.20 <3.0.0",
   "priority": 100,
   "dependencies": [],
-  "optional_dependencies": [],
-  "conflicts": ["Gen2Recomped-DramaticShapes"],
+  "optional_dependencies": ["STADIUM2_IMPORTER"],
+  "conflicts": [
+    "BATTLE_ART_VOXEL_FORK",
+    "DRAMATIC_SHAPE",
+    "DRAMALESS_SHAPE",
+    "potato_voxel",
+    "Gen2Recomped-DramaticShapes"
+  ],
   "permissions": [
     "engine_internals"
   ],
   "affects_link": false,
-  "description": "A full 3D diorama overworld: extruded terrain, depth-buffered occlusion, voxel characters and a tilt-shift miniature pass -- and battles fought on the map itself, shot over the shoulder at the nearest clear ground with a slow parallax drift and a depth-of-field pass. Water reflects the sky, the sun, the moon and -- through a screen-space ray march -- the shoreline standing behind it. Registers two render pipelines and claims hotkeys 3, 5, 6, 7, 8 and 9 -- 3 and 5 displace the engine's TILT and GBC FX keys, both still reachable on the OPTIONS menu. Presentational only: it changes what a battle is drawn over, never where anybody stands.",
+  "description": "Gold/Silver port for Gen1Recomp: a full 3D diorama overworld with Battle Art sprites and staged battles. Crystal is not currently supported.",
   "github": "DramaticShape/DramaticShapeVoxelMod",
   "update_check": false
 }

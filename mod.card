@@ -1,7 +1,7 @@
 -- Sharing metadata (25-community-and-ecosystem.md 3.2).  Read by tooling
 -- and the manager detail pane; never by the loader's merge.
 return {
-  summary = "The overworld as a 3D diorama, and battles fought on it: real occlusion, tilt-shift, over-the-shoulder fights.",
+  summary = "Gold and Silver as a 3D diorama, with Battle Art sprites and over-the-shoulder staged fights.",
   author = "DramaticShape",
   contact = "https://github.com/DramaticShape/BATTLE_ART_VOXEL_GEN2",
   tags = { "graphics", "3d", "voxel", "render-pipeline", "presentation",
@@ -73,5 +73,6 @@ return {
     { who = "pret/pokered", for_ = "the tile and sprite data the geometry is derived from" },
     { who = "The Khronos Group", for_ = "the OpenXR loader shipped unmodified in assets/vr (Apache-2.0; full license text alongside the DLL)" },
   },
-  compat = { engine = ">=0.1.37 <2.0.0", modApi = 2 },
+  compat = { engine = ">=0.2.20 <3.0.0", modApi = 2,
+             games = { "gold", "silver" } },
 }
