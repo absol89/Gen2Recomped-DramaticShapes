@@ -46,6 +46,7 @@ local BattleDOF = V.require("BattleDOF")
 local BattleHud = V.require("BattleHud")
 local BattlePics = V.require("BattlePics")
 local BattleArt = V.require("BattleArt")
+local AnimatedBattleArt = V.require("AnimatedBattleArt")
 local StadiumModels = V.require("StadiumModels")
 local Voxel3D = V.require("Voxel3D")
 local ChunkMesher = V.require("ChunkMesher")
@@ -473,6 +474,7 @@ end
 function OverworldBattle.finish()
   if not session then return end
   restoreCast()
+  pcall(AnimatedBattleArt.finish, session.battle)
   StadiumModels.release()
   session = nil
   Voxel3D.camera = nil
@@ -505,6 +507,11 @@ function OverworldBattle.update(dt)
     OverworldBattle.finish()
     return
   end
+
+  -- ANIMATED mode: advance atlas playback for both battlers and the player
+  -- trainer intro before this frame's textures are captured. Other modes
+  -- release any managed frames and fall back to STATIC/ROM ownership.
+  pcall(AnimatedBattleArt.update, session.battle, dt)
 
   -- Whether the shot is the player's to steer at all. BACK SPRITES pins
   -- their own mon to the GB's slot on the menu while the foe stands out on

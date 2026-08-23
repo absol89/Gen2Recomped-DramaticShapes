@@ -252,6 +252,10 @@ local function pathFor(species, side, shiny)
   return path, rel
 end
 
+-- ANIMATED mode routes species pictures through AnimatedBattleArt's per-frame
+-- decoders (see its update loop); pathFor deliberately stays static-only so a
+-- stray atlas file can never be mistaken for one single-frame sprite.
+
 local function staticPathFor(name, side)
   if BattleArt.setting:get() == "rom" then return nil end
   return V.mod.assets:path(
