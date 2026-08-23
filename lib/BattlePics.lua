@@ -103,7 +103,6 @@ local function newCache()
   }
 end
 local cache = newCache()
-local transparentWhiteCache = setmetatable({}, { __mode = "k" })
 
 -- What an enclosed hole is filled with when the pic itself offers nothing
 -- better. White, because white is what the battle field was: this restores the
@@ -113,22 +112,6 @@ BattlePics.FILL = { 1, 1, 1, 1 }
 
 -- Anything at or under this alpha counts as keyed-out rather than drawn.
 local CUT = 0.5
-local WHITE = 254.5 / 255
-
--- Gen 2 ROM fronts arrive with their old white-field pixels still opaque.
--- Key only exact shade-0 white; palette-darkened silhouettes do not match and
--- back pictures never call this path.
-function BattlePics.keyWhiteData(data)
-  local changed = false
-  data:mapPixel(function(_, _, r, g, b, a)
-    if a > CUT and r >= WHITE and g >= WHITE and b >= WHITE then
-      changed = true
-      return r, g, b, 0
-    end
-    return r, g, b, a
-  end)
-  return changed
-end
 
 -- Read the pixels the engine would actually blit. A LOVE Image does not hand
 -- its data back, so it is drawn into a canvas of its own size and the canvas
@@ -357,25 +340,8 @@ function BattlePics.filled(img, sealBottom)
   return made or img
 end
 
-function BattlePics.transparentWhite(img)
-  if not img then return img end
-  local hit = transparentWhiteCache[img]
-  if hit ~= nil then return hit or img end
-
-  local made
-  local ok = pcall(function()
-    local data = readBack(img)
-    if not data or not BattlePics.keyWhiteData(data) then return end
-    made = love.graphics.newImage(data)
-    made:setFilter("nearest", "nearest")
-  end)
-  transparentWhiteCache[img] = (ok and made) or false
-  return made or img
-end
-
 function BattlePics.invalidate()
   cache = newCache()
-  transparentWhiteCache = setmetatable({}, { __mode = "k" })
 end
 
 return BattlePics
