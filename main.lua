@@ -508,7 +508,8 @@ local SETTINGS = {
     .. "Title and status support timed atlas animation; other hook-aware "
     .. "screens use single-image sets or retain ROM art, independent of "
     .. "DUPLICATE FIX (which owns only battle pictures). "
-    .. "MODDED leaves the interfaces to another sprite mod or the ROM." },
+    .. "MODDED leaves the interfaces to another sprite mod or the ROM.",
+    full = true },
   { WorldUnderlay.setting,
     "Choose the solid outdoor world beneath terrain holes and beyond map edges: "
     .. "CYAN or BLACK. OFF/KFP leaves the underlay to Kanto First Person. "

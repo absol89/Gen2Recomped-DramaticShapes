@@ -27,8 +27,8 @@ local InterfaceSprites = {}
 -- MODDED    : identical to OFF here -- another sprite mod or the ROM owns it.
 InterfaceSprites.setting = ModSetting.new("interfaceSprites",
   "INTERFACE SPRITES",
-  { "off", "battle_art", "modded" },
-  { "OFF", "BATTLE ART", "MODDED" }, 1)
+  { "battle_art", "off", "modded" },
+  { "BATTLE ART", "OFF", "MODDED" })
 
 local function active()
   return InterfaceSprites.setting:get() == "battle_art"
