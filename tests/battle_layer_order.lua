@@ -9,9 +9,12 @@ local overworld = source("lib/OverworldBattle.lua")
 local sideTexture = assert(overworld:find("function OverworldBattle.sideTexture", 1, true))
 local apply = assert(overworld:find("pcall(BattleArt.apply, battle)", sideTexture, true))
 local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, battle[side])", apply, true))
-local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true))
-assert(apply < reassert and reassert < pics,
-  "animated ownership is not reclaimed after Battle Art and before capture")
+local clearSlide = assert(overworld:find("battle.introSlide = 0", reassert, true))
+local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", clearSlide, true))
+local restoreSlide = assert(overworld:find("battle.introSlide = introSlide", pics, true))
+assert(apply < reassert and reassert < clearSlide and clearSlide < pics
+       and pics < restoreSlide,
+  "billboard capture does not isolate the engine's intro silhouette state")
 local capture = assert(overworld:find("OverworldBattle.animTexture", 1, true))
 local render = assert(overworld:find("BattleScene.render", capture, true))
 local hud = assert(overworld:find("OverworldBattle.snapHUDs", render, true))
