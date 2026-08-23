@@ -985,13 +985,6 @@ function OverworldBattle.sideTexture(battle, side)
   for k, v in pairs(OFF[side]) do saved[k] = battle[k]; battle[k] = v end
   texturing = side
 
-  -- picImage turns every pic into the native silhouette while introSlide is
-  -- positive. The staged intro owns its billboard already, so capture the
-  -- selected art without that presentation-only palette and restore the
-  -- countdown before returning to the engine.
-  local introSlide = battle.introSlide
-  if (tonumber(introSlide) or 0) > 0 then battle.introSlide = 0 end
-
   local ok, err = pcall(function()
     g.setCanvas(canvas)
     g.clear(0, 0, 0, 0)
@@ -1000,7 +993,6 @@ function OverworldBattle.sideTexture(battle, side)
     innerPics(battle, 0, 0, 0)
   end)
 
-  battle.introSlide = introSlide
   texturing = nil
   for k in pairs(OFF[side]) do battle[k] = saved[k] end
   g.setScissor, g.intersectScissor, g.getScissor =
