@@ -143,9 +143,13 @@ function WorldUnderlay.draw(state, cx, cy, resolvedColor)
   local mesh, texture = meshFor(), textureFor(color)
   if not (mesh and texture) then return false end
   -- A clean material layer: no voxel-grid seams or accidental glass-mask
-  -- sampling. Drawn unlit so it never receives the sun's cast/self shadow
-  -- (the inner border must not drop a shadow onto the outer fill).
-  Voxel3D.lighting(false)
+  -- sampling. This fork's shader has no unlit variant, so the fill is drawn
+  -- with the day tint neutralized instead -- an untextured plane has nothing
+  -- for the sun terms to shade, and neutral tint keeps it its authored color
+  -- at every hour (the inner border must not drop a shadow onto the outer
+  -- fill either way: shadows write depth, and this draws before them).
+  local tintWas = Voxel3D.tint
+  Voxel3D.tint = { 1, 1, 1, 1 }
   Voxel3D.seams(false)
   Voxel3D.glass(false)
   -- The untextured plane follows the camera focus exactly. Its 65K-wide edge
@@ -154,7 +158,7 @@ function WorldUnderlay.draw(state, cx, cy, resolvedColor)
   Voxel3D.draw(mesh, texture, Mat4.translate(cx or 0, 0, cy or 0))
   Voxel3D.glass(true)
   Voxel3D.seams(true)
-  Voxel3D.lighting(true)
+  Voxel3D.tint = tintWas
   return true
 end
 
