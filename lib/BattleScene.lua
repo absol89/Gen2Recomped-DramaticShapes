@@ -440,7 +440,10 @@ BattleScene.FLASH_STRENGTH = 0.5
 -- itself (the shader stays bound, so mid-scene sends land) and restores the
 -- scene values afterwards.
 local function setUnlit(on)
-  local sh = Voxel3D.shader()
+  -- beginScene binds the wireframe variant whenever the battle forces the
+  -- voxel grid on (VoxelGrid.override), so send to whichever shader this
+  -- pass is actually using.
+  local sh = Voxel3D.shader(VoxelGrid.enabled())
   if not sh then return end
   if on then
     pcall(sh.send, sh, "dayTint", { 1, 1, 1 })
