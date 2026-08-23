@@ -12,13 +12,6 @@ local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, battle
 local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true))
 assert(apply < reassert and reassert < pics,
   "animated ownership is not reclaimed after Battle Art and before capture")
-local introGuard = assert(overworld:find("session.introEnemySuppressed = true", 1, true))
-local hideEnemy = assert(overworld:find("battle.enemyHidden = true", introGuard, true))
-local exposeEnemy = assert(overworld:find("battle.enemyHidden = session.introEnemyHidden", hideEnemy, true))
-local restoreEnemy = assert(overworld:find("battle.enemyHidden = nativeHidden", exposeEnemy, true))
-assert(introGuard < hideEnemy and hideEnemy < exposeEnemy
-       and exposeEnemy < restoreEnemy,
-  "native intro enemy is not hidden outside billboard capture")
 local capture = assert(overworld:find("OverworldBattle.animTexture", 1, true))
 local render = assert(overworld:find("BattleScene.render", capture, true))
 local hud = assert(overworld:find("OverworldBattle.snapHUDs", render, true))

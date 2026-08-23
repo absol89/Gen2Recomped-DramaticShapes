@@ -496,9 +496,6 @@ end
 
 function OverworldBattle.finish()
   if not session then return end
-  if session.introEnemySuppressed and session.battle then
-    session.battle.enemyHidden = session.introEnemyHidden
-  end
   restoreCast()
   pcall(AnimatedBattleArt.finish, session.battle)
   StadiumModels.release()
@@ -566,18 +563,6 @@ function OverworldBattle.update(dt)
   -- the battle only exists once it has been pushed; a session opened at
   -- pushBattle time has it, one opened from battle.started was handed it
   session.battle = session.battle or (top ~= ow and top or nil)
-  local battle = session.battle
-  if battle and (tonumber(battle.introSlide) or 0) > 0 then
-    if not session.introEnemySuppressed then
-      session.introEnemyHidden = battle.enemyHidden
-      session.introEnemySuppressed = true
-    end
-    battle.enemyHidden = true
-  elseif battle and session.introEnemySuppressed then
-    battle.enemyHidden = session.introEnemyHidden
-    session.introEnemyHidden = nil
-    session.introEnemySuppressed = nil
-  end
   -- the world pass is hidden behind the battle, so mesh builds get the wide
   -- slice: nothing visible can hitch on them
   ChunkMesher.pump(true)
@@ -975,26 +960,13 @@ function OverworldBattle.sideTexture(battle, side)
   -- (DUPLICATE FIX) makes apply() a no-op for species and leaves the
   -- underlying sprite provider's answer in place.
   pcall(BattleArt.apply, battle)
-  local exposeIntro = side == "enemy" and session
-    and session.battle == battle and session.introEnemySuppressed
-  local nativeHidden
-  if exposeIntro then
-    nativeHidden = battle.enemyHidden
-    battle.enemyHidden = session.introEnemyHidden
-  end
-  if not OverworldBattle.sideVisible(battle, side) then
-    if exposeIntro then battle.enemyHidden = nativeHidden end
-    return nil
-  end
+  if not OverworldBattle.sideVisible(battle, side) then return nil end
   -- apply() can release a stale static replacement back to the engine's ROM
   -- sprite after AnimatedBattleArt.update() already chose this frame. Reclaim
   -- the managed image at the consumer boundary, without ticking playback.
   pcall(AnimatedBattleArt.reassert, battle[side])
   local canvas = texCanvasFor(side)
-  if not canvas then
-    if exposeIntro then battle.enemyHidden = nativeHidden end
-    return nil
-  end
+  if not canvas then return nil end
 
   local g = love.graphics
   local prevCanvas = g.getCanvas()
@@ -1022,7 +994,6 @@ function OverworldBattle.sideTexture(battle, side)
   end)
 
   texturing = nil
-  if exposeIntro then battle.enemyHidden = nativeHidden end
   for k in pairs(OFF[side]) do battle[k] = saved[k] end
   g.setScissor, g.intersectScissor, g.getScissor =
     setScissor, intersectScissor, getScissor
