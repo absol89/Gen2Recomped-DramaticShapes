@@ -444,7 +444,7 @@ local SETTINGS = {
   -- can actually be staged on the map.
   { BattleArt.setting,
     "Use optional PNGs from assets/battle in fights. Missing art falls "
-    .. "back to the ROM. STATIC is the zero-configuration default.",
+    .. "back to the ROM. ANIMATED is the tested fresh-install default.",
     when = function() return stagedBattles() end, full = true },
   { BattleArt.trainerSetting,
     "Choose the static opponent trainer collection. A class missing from "
@@ -459,6 +459,13 @@ local SETTINGS = {
     when = function()
       local mode = BattleArt.setting:get()
       return stagedBattles() and (mode == "static" or mode == "rom")
+    end, full = true },
+  { BattleArt.playerAnimationSetting,
+    "Choose the player trainer's battle-intro art under ANIMATED. PNG uses "
+    .. "player.png as a static portrait; named sets play their authored "
+    .. "slide poses once. Missing art and ROM retain the engine portrait.",
+    when = function()
+      return stagedBattles() and BattleArt.setting:get() == "animated"
     end, full = true },
   { BattleArt.frontAnimationSetting,
     "Choose the front generation used by BATTLE ART: ANIMATED. GEN 1 reads "
@@ -510,7 +517,7 @@ local SETTINGS = {
     .. "Indoor horizons automatically match "
     .. "the room's own border/void material so the finite map ring cannot reveal "
     .. "a differently coloured infinite fill behind it.",
-    full = true },
+    full = true, managerOnly = true },
   -- Marked `full` on the battle rows' reasoning, and then some. FULL SETS this
   -- to SYNC on arrival (applyFull) because the diorama's sky should follow the
   -- clock on the wall; it used to HOLD it there and take the row away, which
@@ -860,7 +867,8 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     -- And a row whose own switch is off the table this frame (BACK SPRITES,
     -- which needs a staged fight to be about) is left off with it. The mod
     -- manager's page carries every one of them either way.
-    local offered = (entry.full or not full)
+    local offered = not entry.managerOnly
+                    and (entry.full or not full)
                     and (not entry.when or entry.when())
     if offered then extra[#extra + 1] = entry[1]:row() end
   end
