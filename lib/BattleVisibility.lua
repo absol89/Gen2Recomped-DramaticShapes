@@ -20,4 +20,8 @@ function BattleVisibility.sideVisible(battle, side)
           and not battle:fxHidden(battle.player)) and true or false
 end
 
+function BattleVisibility.animationLayerVisible(battle)
+  return not (battle and battle.introBalls)
+end
+
 return BattleVisibility

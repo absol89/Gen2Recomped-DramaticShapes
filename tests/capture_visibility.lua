@@ -15,4 +15,11 @@ battle.lockedBall = nil
 assert(Visibility.sideVisible(battle, "enemy"),
   "breakout did not restore the enemy billboard")
 
+battle.introBalls = true
+assert(not Visibility.animationLayerVisible(battle),
+  "the intro's engine animation layer can duplicate the ROM monster")
+battle.introBalls = nil
+assert(Visibility.animationLayerVisible(battle),
+  "battle animations stayed hidden after the intro message")
+
 print("capture visibility regression: ok")

@@ -708,6 +708,7 @@ local innerAnim = nil
 
 function OverworldBattle.animTexture(battle)
   if not (innerAnim and battle) then return nil end
+  if not BattleVisibility.animationLayerVisible(battle) then return nil end
   if not (love.graphics and love.graphics.newCanvas) then return nil end
   if not animLayer then
     local ok, c = pcall(love.graphics.newCanvas,
@@ -1252,6 +1253,7 @@ function OverworldBattle.install()
   function BattleState:drawAnimLayer(colorized)
     local shot = self.dramaticShapeShot
     if not shot then return innerAnim(self, colorized) end
+    if not BattleVisibility.animationLayerVisible(self) then return end
     if shot.animInWorld then return end
     -- Move animations are authored against the pics' old fixed slots, and one
     -- animation reaches across both sides, so there is no per-side offset to
