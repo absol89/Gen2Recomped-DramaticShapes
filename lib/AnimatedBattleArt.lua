@@ -259,6 +259,9 @@ local function restore(battler)
   if battler.sprite == currentImage(state) then
     battler.sprite = state.original
   end
+  if battler.picAnim == nil then
+    battler.picAnim = state.originalPicAnim
+  end
   states[battler] = nil
 end
 
@@ -321,6 +324,7 @@ local function updateBattler(battler, side, dt, mode)
     if not frames then return end -- missing/malformed atlas: retain ROM art
     state = { kind = "animated", side = side, def = def, mode = mode,
               original = battler.sprite,
+              originalPicAnim = battler.picAnim,
               frames = frames, frame = 1, elapsed = 0 }
     states[battler] = state
   end
@@ -335,6 +339,9 @@ local function updateBattler(battler, side, dt, mode)
   end
   -- Earlier update wrappers may refresh this battler's sprite each frame.
   battler.sprite = state.frames[state.frame]
+  -- Crystal's native front-pic animation is a second image provider used by
+  -- drawBattlerPic. It must not alternate its ROM sheet with our atlas.
+  battler.picAnim = nil
 end
 
 local function updateStaticBack(battler, generation, mode)
@@ -351,7 +358,8 @@ local function updateStaticBack(battler, generation, mode)
   if not image then restore(battler); return end
   if not state then
     state = { kind = "static", side = "back", generation = generation,
-              mode = mode, original = battler.sprite, image = image }
+              mode = mode, original = battler.sprite,
+              originalPicAnim = battler.picAnim, image = image }
     states[battler] = state
   elseif battler.sprite ~= state.image and battler.sprite ~= state.original then
     -- A transform or battle effect owns the sprite for this frame.
@@ -359,6 +367,7 @@ local function updateStaticBack(battler, generation, mode)
     return
   end
   battler.sprite = state.image
+  battler.picAnim = nil
 end
 
 local function updateStaticFront(battler, generation, mode)
@@ -376,7 +385,8 @@ local function updateStaticFront(battler, generation, mode)
   if not image then restore(battler); return end
   if not state then
     state = { kind = "static", side = "front", generation = generation,
-              mode = mode, original = battler.sprite, image = image }
+              mode = mode, original = battler.sprite,
+              originalPicAnim = battler.picAnim, image = image }
     states[battler] = state
   elseif battler.sprite ~= state.image and battler.sprite ~= state.original then
     -- A transform or battle effect owns the sprite for this frame.
@@ -384,6 +394,7 @@ local function updateStaticFront(battler, generation, mode)
     return
   end
   battler.sprite = state.image
+  battler.picAnim = nil
 end
 
 local function updateFront(battler, generation, dt, mode)
@@ -451,6 +462,7 @@ function AnimatedBattleArt.reassert(battler)
   local image = currentImage(state)
   if not image then return false end
   battler.sprite = image
+  battler.picAnim = nil
   return true
 end
 

@@ -56,20 +56,29 @@ local V = {
 }
 
 local AnimatedBattleArt = assert(loadfile("lib/AnimatedBattleArt.lua"))(V)
-local rom, foreign = {}, {}
-local enemy = { mon = { species = "SPECIES_TEST" }, sprite = rom }
+local rom, foreign, nativePicAnim = {}, {}, {}
+local enemy = {
+  mon = { species = "SPECIES_TEST" },
+  sprite = rom,
+  picAnim = nativePicAnim,
+}
 local battle = { enemy = enemy }
 
 AnimatedBattleArt.update(battle, 0)
 assert(enemy.sprite == frames[1], "Battle Art did not claim the first frame")
 assert(AnimatedBattleArt.ownsFrame(enemy) == true,
   "claimed frame was not reported as owned")
+assert(enemy.picAnim == nil,
+  "native Crystal pic animation remained active under replacement art")
 
 enemy.sprite = foreign
+enemy.picAnim = nativePicAnim
 assert(AnimatedBattleArt.reassert(enemy),
   "capture-time ownership could not reclaim a managed battler")
 assert(enemy.sprite == frames[1],
   "capture-time ownership did not restore the selected frame")
+assert(enemy.picAnim == nil,
+  "capture-time ownership did not suppress the native animation sheet")
 
 for tick = 1, 180 do
   enemy.sprite = foreign
@@ -82,6 +91,8 @@ end
 
 AnimatedBattleArt.finish(battle)
 assert(enemy.sprite == rom, "finishing did not restore the original sprite")
+assert(enemy.picAnim == nativePicAnim,
+  "finishing did not restore the native Crystal pic animation")
 assert(AnimatedBattleArt.ownsFrame(enemy) == nil,
   "finished battler remained managed")
 
