@@ -400,6 +400,7 @@ function InterfaceSprites.install()
 
   InterfaceSprites.installSummary()
   InterfaceSprites.installTitle()
+  InterfaceSprites.installDexList()
   InterfaceSprites.installDex()
 end
 
@@ -472,6 +473,74 @@ function InterfaceSprites.installSummary()
 end
 
 local dexInstalled = false
+local dexListInstalled = false
+local dexListCache = {}
+
+-- The Gen 2 list's ROM frontpics still carry opaque shade-0 paper. Key that
+-- fill away, then center the remaining visible bounds on the 56x56 pixel grid.
+function InterfaceSprites.prepareDexListData(data)
+  local made
+  local ok = pcall(function()
+    local w, h = data:getDimensions()
+    local x0, x1, y0, y1 = w, -1, h, -1
+    data:mapPixel(function(x, y, r, g, b, a)
+      if a > 0.001 and r >= 254.5 / 255
+         and g >= 254.5 / 255 and b >= 254.5 / 255 then
+        a = 0
+      end
+      if a > 0.001 then
+        if x < x0 then x0 = x end; if x > x1 then x1 = x end
+        if y < y0 then y0 = y end; if y > y1 then y1 = y end
+      end
+      return r, g, b, a
+    end)
+    if x1 < x0 then return end
+    local image = love.graphics.newImage(data)
+    image:setFilter("nearest", "nearest")
+    local visibleW, visibleH = x1 - x0 + 1, y1 - y0 + 1
+    made = {
+      image = image,
+      x = math.floor(8 + (56 - visibleW) / 2 - x0 + 0.5),
+      y = math.floor(8 + (56 - visibleH) / 2 - y0 + 0.5),
+    }
+  end)
+  return ok and made or nil
+end
+
+local function dexListPreview(species)
+  local path = species and dexSources[species]
+  if type(path) ~= "string" then return nil end
+  local cached = dexListCache[path]
+  if cached ~= nil then return cached or nil end
+  local preview
+  pcall(function()
+    preview = InterfaceSprites.prepareDexListData(love.image.newImageData(path))
+  end)
+  dexListCache[path] = preview or false
+  return preview
+end
+
+-- Keep the list static and ROM-owned; this wrapper only cleans and centers the
+-- cached native picture after the engine has drawn the rest of the screen.
+function InterfaceSprites.installDexList()
+  if dexListInstalled then return end
+  local ok, ListMenu = pcall(require, "src.ui.ListMenu")
+  if not (ok and ListMenu and ListMenu.drawGen2Dex) then return end
+  local originalDraw = ListMenu.drawGen2Dex
+  ListMenu.drawGen2Dex = function(self, ...)
+    local result = originalDraw(self, ...)
+    local item = self and self.items and self.items[self.index]
+    local preview = dexListPreview(item and item.value)
+    if preview then
+      love.graphics.setColor(0, 0, 0, 1)
+      love.graphics.rectangle("fill", 6, 6, 58, 60)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(preview.image, preview.x, preview.y)
+    end
+    return result
+  end
+  dexListInstalled = true
+end
 
 -- DexEntryMenu is another Image-object owner: returning a Gen 2-5 atlas path
 -- through pokemon.sprite only makes its static loader draw the whole sheet (or
