@@ -1281,6 +1281,8 @@ end
 function Buildings.stamp(S, map, quads, tx, ty, bw, bh, t)
   local shape = { class = "building", h = (t and t.support) or 0,
                   art = "building", flat = false, authored = true }
+  -- `base` is set after the ground vote below; declared here because the
+  -- claim shape is written into every cell of the footprint.
   local keep = nil
   if t and t.keep then
     keep = {}
@@ -1288,15 +1290,31 @@ function Buildings.stamp(S, map, quads, tx, ty, bw, bh, t)
   end
 
   -- the ground the building stands on: the commonest flat tile around its
-  -- feet, so a house on a path keeps its path
+  -- feet, so a house on a path keeps its path -- and, by the same vote, the
+  -- HEIGHT of that ground.
+  --
+  -- A model is built in its own space starting at y = 0 and copied into
+  -- place, and until now only x and z moved: every building in the game
+  -- stood on the world datum whatever it was standing on.  On flat ground
+  -- that is invisible and it was invisible for a long time.  Put a house on
+  -- a TERRACE and it is a house sunk to its eaves in the deck -- which is
+  -- what Naljo's plateau buildings looked like the moment $3C started
+  -- standing at 16.
   local votes, best, bestN = {}, nil, 0
+  local hvotes, base, baseN = {}, 0, 0
   local function vote(x, y)
     local k = keyOf(x, y)
     local ns = S.shapeAt[k]
-    if ns and ns.flat and ns.class ~= "void" then
+    -- a TERRACE is ground you stand on even though its art rides the
+    -- top face of a box, so it votes for the datum alongside flat
+    -- ground; only its TILE stays out of the paint vote below.
+    if ns and (ns.flat or ns.class == "terrace") and ns.class ~= "void" then
       local tile = S.tileAt[k]
       votes[tile] = (votes[tile] or 0) + 1
       if votes[tile] > bestN then best, bestN = tile, votes[tile] end
+      local h = ns.h or 0
+      hvotes[h] = (hvotes[h] or 0) + 1
+      if hvotes[h] > baseN then base, baseN = h, hvotes[h] end
     end
   end
   for c = 0, bw - 1 do
@@ -1308,6 +1326,9 @@ function Buildings.stamp(S, map, quads, tx, ty, bw, bh, t)
     vote(tx + bw, ty + r)
   end
 
+  -- the vote is in: tell the mesher which datum this plot stands on, so the
+  -- floor it paints under the model rises with it
+  shape.base = base
   for r = 0, bh - 1 do
     for c = 0, bw - 1 do
       local k = keyOf(tx + c, ty + r)
@@ -1327,13 +1348,14 @@ function Buildings.stamp(S, map, quads, tx, ty, bw, bh, t)
   end
 
   local mx, mz = tx * 8, ty * 8
+  local my = base
   local out = S.objectQuads
   for _, q in ipairs(quads) do
     out[#out + 1] = {
-      { q[1][1] + mx, q[1][2], q[1][3] + mz },
-      { q[2][1] + mx, q[2][2], q[2][3] + mz },
-      { q[3][1] + mx, q[3][2], q[3][3] + mz },
-      { q[4][1] + mx, q[4][2], q[4][3] + mz },
+      { q[1][1] + mx, q[1][2] + my, q[1][3] + mz },
+      { q[2][1] + mx, q[2][2] + my, q[2][3] + mz },
+      { q[3][1] + mx, q[3][2] + my, q[3][3] + mz },
+      { q[4][1] + mx, q[4][2] + my, q[4][3] + mz },
       uv = q.uv, shade = q.shade,
       -- placements only ever scan the BODY, so a building is always this
       -- map's own structure: the mesher's edge keep-rules must not eat

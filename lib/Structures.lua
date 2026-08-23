@@ -167,7 +167,50 @@ local function indoorShell(map, shapes)
   for tile, n in pairs(counts) do
     if n > bestN then best, bestN = tile, n end
   end
-  return best and quads[best] or nil
+  if best then return quads[best] end
+
+  -- A CAVE has no north wall band.  It is drawn as rock with corridors cut
+  -- out of it, so its top row is as likely to be open floor as anything, and
+  -- the scan above -- which only ever looks at row 1 -- comes back empty.
+  -- With no shell the ring below falls through to the map's own borderBlock,
+  -- and Prism sets that to the cave FLOOR block ($09, the mottled rock the
+  -- player walks on): the cavern then stands on an endless flat plain of its
+  -- own floor running off past the horizon in every direction.  Gold's caves
+  -- never showed this because their border IS a wall block, so the north-row
+  -- scan found one.
+  --
+  -- The rock is there to be found, just not on row 1.  Sweep the WHOLE map
+  -- for the commonest unauthored upright cell and shell with that: in a cave
+  -- that is the wall the corridors are cut through, which is exactly what
+  -- belongs outside them.  Same quad rule as above -- all four tiles, so a
+  -- banded wall keeps its courses in order -- and the SHELL depth and the
+  -- black past it are unchanged, which is what the inside of a mountain
+  -- looks like anyway.
+  counts, quads = {}, {}
+  for cy = 0, def.height * 2 - 1 do
+    for cx = 0, def.width * 2 - 1 do
+      local tx, ty = cx * 2, cy * 2
+      local cs = TileShape.at(map, shapes, map:tileAt(tx, ty + 1), tx, ty + 1)
+      if cs and cs.art == "upright" and not cs.authored then
+        local nw = map:tileAt(tx, ty)
+        counts[nw] = (counts[nw] or 0) + 1
+        quads[nw] = quads[nw]
+          or { nw, map:tileAt(tx + 1, ty), map:tileAt(tx, ty + 1),
+               map:tileAt(tx + 1, ty + 1) }
+      end
+    end
+  end
+  best, bestN = nil, 0
+  for tile, n in pairs(counts) do
+    if n > bestN then best, bestN = tile, n end
+  end
+  -- A handful of cells is a prop, not a wall: an open room with one blocked
+  -- object in it would otherwise shell itself with that object.  A cave's
+  -- rock runs to hundreds of cells.
+  if bestN < 8 then return nil end
+  -- ...and say so: a shell found this way is ROCK, and rock does not stop
+  -- one cell out the way a room's four walls do (see SHELL / CAVE_SHELL).
+  return quads[best], true
 end
 
 -- How far the shell runs out from the body, in TILES.  One cell: what is
@@ -175,6 +218,16 @@ end
 -- black past it is exactly what a room inside an unlit building looks
 -- like.
 local SHELL = 2
+
+-- A CAVE is the exception, and it is why the first cut still read as flat.
+-- One cell of rock around the body, with nothing past it, leaves the 2D pass
+-- underneath painting the map's own border block -- which in Prism's caves IS
+-- the floor -- across everything beyond, so the cavern still sat on a plain
+-- of lino stretching to the horizon.  A room's walls stop because you are
+-- inside a building and there is nothing past them; a cave's rock does not
+-- stop, because a cave is a hole in a mountain.  Run it to the full ring and
+-- the surround reads as what it is: solid rock in every direction.
+local CAVE_SHELL = RING
 
 -- ----------------------------------------------------------------- build --
 
@@ -242,13 +295,14 @@ function Structures.forMap(map)
   -- interior's border is black already.
   local hullRingOnly = borderBlk and def.tileset == "OVERWORLD"
                        and (TileRenderer.voidFill or "trees") == "trees"
-  local shell = indoorShell(map, shapes)
+  local shell, caveShell = indoorShell(map, shapes)
+  local depth = caveShell and CAVE_SHELL or SHELL
   local tw2, th2 = tw, th
   local function inShell(tx, ty)
     return shell ~= nil
       and not (tx >= 0 and ty >= 0 and tx < tw2 and ty < th2)
-      and tx >= -SHELL and ty >= -SHELL
-      and tx < tw2 + SHELL and ty < th2 + SHELL
+      and tx >= -depth and ty >= -depth
+      and tx < tw2 + depth and ty < th2 + depth
   end
   local function tileLookup(tx, ty)
     if tx >= 0 and ty >= 0 and tx < tw2 and ty < th2 then
@@ -673,6 +727,29 @@ local ROUND_SHADE = { front = 1.0, back = 0.68, side = 0.78,
 -- flat-mouthed planter with a trunk standing out of it. Only rows 24-31
 -- -- black rim edge, gold band, body, foot, the drawn flowerpot profile
 -- -- are the vessel, and only they revolve.
+
+-- How far a tree run is followed looking for the course its trunk is drawn
+-- on, in cells.  It bounds a SEARCH, not a height -- every tree carved is
+-- 32px whatever the run's length -- so this can be generous; a border wall
+-- tiled 26 courses deep still wants its real foot rather than a middle
+-- course standing in for one.  Overridable per tileset with `column_max`.
+local COLUMN_MAX = 32
+
+-- Is this cell the ground-contact course of a drawn column -- the one with
+-- the trunk on it?  The profile names the tile ids (`column_foot`); a cell
+-- carrying any of them ENDS the column, inclusive, so two trees stacked
+-- directly on one another stay two trees.
+local function isColumnFoot(map, cx, cy, footSet)
+  if not footSet then return false end
+  for dy = 0, 1 do
+    for dx = 0, 1 do
+      local t = map:tileAt(cx * 2 + dx, cy * 2 + dy)
+      if t and footSet[t] then return true end
+    end
+  end
+  return false
+end
+
 local PLANTER_SPRAY = { rows = 24, depth = 5 }
 
 -- `spray`, when given, caps the chord over the canvas's top `rows` rows to
@@ -691,7 +768,7 @@ local PLANTER_SPRAY = { rows = 24, depth = 5 }
 -- silhouette that makes it read as leaves.
 local function roundTemplate(S, map, data, cx, cy, groundTiles, N, capRows,
                              NYin, spray, baseRows, bodyRows, wellRows,
-                             taperVox)
+                             taperVox, bandCY)
   -- The canvas is NX wide and NX DEEP (a hull is round in plan, so its
   -- depth is its width) by NY tall. NX = 16 is one cell, 32 a 2x2-cell
   -- group; NY defaults to NX -- a ball -- and NY = 2 * NX is a drawing
@@ -704,9 +781,16 @@ local function roundTemplate(S, map, data, cx, cy, groundTiles, N, capRows,
   local atlasH = map.tileset.imageHeight or 48
 
   -- cell-space art access (NX x NY, row 0 = top), anchored at cell (cx, cy)
+  -- `bandCY`, when given, says which CELL ROW each 16-row band of the canvas
+  -- is drawn from, so a hull can composite courses that are not adjacent on
+  -- the map -- a tree's own crown over the trunk course at the foot of its
+  -- run.  Without it the bands read straight down from the anchor, which is
+  -- what every caller but the tree columns wants.
   local function tileOf(px, py)
+    local band = math.floor(py / NX)
+    local srcCY = (bandCY and bandCY[band + 1]) or (cy + band)
     return S.tileAt[keyOf(cx * 2 + math.floor(px / 8),
-                          cy * 2 + math.floor(py / 8))]
+                          srcCY * 2 + math.floor((py % NX) / 8))]
   end
   local function texel(px, py)
     local tile = tileOf(px, py)
@@ -1389,6 +1473,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
   -- a potted plant's crown is a flat spray of leaves; a TREE's crown is a
   -- ball, and capping it to the spray depth is what makes one read as thin
   local planterSpray = PLANTER_SPRAY
+  local columnFoot, columnMax = nil, COLUMN_MAX
   do
     local okP, prof = pcall(V.data, "voxel_heights")
     local entry = okP and type(prof) == "table" and prof.tilesets
@@ -1397,6 +1482,13 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
       local ps = entry.planter_spray
       planterSpray = (type(ps) == "table" and (tonumber(ps.rows) or 0) > 0)
                      and ps or nil
+    end
+    if entry and type(entry.column_foot) == "table" then
+      columnFoot = {}
+      for _, id in ipairs(entry.column_foot) do columnFoot[id] = true end
+    end
+    if entry and tonumber(entry.column_max) then
+      columnMax = math.max(1, math.floor(tonumber(entry.column_max)))
     end
     if entry and type(entry.stump_cap) == "number" then
       stumpCap = entry.stump_cap
@@ -1477,53 +1569,110 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
           grouped[ckey + 8193] = true
         end
       elseif s and s.art == "planter" and near then
-        -- ONE 16x32x16 hull over a drawing stacked TWO CELLS HIGH on one
-        -- cell of plot: the Pokemon Centers' potted plants (a leaf crown
-        -- over a flared pot, 78 placements across 13 maps).
+        -- A RUN OF TREE COURSES IS A STAND OF TREES, NOT ONE TALL TREE.
         --
-        -- The anchor is the NORTH cell -- the crown, where the canvas
-        -- starts -- but the hull stands in the SOUTH cell, because that is
-        -- where the pot is drawn and an object's ground contact is its
-        -- plot. The crown is therefore HEIGHT, not depth: the north cell
-        -- is claimed and left as floor for the crown to overhang, which is
-        -- what un-projecting the 3/4 view means here. Pinning only one of
-        -- the two cells leaves the drawing partial (a map edit, a mod's
-        -- stray tile), so the anchor is left alone rather than carved into
-        -- half a plant.
-        local below = S.shapeAt[keyOf(cx * 2, (cy + 1) * 2)]
-        if below and below.art == "planter" then
-          local ground = false
+        -- `planter` began as the Pokemon Centers' potted plant: a leaf crown
+        -- over a flared pot, two cells of drawing carved as one 32px hull
+        -- standing in the LOWER cell, because the crown is height over the
+        -- pot's plot and not floor a cell to the north.  That much is the
+        -- un-projection and it is right.
+        --
+        -- What is NOT right is reading a long run as one very tall drawing.
+        -- Prism's forests are runs of tree courses -- Naljo's crown $1E/$1F
+        -- over middles $32/$33 over the foot $3E/$3F with the trunk on it,
+        -- Caper Ridge's $20/$21 over $64/$65 over $1D/$2F -- and a GB forest
+        -- draws depth as screen-Y: those courses are SEPARATE TREES standing
+        -- one behind another, each hiding the next one's trunk, not storeys
+        -- of a single trunkless tower.  Carved as one hull a four-course run
+        -- stood a 64px column, and an eight-course one a 128px column over
+        -- the rooftops -- which is what Caper Ridge and the woods by Elm's
+        -- lab came out as.
+        --
+        -- So the run gives L - 1 TREES, each the same 32px tall, each
+        -- standing one cell further south than the last: tree i wears course
+        -- i as its crown and the run's FOOT course as its trunk, which is
+        -- `bandCY` -- the top band read from the tree's own cell, the bottom
+        -- band read from the foot wherever that is.  A stand two cells wide
+        -- and four courses deep is then six trees on a 2x3 plot, which is
+        -- what the drawing shows.  The plain two-course tree is L = 2: one
+        -- tree, crown over trunk, exactly as before.
+        local L = 1
+        if not isColumnFoot(map, cx, cy, columnFoot) then
+          while L < columnMax do
+            local nxt = S.shapeAt[keyOf(cx * 2, (cy + L) * 2)]
+            if not (nxt and nxt.art == "planter") then break end
+            L = L + 1
+            if isColumnFoot(map, cx, cy + L - 1, columnFoot) then break end
+          end
+        end
+        -- the course the trunk is drawn on: the run's foot, or its last
+        -- course when the run is cut by a map edge and never reaches one
+        local footCY = cy + L - 1
+        local ground = false
+        if L == 1 then
+          -- ONE COURSE AND NOTHING UNDER IT -- a crown drawn over open
+          -- ground, or the tail of a run the map cut short.  There is no
+          -- trunk to stand it on, so it takes the plain 16px hull off its
+          -- own cell rather than being left for the volume path to box.
           if data then
-            local ids = {}
-            for dy = 0, 3 do
-              for dx = 0, 1 do
-                ids[#ids + 1] = S.tileAt[keyOf(cx * 2 + dx, cy * 2 + dy)]
-              end
-            end
-            local sig = tsid .. "|p32|" .. gsig .. "|"
-                        .. table.concat(ids, ":")
+            local sig = tsid .. "|p16|" .. gsig .. "|" .. table.concat({
+              S.tileAt[k], S.tileAt[keyOf(cx * 2 + 1, cy * 2)],
+              S.tileAt[keyOf(cx * 2, cy * 2 + 1)],
+              S.tileAt[keyOf(cx * 2 + 1, cy * 2 + 1)] }, ":")
             local tpl = roundCache[sig]
             if not tpl then
               local tq, tbg = roundTemplate(S, map, data, cx, cy,
-                                            groundTiles, 16, nil, 32,
-                                            planterSpray)
+                                            groundTiles, 16)
               tpl = { quads = tq, bg = tbg }
               roundCache[sig] = tpl
             end
             ground = tpl.bg or false
             S.roundStamps[#S.roundStamps + 1] =
-              { quads = tpl.quads, mx = cx * 16 + 8,
-                mz = (cy + 1) * 16 + 8 }
+              { quads = tpl.quads, mx = cx * 16 + 8, mz = cy * 16 + 8 }
           end
-          for dy = 0, 3 do
-            for dx = 0, 1 do
-              local tk = keyOf(cx * 2 + dx, cy * 2 + dy)
-              S.skip[tk] = true
-              S.ground[tk] = ground
+        else
+          for i = 0, L - 2 do
+            local crownCY = cy + i
+            if data then
+              local ids = {}
+              for _, ccy in ipairs({ crownCY, footCY }) do
+                for dy = 0, 1 do
+                  for dx = 0, 1 do
+                    ids[#ids + 1] = S.tileAt[keyOf(cx * 2 + dx, ccy * 2 + dy)]
+                  end
+                end
+              end
+              local sig = tsid .. "|tree32|" .. gsig .. "|"
+                          .. table.concat(ids, ":")
+              local tpl = roundCache[sig]
+              if not tpl then
+                local tq, tbg = roundTemplate(S, map, data, cx, crownCY,
+                                              groundTiles, 16, nil, 32,
+                                              planterSpray, nil, nil, nil,
+                                              nil, { crownCY, footCY })
+                tpl = { quads = tq, bg = tbg }
+                roundCache[sig] = tpl
+              end
+              ground = tpl.bg or false
+              S.roundStamps[#S.roundStamps + 1] =
+                { quads = tpl.quads, mx = cx * 16 + 8,
+                  mz = (crownCY + 1) * 16 + 8 }
             end
           end
-          grouped[ckey + 8192] = true
         end
+        for dy = 0, 2 * L - 1 do
+          for dx = 0, 1 do
+            local tk = keyOf(cx * 2 + dx, cy * 2 + dy)
+            S.skip[tk] = true
+            S.ground[tk] = ground
+          end
+        end
+        for i = 1, L - 1 do grouped[ckey + i * 8192] = true end
+        -- run lengths carved, keyed by course count: what the headless
+        -- harness reports so this can be measured rather than guessed
+        S.planterColumns = S.planterColumns or {}
+        S.planterColumns[L] = (S.planterColumns[L] or 0) + 1
+
       elseif s and s.art == "cylinder" and near then
         -- a `stump`-class cell is the same hull with a cut face: its
         -- top capRows of drawing project onto the round top. A `can`-class
@@ -2568,8 +2717,24 @@ function Structures.buildVolume(S, map, tiles)
           break
         end
       end
+      -- THE DATUM THIS COLUMN STANDS ON.  A run's heights are absolute --
+      -- the mesher's heightAt answers run.h for every cell of it -- and
+      -- they were all measured from the world floor, so a structure built
+      -- on a TERRACE was drawn starting sixteen pixels below the deck it
+      -- is standing on and sank into it.  The ground just south of the
+      -- run's front is what it stands on; a run with nothing flat under it
+      -- keeps the old datum of zero.
+      -- `flat` alone is not the test: a TERRACE is a surface you stand
+      -- on but its art rides the top face of a box, so shapeFor marks
+      -- it unflat along with roofs and ledges.  What matters here is
+      -- whether the cell is ground the structure could be founded on.
+      local under = S.shapeAt[keyOf(tx, front + 1)]
+      local runBase = (under and (under.flat or under.class == "terrace")
+                       and under.class ~= "void" and under.h) or 0
+      if runBase < 0 then runBase = 0 end       -- never sink into water
       local run = { front = front, north = north, extent = extent,
-                    unit = unit, fromRepeat = repeatRead, door = isDoor }
+                    unit = unit, fromRepeat = repeatRead, door = isDoor,
+                    base = runBase }
       runs[#runs + 1] = { tx = tx, run = run }
       local h = unit * 8
       heightVotes[h] = (heightVotes[h] or 0) + 1
@@ -2633,8 +2798,11 @@ function Structures.buildVolume(S, map, tiles)
     end
     run.roofRows = roofRows
     run.rise = roofRows * 8
-    run.peak = h
-    run.h = h - run.rise               -- facade height: what sides build to
+    -- ...measured from the run's own datum, so a house on a terrace stands
+    -- ON it rather than in it.  `base` is 0 everywhere the ground is the
+    -- world floor, which is almost everywhere, so nothing else moves.
+    run.peak = h + run.base
+    run.h = h - run.rise + run.base    -- facade top: what sides build to
     for ty = run.north, run.front do
       S.runs[keyOf(r.tx, ty)] = run
     end

@@ -249,6 +249,16 @@ local figCache = {}       -- tileset id -> parsed figure masks, or false
 local mntCache = {}       -- tileset id -> parsed mounted masks, or false
 local bgCache = {}        -- tileset id -> prop background shades, or false
 
+-- Which cartridge is loaded.  Looked up through pcall and not cached: a
+-- session can import a different ROM without restarting, and this is read
+-- once per tileset build rather than per tile.
+local function GameVersionId()
+  local ok, GV = pcall(require, "src.core.GameVersion")
+  if not ok or type(GV) ~= "table" or not GV.get then return nil end
+  local got, id = pcall(GV.get)
+  return got and id or nil
+end
+
 -- The shape profile ships with the mod (data/voxel_heights.lua) and is read
 -- through the mod's own file loader rather than package.path: a mod's
 -- directory is not on it, and may live inside a mounted .love archive that
@@ -327,7 +337,20 @@ local function authoredConditions(tilesetId, heights)
              and type(rule[side]) == "table" then
             local set = {}
             for _, t in ipairs(rule[side]) do set[t] = true end
-            list[#list + 1] = { side = side, set = set, class = rule.class }
+            -- `rows` looks that many TILE rows away instead of one.  A pin
+            -- resolves one tile, but the thing being told apart is often a
+            -- whole CELL -- and a cell is two tile rows, so the evidence for
+            -- its top row lies two rows off, not one.  Prism's two-cell tree
+            -- is the case: its crown cell must round as a 32px planter when
+            -- a TRUNK cell sits under it and as a plain 16px canopy when
+            -- another crown does, and what separates them is two rows below
+            -- the crown's top row.  Without this the top row could only be
+            -- armed off the crown's own bottom row, which is present in both
+            -- -- so the whole forest wall promoted and interpenetrated.
+            local rows = tonumber(rule.rows) or 1
+            if rows < 1 then rows = 1 end
+            list[#list + 1] = { side = side, set = set, class = rule.class,
+                                rows = rows }
           end
         end
         if #list > 0 then
@@ -340,6 +363,40 @@ local function authoredConditions(tilesetId, heights)
 
   collect(entry.when_above, "above")
   collect(entry.when_below, "below")
+
+  -- `when_cell` asks about the CELL the tile sits in rather than a
+  -- neighbouring tile, and it exists because one question kept coming up
+  -- that neither side could answer: is this floor tile the top of a cliff,
+  -- or is it the cliff's own FACE art?
+  --
+  -- Naljo's $3C is the case.  It is the walkable deck on top of the rock AND
+  -- one of the three courses the rock face is drawn from (block $0A is
+  -- $2B/$2C/$2D over $3B/$3C/$3D over the same again over $4B/$4C/$4D), and
+  -- nothing above or below it splits the two -- $3C sits under $2C in both.
+  -- What does split them is the thing the ROM already records: the deck's
+  -- cell is walkable and the rock's is not.  Pinned flat, the terrace put a
+  -- top-faced tile inside solid rock 97 times on Route 80 alone; conditioned
+  -- here it lands only where the player can stand.
+  --
+  -- A rule states `walkable = true` (or false) rather than a tile list.
+  if type(entry.when_cell) == "table" then
+    for tile, rules in pairs(entry.when_cell) do
+      if type(tile) == "number" and type(rules) == "table" then
+        local list = out[tile] or {}
+        for _, rule in ipairs(rules) do
+          if type(rule) == "table" and heights[rule.class]
+             and type(rule.walkable) == "boolean" then
+            list[#list + 1] = { side = "cell", walkable = rule.walkable,
+                                class = rule.class }
+          end
+        end
+        if #list > 0 then
+          out[tile] = list
+          any = true
+        end
+      end
+    end
+  end
   return any and out or nil
 end
 
@@ -434,7 +491,22 @@ function TileShape.forMap(map)
   -- also the gate (map:cellTile answers a tile id without it).
   if tileset.collision then
     local s = load()
-    for class, name in pairs((s and s.collision) or {}) do
+    local classes = (s and s.collision) or {}
+    -- Prism keeps the layout and reassigns the object classes, so its rows
+    -- are an OVERLAY on the shared list rather than a replacement: `false`
+    -- withdraws a row whose Gold reading does not survive the move (an
+    -- incense urn that is really a current), a name replaces one.  Every
+    -- other game never sees this table.
+    local prism = s and s.collision_prism
+    if prism and GameVersionId() == "prism" then
+      local merged = {}
+      for class, name in pairs(classes) do merged[class] = name end
+      for class, name in pairs(prism) do
+        merged[class] = (name ~= false) and name or nil
+      end
+      classes = merged
+    end
+    for class, name in pairs(classes) do
       if type(class) == "number" and heights[name] then
         shapes.coll = shapes.coll or {}
         shapes.coll[class] = shapeFor(name, heights, true)
@@ -631,8 +703,16 @@ function TileShape.at(map, shapes, tile, tx, ty)
       -- NOTE map:tileAt border-EXTENDS: one row off an edge answers the
       -- map's borderBlock, never nil.  A rule listing whatever that block
       -- draws will fire along that whole edge (it did, on the Marts).
-      local n = map:tileAt(tx, rule.side == "above" and ty - 1 or ty + 1)
-      if n and rule.set[n] then
+      local hit
+      if rule.side == "cell" then
+        hit = map:isWalkableCell(math.floor(tx / 2), math.floor(ty / 2))
+              == rule.walkable
+      else
+        local n = map:tileAt(tx, rule.side == "above" and ty - rule.rows
+                                                       or ty + rule.rows)
+        hit = n and rule.set[n]
+      end
+      if hit then
         -- shapes.condShape, NOT shapes.classes: the canonical class
         -- shapes are SHARED, and `wall` in particular is the very object
         -- rule 4 hands every unauthored solid tile. Marking that one

@@ -501,7 +501,12 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
         -- prebuilt prism quads (appended below) carry the art
         local g = S.ground[k]
         if g then
-          topQuad(tx * 8, ty * 8, 0, g, 1)
+          -- ...at the DATUM the object stands on, not at zero.  A building
+          -- claim carries the height its ground vote found (Buildings.stamp),
+          -- so a house on a terrace paints its floor on the terrace instead
+          -- of on the world datum sixteen pixels below it.
+          local gy = s.base or 0
+          topQuad(tx * 8, ty * 8, gy, g, 1)
           -- the claimed tile is still ground at height 0, and water next
           -- door still recesses below it: without the same below-ground
           -- side bands ordinary ground emits, the two-pixel shoreline
@@ -511,14 +516,14 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
           -- ground's own art
           for _, side in ipairs(SIDES) do
             local nh = heightAt(tx + side[1], ty + side[2])
-            if nh < 0 then
+            if nh < gy then
               local d = side[3]
               local lat = LATERAL[d]
               local hl = lat and heightAt(tx + lat[1], ty + lat[2]) or 0
               local hr = lat and heightAt(tx + lat[3], ty + lat[4]) or 0
-              for band = math.floor(nh / 8), -1 do
+              for band = math.floor(nh / 8), math.ceil(gy / 8) - 1 do
                 local y0 = math.max(nh, band * 8)
-                local y1 = math.min(0, band * 8 + 8)
+                local y1 = math.min(gy, band * 8 + 8)
                 if y1 > y0 then
                   sideQuad(d, tx * 8, ty * 8, y0, y1, g,
                            (band * 8 + 8) - y1, (band * 8 + 8) - y0,
@@ -650,12 +655,19 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
                   -- drawing itself (full brightness); the other sides wear
                   -- the same rows darkened, so a building's flank matches
                   -- its face instead of smearing one tile
+                  -- band is an ABSOLUTE 8px course, so a run standing on a
+                  -- terrace starts at band 2 rather than band 0 -- and
+                  -- sampling row north+2 for its first visible course would
+                  -- slide the whole drawing two rows up the face.  Count
+                  -- courses from the run's own datum instead.
+                  local bb = band - math.floor((run.base or 0) / 8)
+                  if bb < 0 then bb = 0 end
                   if d == 6 then
                     src = map:tileAt(tx, math.min(run.front,
-                                                  run.north + band))
+                                                  run.north + bb))
                   else
                     src = map:tileAt(tx, math.max(run.north,
-                                                  run.front - band))
+                                                  run.front - bb))
                   end
                   if d == 5 then shade = 1 end
                 elseif s.art == "upright" then
