@@ -6,6 +6,12 @@ local function source(path)
 end
 
 local overworld = source("lib/OverworldBattle.lua")
+local sideTexture = assert(overworld:find("function OverworldBattle.sideTexture", 1, true))
+local apply = assert(overworld:find("pcall(BattleArt.apply, battle)", sideTexture, true))
+local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, battle[side])", apply, true))
+local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true))
+assert(apply < reassert and reassert < pics,
+  "animated ownership is not reclaimed after Battle Art and before capture")
 local capture = assert(overworld:find("OverworldBattle.animTexture", 1, true))
 local render = assert(overworld:find("BattleScene.render", capture, true))
 local hud = assert(overworld:find("OverworldBattle.snapHUDs", render, true))

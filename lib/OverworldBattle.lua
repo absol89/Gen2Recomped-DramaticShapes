@@ -961,6 +961,10 @@ function OverworldBattle.sideTexture(battle, side)
   -- underlying sprite provider's answer in place.
   pcall(BattleArt.apply, battle)
   if not OverworldBattle.sideVisible(battle, side) then return nil end
+  -- apply() can release a stale static replacement back to the engine's ROM
+  -- sprite after AnimatedBattleArt.update() already chose this frame. Reclaim
+  -- the managed image at the consumer boundary, without ticking playback.
+  pcall(AnimatedBattleArt.reassert, battle[side])
   local canvas = texCanvasFor(side)
   if not canvas then return nil end
 

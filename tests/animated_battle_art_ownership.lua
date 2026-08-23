@@ -65,6 +65,12 @@ assert(enemy.sprite == frames[1], "Battle Art did not claim the first frame")
 assert(AnimatedBattleArt.ownsFrame(enemy) == true,
   "claimed frame was not reported as owned")
 
+enemy.sprite = foreign
+assert(AnimatedBattleArt.reassert(enemy),
+  "capture-time ownership could not reclaim a managed battler")
+assert(enemy.sprite == frames[1],
+  "capture-time ownership did not restore the selected frame")
+
 for tick = 1, 180 do
   enemy.sprite = foreign
   assert(AnimatedBattleArt.ownsFrame(enemy) == false,

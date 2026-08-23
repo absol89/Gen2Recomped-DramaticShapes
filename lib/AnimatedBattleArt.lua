@@ -441,6 +441,19 @@ function AnimatedBattleArt.ownsFrame(battler)
   return battler.sprite == currentImage(state)
 end
 
+-- Reclaim the already-selected frame without advancing its playback clock.
+-- Texture capture runs BattleArt.apply() after update(), and that compatibility
+-- pass may release a stale static override back to the ROM picture. The
+-- capture boundary gets the final word while transforms remain safe because
+-- abandonForTransform() removes their playback state first.
+function AnimatedBattleArt.reassert(battler)
+  local state = battler and states[battler]
+  local image = currentImage(state)
+  if not image then return false end
+  battler.sprite = image
+  return true
+end
+
 -- UI scaling needs to distinguish any supplied native-resolution player image
 -- (the static PNG or an animated atlas frame) from the ROM's deliberately
 -- half-resolution back picture. Both occupy the same engine field, but only
