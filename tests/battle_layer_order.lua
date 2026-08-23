@@ -19,8 +19,8 @@ assert(capture < render and render < hud,
   "animation capture, world render, and HUD composite are out of order")
 local hudEnd = assert(overworld:find("function OverworldBattle.drawHudPanels", hud, true))
 local snappedHud = overworld:sub(hud, hudEnd - 1)
-assert(snappedHud:find("BattleHud.verdict(readable, shot, true)", 1, true),
-  "snapped HUD contrast no longer measures the exposed HUD regions")
+assert(snappedHud:find("not UiBackplates.hudUsesColor()", 1, true),
+  "snapped HUD no longer honors the selected HUD color")
 assert(snappedHud:find("for _, rect in pairs(panels) do BattleHud.panel", 1, true),
   "snapped text-box panels are not isolated from exposed HUD regions")
 assert(overworld:find("if shot.animInWorld then return end", 1, true),

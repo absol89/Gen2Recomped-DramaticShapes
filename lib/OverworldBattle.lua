@@ -1249,8 +1249,19 @@ function OverworldBattle.install()
     if not self.dramaticShapeShot then return innerText(self) end
     if BattlePresentation.suppressed("text", self) then return end
     if isIOS() then return innerText(self) end
+    local mode = UiBackplates.textboxMode()
+    if mode == "WHITE" then return innerText(self) end
     local battle = self
-    if not self.dramaticShapeDark then return withoutBoxFill(battle, innerText) end
+    local style = UiBackplates.textboxFillStyle()
+    if style then
+      local g = love.graphics
+      local old = { g.getColor() }
+      g.setColor(style[1], style[2], style[3], style[4])
+      for _, rect in pairs(OverworldBattle.textRects(self)) do
+        g.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
+      end
+      g.setColor(old[1], old[2], old[3], old[4])
+    end
     BattleHud.flipGlyphs(BattleScene.GB_W, BattleScene.GB_H, function()
       withoutBoxFill(battle, innerText)
     end)
@@ -1457,7 +1468,7 @@ function OverworldBattle.snapHUDs(battle, shot)
   -- middle of the frame. ONE verdict over all of them, HUDs and box together,
   -- for the reason BattleHud.verdict gives: a frame with white glyphs in the
   -- corner and black ones on the menu reads as a bug rather than as adaptation.
-  local dark = BattleHud.verdict(readable, shot, true)
+  local dark = not UiBackplates.hudUsesColor()
   -- the box's own ink is flipped where the engine draws it, in the GB frame,
   -- so the answer has to outlive this function (see drawHudPanels)
   if session then session.dark = dark end
@@ -1513,7 +1524,7 @@ function OverworldBattle.drawHudPanels(battle)
     readable[key], panels[key] = r, r
   end
   if not next(readable) then return end
-  local dark = BattleHud.verdict(readable, shot)
+  local dark = not UiBackplates.hudUsesColor()
   battle.dramaticShapeDark = dark
   for _, r in pairs(panels) do BattleHud.panel(r, shot, dark) end
 end

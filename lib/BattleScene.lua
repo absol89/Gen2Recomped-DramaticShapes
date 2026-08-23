@@ -43,6 +43,7 @@ local BattleBillboard = V.require("BattleBillboard")
 local StadiumModels = V.require("StadiumModels")
 local BattleArt = V.require("BattleArt")
 local UiBackplates = V.require("UiBackplates")
+local BackdropImage = V.require("BackdropImage")
 local VoxelGrid = V.require("VoxelGrid")
 local DayNight = V.require("DayNight")
 local AntiAlias = V.require("AntiAlias")
@@ -485,6 +486,10 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   -- another floor of the same cave or building (see BattleArena)
   local host = arena.map or state.map
   local neighbors = (host == state.map) and (state.neighbors or {}) or {}
+  local whiteFill = UiBackplates.arenaWhite()
+  local artImage = UiBackplates.arenaPng()
+                   and BackdropImage.load("bosses", "arena.png") or nil
+  local flatFill = whiteFill or artImage ~= nil
 
   -- the hour's light reaches the arena exactly as it reaches free-roam: the
   -- shared rig follows the clock on an outdoor floor and stays at noon on an
@@ -504,8 +509,11 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
 
   -- shares the free-roam mode's request/evict bookkeeping, so a battle warms
   -- exactly the meshes walking around would have and nothing extra
-  local terrain, nbMesh, water, nbWater = prefetchArena(state, host)
-  if not terrain then return nil end
+  local terrain, nbMesh, water, nbWater
+  if not flatFill then
+    terrain, nbMesh, water, nbWater = prefetchArena(state, host)
+    if not terrain then return nil end
+  end
 
   local lx, ly, s, pw, ph = BattleScene.letterbox()
   if not (pw > 0 and ph > 0 and s > 0) then return nil end
@@ -540,8 +548,12 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   -- so a model failure can still fall back to the card below.
   local stadium = StadiumModels.placements(arena, groundY, textures, battle)
   Voxel3D.camera = nil
-  castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh, atlasFor,
-              cards, token, host, neighbors, water, nbWater)
+  if flatFill then
+    ShadowMap.discard()
+  else
+    castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh, atlasFor,
+                cards, token, host, neighbors, water, nbWater)
+  end
 
   -- An opaque void either way. Outdoors the camera is low enough that the
   -- horizon is genuinely in frame, so it is sky; indoors it is the dark end
@@ -580,14 +592,20 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     -- pw and ph, and why the HUDs and the depth of field, drawn onto the
     -- folded canvas afterwards, stay the chunky GB art they are.
     local rw, rh = AntiAlias.expand(pw, ph)
-    if not Voxel3D.beginScene(rw, rh, cx, cy, vw, vh, sky, "battle") then
+    local skyFill = whiteFill and { 1, 1, 1 }
+                    or (artImage and { 0, 0, 0 } or sky)
+    if not Voxel3D.beginScene(rw, rh, cx, cy, vw, vh, skyFill, "battle") then
       return
     end
-    Voxel3D.draw(terrain, atlasFor(host), nil)
-    for i, nb in ipairs(neighbors) do
-      Voxel3D.draw(nbMesh[i], atlasFor(nb.map),
-                   Mat4.translate(nb.ox, 0, nb.oy))
+    if artImage then
+      Voxel3D.backdrop(artImage, UiBackplates.backdropOffsetPixels())
     end
+    if not flatFill then
+      Voxel3D.draw(terrain, atlasFor(host), nil)
+      for i, nb in ipairs(neighbors) do
+        Voxel3D.draw(nbMesh[i], atlasFor(nb.map),
+                     Mat4.translate(nb.ox, 0, nb.oy))
+      end
     -- and the water over it -- PLAIN, always: the flat animated tiles, never
     -- the reflective pass, whatever the WATER row says. The reflection is
     -- tuned for the overworld's ladder of cameras; this shot's is PLACED --
@@ -597,11 +615,12 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     -- the tile art. The battle is a stage set, and stage water is painted.
     -- (No mirror also means the mons need no second draw into one -- they
     -- just composite over the water below, like everything else on the set.)
-    if water then Voxel3D.draw(water, atlasFor(host)) end
-    for i, nb in ipairs(neighbors) do
-      if nbWater and nbWater[i] then
-        Voxel3D.draw(nbWater[i], atlasFor(nb.map),
-                     Mat4.translate(nb.ox, 0, nb.oy))
+      if water then Voxel3D.draw(water, atlasFor(host)) end
+      for i, nb in ipairs(neighbors) do
+        if nbWater and nbWater[i] then
+          Voxel3D.draw(nbWater[i], atlasFor(nb.map),
+                       Mat4.translate(nb.ox, 0, nb.oy))
+        end
       end
     end
     -- The mons, standing on their tiles. Depth-tested like everything else,
@@ -690,19 +709,21 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     -- gives them, measured against THIS camera's pitch rather than the
     -- orbit's -- there is no character here for them to overdraw, but the
     -- pull is also what keeps a tuft from z-fighting the floor it stands on
-    local pull = VoxelScene.pull(math.max(pitch, 0.05))
-    Voxel3D.draw(ChunkMesher.grass(host), atlasFor(host), nil, pull)
-    for _, nb in ipairs(neighbors) do
-      Voxel3D.draw(ChunkMesher.grass(nb.map), atlasFor(nb.map),
-                   Mat4.translate(nb.ox, 0, nb.oy), pull)
-    end
-    local fpull = math.max(0, pull - 8 * math.sin(math.max(pitch, 0.05)))
-    Voxel3D.draw(ChunkMesher.flowers(host), atlasFor(host), nil, fpull,
-                 ShadowMap.snug(nil))
-    for _, nb in ipairs(neighbors) do
-      Voxel3D.draw(ChunkMesher.flowers(nb.map), atlasFor(nb.map),
-                   Mat4.translate(nb.ox, 0, nb.oy), fpull,
-                   ShadowMap.snug(Mat4.translate(nb.ox, 0, nb.oy)))
+    if not flatFill then
+      local pull = VoxelScene.pull(math.max(pitch, 0.05))
+      Voxel3D.draw(ChunkMesher.grass(host), atlasFor(host), nil, pull)
+      for _, nb in ipairs(neighbors) do
+        Voxel3D.draw(ChunkMesher.grass(nb.map), atlasFor(nb.map),
+                     Mat4.translate(nb.ox, 0, nb.oy), pull)
+      end
+      local fpull = math.max(0, pull - 8 * math.sin(math.max(pitch, 0.05)))
+      Voxel3D.draw(ChunkMesher.flowers(host), atlasFor(host), nil, fpull,
+                   ShadowMap.snug(nil))
+      for _, nb in ipairs(neighbors) do
+        Voxel3D.draw(ChunkMesher.flowers(nb.map), atlasFor(nb.map),
+                     Mat4.translate(nb.ox, 0, nb.oy), fpull,
+                     ShadowMap.snug(Mat4.translate(nb.ox, 0, nb.oy)))
+      end
     end
     local canvas = AntiAlias.resolve(Voxel3D.endScene(), pw, ph, "battle")
     if not canvas then return end
