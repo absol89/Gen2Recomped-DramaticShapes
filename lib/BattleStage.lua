@@ -5,7 +5,7 @@
 local BattleStage = {}
 
 BattleStage.API_VERSION = 1
-BattleStage.SOURCE_MOD_ID = "BATTLE_ART_VOXEL_FORK"
+BattleStage.SOURCE_MOD_ID = "BATTLE_ART_VOXEL_GEN2"
 
 local OWNERSHIP = {
   arena = true,

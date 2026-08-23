@@ -110,7 +110,7 @@ function BattleArt.migrateDuplicateSetting(game)
   local loader = game and game.mods
   local buckets = loader and loader.modOptions
   local bucket = buckets and buckets[(V.mod and V.mod.id)
-                                     or "BATTLE_ART_VOXEL_FORK"]
+                                     or "BATTLE_ART_VOXEL_GEN2"]
   if type(bucket) ~= "table" then return false end
   if bucket.duplicateFix ~= nil then
     BattleArt.duplicateSetting:sync(bucket.duplicateFix)

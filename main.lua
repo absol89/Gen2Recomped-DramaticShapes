@@ -49,11 +49,11 @@ local V = { mod = mod, path = mod.path }
 local function chunkFor(rel)
   local source = mod:read(rel)
   if not source then
-    error(("DRAMATIC_SHAPE: %s is missing -- reinstall the mod"):format(rel), 0)
+    error(("BATTLE_ART_VOXEL_GEN2: %s is missing -- reinstall the mod"):format(rel), 0)
   end
   local chunk, err = load(source, "@" .. mod.path .. "/" .. rel)
   if not chunk then
-    error(("DRAMATIC_SHAPE: %s did not compile: %s"):format(rel, tostring(err)), 0)
+    error(("BATTLE_ART_VOXEL_GEN2: %s did not compile: %s"):format(rel, tostring(err)), 0)
   end
   return chunk
 end

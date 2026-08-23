@@ -11,7 +11,7 @@ local BattlePresentation = {}
 
 BattlePresentation.API_VERSION = 1
 BattlePresentation.SUPPRESS_HOOK = "battle.presentation.suppress_native.v1"
-BattlePresentation.SOURCE_MOD_ID = "BATTLE_ART_VOXEL_FORK"
+BattlePresentation.SOURCE_MOD_ID = "BATTLE_ART_VOXEL_GEN2"
 BattlePresentation.SURFACES = {
   hud = "hud",
   text = "text",
@@ -31,7 +31,7 @@ local function activeMod(id)
 end
 
 -- gen3_battle_ui v0.1 predates this contract. Its compatibility adapter looks
--- only for the old DRAMATIC_SHAPE id, while this fork exports
+-- only for the old BATTLE_ART_VOXEL_GEN2 id, while this fork exports
 -- BATTLE_ART_VOXEL_FORK. Recognise its documented option without executing
 -- any of its draw callbacks. A missing saved value means its schema default:
 -- revampedBattleUI=true.

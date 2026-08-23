@@ -442,12 +442,12 @@ function OverworldBattle.begin(state, battle)
   -- (Logger writes to the engine log; plain print does not in fused builds.)
   pcall(function()
     local L = require("src.core.Logger")
-    L.info("[DRAMATIC_SHAPE] begin: enabled=%s map=%s cell=%s,%s surf=%s",
+    L.info("[BATTLE_ART_VOXEL_GEN2] begin: enabled=%s map=%s cell=%s,%s surf=%s",
       tostring(OverworldBattle.enabled()),
       tostring(state.map and state.map.id),
       tostring(state.player.cellX), tostring(state.player.cellY),
       tostring(state.player.surfing))
-    L.info("[DRAMATIC_SHAPE] begin: arenaOk=%s arena=%s voxel3d=%s",
+    L.info("[BATTLE_ART_VOXEL_GEN2] begin: arenaOk=%s arena=%s voxel3d=%s",
       tostring(ok), tostring(arena ~= nil),
       tostring(Voxel3D.available()))
   end)
@@ -563,7 +563,7 @@ function OverworldBattle.update(dt)
       local mon = battler and (battler.mon or battler)
       return mon and tostring(mon.species) or "?"
     end
-    L.info("[DRAMATIC_SHAPE] tex: ok=%s enemySprite=%s playerSprite=%s species=%s/%s trainerPic=%s",
+    L.info("[BATTLE_ART_VOXEL_GEN2] tex: ok=%s enemySprite=%s playerSprite=%s species=%s/%s trainerPic=%s",
       tostring(okTex),
       type(b and b.enemy and b.enemy.sprite),
       type(b and b.player and b.player.sprite),
@@ -1193,7 +1193,7 @@ function OverworldBattle.install()
       local t = OverworldBattle._picTrace
       if t.n < 150 then
         t.n = t.n + 1
-        TraceLog.warn("[DRAMATIC_SHAPE] pics #%d slide=%s side=%s shot=%s backPinned=%s",
+        TraceLog.warn("[BATTLE_ART_VOXEL_GEN2] pics #%d slide=%s side=%s shot=%s backPinned=%s",
           t.n, tostring(slide), tostring(onlySide),
           tostring(shot ~= nil), tostring(OverworldBattle.backPinned()))
       end

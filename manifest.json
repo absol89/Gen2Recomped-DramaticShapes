@@ -1,6 +1,6 @@
 {
-  "id": "DRAMATIC_SHAPE",
-  "name": "Dramatic Shape Voxel Mod",
+  "id": "BATTLE_ART_VOXEL_GEN2",
+  "name": "BATTLE ART VOXEL GEN2",
   "version": "1.6.0",
   "api": 2,
   "entry": "main.lua",

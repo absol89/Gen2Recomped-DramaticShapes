@@ -9,7 +9,7 @@
 -- mod setting, and this is the boilerplate two of them would otherwise
 -- each carry a copy of:
 --
---   options:define   a home in options.modOptions.DRAMATIC_SHAPE, plus a row
+--   options:define   a home in options.modOptions.BATTLE_ART_VOXEL_GEN2, plus a row
 --                    on this mod's page in the mod manager.
 --   ui.options.rows  the same setting on the OPTIONS menu, where the
 --                    player already goes for VOXEL and T-SHIFT.
@@ -27,7 +27,7 @@ ModSetting.__index = ModSetting
 
 local function modId()
   local mod = V.mod
-  return (mod and mod.id) or "DRAMATIC_SHAPE"
+  return (mod and mod.id) or "BATTLE_ART_VOXEL_GEN2"
 end
 
 -- `values` are the stored values in ladder order and `labels` what the row
@@ -107,7 +107,7 @@ end
 function ModSetting:row()
   local self_ = self
   return {
-    id = "DRAMATIC_SHAPE:" .. self.key,
+    id = "BATTLE_ART_VOXEL_GEN2:" .. self.key,
     label = self.label,
     value = function() return self_.labels[self_:read()] end,
     step = function(game, dir)

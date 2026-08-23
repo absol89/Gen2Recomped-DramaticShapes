@@ -208,7 +208,7 @@ local function monCards(arena, groundY, textures)
         BattleScene._mirrorTrace = true
         local okL, L = pcall(require, "src.core.Logger")
         if okL and L then
-          L.warn("[DRAMATIC_SHAPE] mirror player=%s trainer=%s noMirror=%s flips=%s",
+          L.warn("[BATTLE_ART_VOXEL_GEN2] mirror player=%s trainer=%s noMirror=%s flips=%s",
             tostring(side == "player"), tostring(tex.trainer),
             tostring(tex.noMirror), tostring(BattleArt.flipsPlayerFront()))
         end
