@@ -466,7 +466,8 @@ local function tickTiles()
   pcall(require("src.render.TileRenderer").tick)
 end
 
-function BattleScene.render(state, arena, textures, token, battle)
+function BattleScene.render(state, arena, textures, token, battle, animTex,
+                            animAnchors)
   -- The Stadium 2 importer keys its model instances to the live battle (a
   -- mid-fight Transform or a shiny flip swaps the instance); nil battle just
   -- means the placements come back empty and the sprite cards stand.
@@ -561,6 +562,7 @@ function BattleScene.render(state, arena, textures, token, battle)
   local gridWas = VoxelGrid.override
   VoxelGrid.override = true
   local out = nil
+  local animInWorld = false
   local ok, err = pcall(function()
     -- its own canvas slot: this renders at the window's pixel size and the
     -- free-roam pass does too, but the two are alive at different moments
@@ -670,9 +672,16 @@ function BattleScene.render(state, arena, textures, token, battle)
       end
     end
     if unlit then setUnlit(false) end
+    if flashing then Voxel3D.flatten(nil) end
+    local fxModel = animTex and animAnchors
+                    and BattleScene.fxCard(arena, groundY, animAnchors)
+    if fxModel then
+      Voxel3D.draw(BattleBillboard.mesh(), animTex, fxModel,
+                   BattleBillboard.PULL + 6)
+      animInWorld = true
+    end
     Voxel3D.glass(true)
     Voxel3D.seams(true)
-    if flashing then Voxel3D.flatten(nil) end
     -- grass and flowers ride the same camera-ward pull the free-roam pass
     -- gives them, measured against THIS camera's pitch rather than the
     -- orbit's -- there is no character here for them to overdraw, but the
@@ -719,6 +728,7 @@ function BattleScene.render(state, arena, textures, token, battle)
       enemy = { emx, emy },
       playerSpan = math.abs(pr - pl),
       enemySpan = math.abs(er - el),
+      animInWorld = animInWorld,
       -- the letterbox, so the depth-of-field pass can put its sharp band on
       -- the two marks rather than on a fraction of the window
       lx = lx, ly = ly, scale = s, pw = pw, ph = ph,

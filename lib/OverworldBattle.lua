@@ -588,21 +588,17 @@ function OverworldBattle.update(dt)
   -- because rendering them binds canvases, which the eye pass -- mid-scene
   -- when it wants them -- must never do; reading a stashed canvas is free.
   session.textures = textures
-  -- and the move-animation layer, for the same eyes -- rendered only
-  -- while a headset is actually watching, because only the VR world
-  -- pass draws it (the flat screen has the animations in-frame already)
+  -- The move-animation layer is rendered before the arena so it can stand on
+  -- the world plane with the mons. The HUD composite runs after that scene.
   session.animTex = nil
-  local okVR, vrOn = pcall(function()
-    local vr = V.require("VR")
-    return vr.active and vr.active() or false
-  end)
-  if okVR and vrOn and session.battle then
+  if session.battle then
     local okA, anim = pcall(OverworldBattle.animTexture, session.battle)
     if okA then session.animTex = anim end
   end
   session.token = (session.token or 0) + 1
   local ok, shot = pcall(BattleScene.render, session.state, session.arena,
-                         textures, session.token, session.battle)
+                         textures, session.token, session.battle,
+                         session.animTex, OverworldBattle.ANCHOR)
   if not ok then
     -- One failure retires the arena for THIS battle and nothing else: the
     -- battle screen carries on as the engine's own, the free-roam pipeline
@@ -1256,6 +1252,7 @@ function OverworldBattle.install()
   function BattleState:drawAnimLayer(colorized)
     local shot = self.dramaticShapeShot
     if not shot then return innerAnim(self, colorized) end
+    if shot.animInWorld then return end
     -- Move animations are authored against the pics' old fixed slots, and one
     -- animation reaches across both sides, so there is no per-side offset to
     -- give them. They ride to where the PAIR went: the midpoint of the two
