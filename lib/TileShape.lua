@@ -617,7 +617,8 @@ local function sealedCells(map)
   local seeds = {}
   for k in pairs(sealed) do
     local cx, cy = k % w, math.floor(k / w)
-    if (map.warpAt and map.warpAt[k]) or map:warpAtCell(cx, cy) then
+    local indexedWarp = type(map.warpAt) == "table" and map.warpAt[k]
+    if indexedWarp or map:warpAtCell(cx, cy) then
       seeds[#seeds + 1] = k
     end
   end
