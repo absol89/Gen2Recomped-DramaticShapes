@@ -45,6 +45,7 @@ local BattleScene = V.require("BattleScene")
 local BattleDOF = V.require("BattleDOF")
 local BattleHud = V.require("BattleHud")
 local BattlePics = V.require("BattlePics")
+local StadiumModels = V.require("StadiumModels")
 local Voxel3D = V.require("Voxel3D")
 local ChunkMesher = V.require("ChunkMesher")
 
@@ -471,6 +472,7 @@ end
 function OverworldBattle.finish()
   if not session then return end
   restoreCast()
+  StadiumModels.release()
   session = nil
   Voxel3D.camera = nil
 end
@@ -548,7 +550,7 @@ function OverworldBattle.update(dt)
   end
   session.token = (session.token or 0) + 1
   local ok, shot = pcall(BattleScene.render, session.state, session.arena,
-                         textures, session.token)
+                         textures, session.token, session.battle)
   if not ok then
     -- One failure retires the arena for THIS battle and nothing else: the
     -- battle screen carries on as the engine's own, the free-roam pipeline

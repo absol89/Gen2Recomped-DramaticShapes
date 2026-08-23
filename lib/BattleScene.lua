@@ -40,6 +40,7 @@ local TerrainAtlas = V.require("TerrainAtlas")
 local VoxelScene = V.require("VoxelScene")
 local BattleCam = V.require("BattleCam")
 local BattleBillboard = V.require("BattleBillboard")
+local StadiumModels = V.require("StadiumModels")
 local VoxelGrid = V.require("VoxelGrid")
 local DayNight = V.require("DayNight")
 local AntiAlias = V.require("AntiAlias")
@@ -426,7 +427,12 @@ local function tickTiles()
   pcall(require("src.render.TileRenderer").tick)
 end
 
-function BattleScene.render(state, arena, textures, token)
+function BattleScene.render(state, arena, textures, token, battle)
+  -- The Stadium 2 importer keys its model instances to the live battle (a
+  -- mid-fight Transform or a shiny flip swaps the instance); nil battle just
+  -- means the placements come back empty and the sprite cards stand.
+  StadiumModels.sync(battle)
+  StadiumModels.update(battle)
   if not (state and state.map and arena) then return nil end
   if not Voxel3D.available() then return nil end
   tickTiles()
@@ -485,6 +491,10 @@ function BattleScene.render(state, arena, textures, token)
   Voxel3D.camera = cam
   Voxel3D.viewProjection(cx, cy, vw, vh)
   local cards = monCards(arena, groundY, textures)
+  -- The Stadium 2 importer's models, when connected: one placement per side,
+  -- replacing only that side's sprite card. Computed before the scene opens
+  -- so a model failure can still fall back to the card below.
+  local stadium = StadiumModels.placements(arena, groundY, textures, battle)
   Voxel3D.camera = nil
   castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh, atlasFor,
               cards, token, host, neighbors, water, nbWater)
@@ -571,11 +581,46 @@ function BattleScene.render(state, arena, textures, token)
     -- and no glass either: the cards wear the battle screen, not the
     -- tileset atlas, so the mask's coordinates mean nothing on them
     Voxel3D.glass(false)
+    -- Trainers aside, an available model replaces only its own side's card;
+    -- a side without a placement keeps the exact established card path.
     for _, card in ipairs(monCards(arena, groundY, textures)) do
-      -- the sun stored this card snugged (castShadows), so its own shadow
-      -- lookup must read the same snugged transform -- see ShadowMap.snug
-      Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
-                   BattleBillboard.PULL, ShadowMap.snug(card.model))
+      if not StadiumModels.uses(stadium, card.side) then
+        -- the sun stored this card snugged (castShadows), so its own shadow
+        -- lookup must read the same snugged transform -- see ShadowMap.snug
+        Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
+                     BattleBillboard.PULL, ShadowMap.snug(card.model))
+      end
+    end
+    -- The models themselves: two passes over the placements, with a per-side
+    -- fallback so a provider failure cannot strand a missing battler.
+    local failedModels = {}
+    local drawContext = {
+      viewProjection = Voxel3D.vp,
+      view = Mat4.lookAt(Voxel3D.eye, Voxel3D.focus,
+        (cam and cam.up) or { 0, 1, 0 }),
+      tint = Voxel3D.tint,
+      light = {
+        direction = { 0.35, 0.7, 0.62 },
+        ambient = { 0.46, 0.46, 0.46 },
+        diffuse = { 0.72, 0.72, 0.72 },
+      },
+      flashing = flashing,
+    }
+    for _, pass in ipairs({ "opaque", "additive" }) do
+      for side, placement in pairs(stadium or {}) do
+        if not failedModels[side]
+            and not StadiumModels.draw(placement, drawContext, pass) then
+          failedModels[side] = true
+        end
+      end
+    end
+    if failedModels.player or failedModels.enemy then
+      for _, card in ipairs(monCards(arena, groundY, textures)) do
+        if failedModels[card.side] then
+          Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
+                       BattleBillboard.PULL, ShadowMap.snug(card.model))
+        end
+      end
     end
     Voxel3D.glass(true)
     Voxel3D.seams(true)
