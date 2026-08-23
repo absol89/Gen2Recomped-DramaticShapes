@@ -1415,11 +1415,7 @@ function OverworldBattle.hudTexture(battle, slide, dark)
   battle.colorMode = function() return false end
   local ok, layer = pcall(BattleHud.layerTexture,
                           BattleScene.GB_W, BattleScene.GB_H, dark,
-                          function()
-                            BattleHud.withBrightExpBar(function()
-                              innerHUDs(battle, slide)
-                            end)
-                          end)
+                          function() innerHUDs(battle, slide) end)
   battle.colorMode = had
   return ok and layer or nil
 end
