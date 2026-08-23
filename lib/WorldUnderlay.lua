@@ -26,8 +26,8 @@ local HEIGHT = -20
 
 WorldUnderlay.setting = ModSetting.new(
   "worldFill", "WORLD FILL",
-  { "cyan", "black", "off", "nature" },
-  { "CYAN", "BLACK", "OFF/KFP", "NATURE" })
+  { "off", "cyan", "black", "nature" },
+  { "OFF/KFP", "CYAN", "BLACK", "NATURE" })
 
 local COLORS = {
   cyan  = {   0 / 255,  71 / 255, 109 / 255, 1 }, -- #00476D
