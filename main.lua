@@ -447,11 +447,11 @@ local SETTINGS = {
     .. "back to the ROM. ANIMATED is the tested fresh-install default.",
     when = function() return stagedBattles() end, full = true },
   { BattleArt.trainerSetting,
-    "Choose the static opponent trainer collection. A class missing from "
-    .. "the selected generation falls back directly to its ROM portrait.",
+    "Use the ROM opponent trainers, or choose an optional static collection. "
+    .. "A class missing from that collection falls back to its ROM portrait.",
     when = function()
       return stagedBattles() and BattleArt.setting:get() ~= "rom"
-    end, full = true },
+    end, full = true, managerOnly = true },
   { BattleArt.playerArtSetting,
     "Choose the player trainer's static battle-intro portrait. A missing "
     .. "named choice tries player.png, then ROM. PNG uses player.png "

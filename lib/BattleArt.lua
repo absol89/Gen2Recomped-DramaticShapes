@@ -24,7 +24,8 @@ BattleArt.backPlacementSetting = ModSetting.new(
   { "auto", "world", "ui" }, { "AUTO", "WORLD", "OG UI" })
 BattleArt.trainerSetting = ModSetting.new(
   "trainerArtSet", "TRAINER ART",
-  { "gen1", "gen2", "gen3" }, { "GEN 1", "GEN 2", "GEN 3" })
+  { "rom", "gen1", "gen2", "gen3" },
+  { "ROM", "GEN 1", "GEN 2", "GEN 3" })
 BattleArt.playerArtSetting = ModSetting.new(
   "playerArtSet", "PLAYER ART",
   { "png", "gen1", "gen2", "gen3", "gen4", "gen5", "ash", "gary", "boy", "lass", "hilbert", "rom" },
@@ -465,6 +466,7 @@ end
 function BattleArt.trainerImage(name)
   if BattleArt.setting:get() == "rom" then return nil end
   local generation = BattleArt.trainerSetting:get()
+  if generation == "rom" then return nil end
   local rel = ("assets/battle/front-static/%s/%s.png"):format(
     generation, name)
   local path = V.mod.assets:path(rel)

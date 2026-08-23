@@ -21,5 +21,8 @@ assert(settings.battleArt.values[1] == "animated"
 assert(settings.battleArt.values[2] == "static"
   and settings.battleArt.values[3] == "rom",
   "Battle Art retained an unexpected mode ladder")
+assert(settings.trainerArtSet.values[1] == "rom"
+  and settings.trainerArtSet.labels[1] == "ROM",
+  "fresh installs do not default opponent trainer art to ROM")
 
 print("battle-art defaults regression: ok")

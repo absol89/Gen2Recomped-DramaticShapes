@@ -6,6 +6,10 @@ local function source(path)
 end
 
 local main = source("main.lua")
+local trainerArt = assert(main:find("{ BattleArt.trainerSetting,", 1, true))
+local playerArt = assert(main:find("{ BattleArt.playerArtSetting,", trainerArt, true))
+assert(main:sub(trainerArt, playerArt - 1):find("managerOnly = true", 1, true),
+  "TRAINER ART is not restricted to the mod-specific options page")
 local playerAnim = assert(main:find("{ BattleArt.playerAnimationSetting,", 1, true))
 local frontAnim = assert(main:find("{ BattleArt.frontAnimationSetting,", 1, true))
 assert(playerAnim < frontAnim,
