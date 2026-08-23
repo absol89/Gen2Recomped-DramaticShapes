@@ -123,9 +123,11 @@ end
 -- ctx.paletteFor).
 local function paletteFor(state, home)
   if not (state and state.paletteNameFor) then
-    return function(map)
-      return (map or home) and (map or home)._battleArtGen2BgSet or nil
-    end
+    -- Gold/Silver's eight per-tile palettes are baked by TerrainAtlas from
+    -- each map's prepared palette set. A single four-colour world palette
+    -- does not exist there, so do not feed the complete set into the Gen 1
+    -- fallback path.
+    return function() return nil end
   end
   return function(map)
     return PaletteFX.pal(V.game().data,
