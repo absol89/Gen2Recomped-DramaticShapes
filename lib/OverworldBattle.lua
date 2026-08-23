@@ -1199,6 +1199,13 @@ function OverworldBattle.install()
       end
     end
     if not shot then
+      -- A session is staging (or staged and its first shot is still
+      -- rendering): the mons belong to the 3D world, so the flat pics layer
+      -- draws nothing. Letting the engine's ROM sprites slide in here
+      -- glitched against our billboard once the shot arrived, most visibly
+      -- with animated atlases. Battles that never stage (no session) fall
+      -- through to the flat pics as usual.
+      if session and OverworldBattle.enabled() then return end
       return innerPics(self, slide, sx, sy, onlySide, skipMenuClip)
     end
     if OverworldBattle.backPinned() and onlySide ~= "enemy" then
