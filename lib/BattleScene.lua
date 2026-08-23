@@ -122,8 +122,13 @@ end
 -- the engine's own pipeline context gets it too (OverworldController's
 -- ctx.paletteFor).
 local function paletteFor(state, home)
+  if not (state and state.paletteNameFor) then
+    return function(map)
+      return (map or home) and (map or home)._battleArtGen2BgSet or nil
+    end
+  end
   return function(map)
-    return PaletteFX.pal(require("src.core.Game").data,
+    return PaletteFX.pal(V.game().data,
                          state:paletteNameFor(map or home))
   end
 end
@@ -460,8 +465,8 @@ local function setUnlit(on)
 end
 
 local function tickTiles()
-  local Game = require("src.core.Game")
-  local ow = Game and Game.overworld
+  local Game = V.game()
+  local ow = Game and (Game.overworld or Game.world)
   local top = Game and Game.stack and Game.stack:top()
   -- during the wipe INTO a battle the overworld can still be the one
   -- drawing, and it is ticking the clock itself; two ticks in a frame would

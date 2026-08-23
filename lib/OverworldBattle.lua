@@ -192,8 +192,8 @@ function OverworldBattle.wantsFront()
   if not Voxel3D.available() then return false end
   -- required here rather than through the file's own helper: this runs
   -- while a battler is being built, which is before that helper is defined
-  local g = require("src.core.Game")
-  local ow = g and g.overworld
+  local g = V.game()
+  local ow = g and (g.overworld or g.world)
   if not (ow and ow.map and ow.player) then return false end
   if staged.mapId ~= ow.map.id then
     local ok, arena = pcall(BattleArena.find, ow.map,
@@ -378,7 +378,40 @@ local function isIOS()
 end
 
 local function game()
-  return require("src.core.Game")
+  return V.game()
+end
+
+local function isGen2BattleState(value)
+  return value and type(value.drawPic) == "function"
+    and type(value.drawSceneBody) == "function"
+end
+
+local gen2InnerPic = nil
+
+-- The existing art managers own Gen 1 battlers through their `sprite` field.
+-- Gold/Silver resolves its image inside BattleState:pic instead, so expose a
+-- battle-lifetime compatibility view and remove every transient field again
+-- before the party can be saved.
+local function gen2ArtBattle(state)
+  if not (isGen2BattleState(state) and gen2InnerPic) then return state end
+  local target = {
+    enemy = state:activeMon("enemy"),
+    player = state:activeMon("player"),
+  }
+  for _, entry in ipairs({ { target.enemy, false }, { target.player, true } }) do
+    local mon, back = entry[1], entry[2]
+    if mon then
+      if session then
+        session.gen2Mons = session.gen2Mons or {}
+        session.gen2Mons[mon] = true
+      end
+      if mon.sprite == nil then
+        local ok, image = pcall(gen2InnerPic, state, mon, back)
+        if ok then mon.sprite = image end
+      end
+    end
+  end
+  return target
 end
 
 -- Whether this frame's HUDs went out to the window's edges instead of being
@@ -455,27 +488,16 @@ function OverworldBattle.begin(state, battle)
   local ok, arena = pcall(BattleArena.find, state.map,
                           state.player.cellX, state.player.cellY,
                           state.player.surfing)
-  -- TEMP DIAGNOSTIC: trace why a fight does not stage. Remove once resolved.
-  -- (Logger writes to the engine log; plain print does not in fused builds.)
-  pcall(function()
-    local L = require("src.core.Logger")
-    L.info("[BATTLE_ART_VOXEL_GEN2] begin: enabled=%s map=%s cell=%s,%s surf=%s",
-      tostring(OverworldBattle.enabled()),
-      tostring(state.map and state.map.id),
-      tostring(state.player.cellX), tostring(state.player.cellY),
-      tostring(state.player.surfing))
-    L.info("[BATTLE_ART_VOXEL_GEN2] begin: arenaOk=%s arena=%s voxel3d=%s",
-      tostring(ok), tostring(arena ~= nil),
-      tostring(Voxel3D.available()))
-  end)
   if not (ok and arena) then return false end
 
   -- the fight is staged from here on, so the layout it is composed for is not
   -- optional any more (see forceOG)
   OverworldBattle.forceOG()
 
-  session = { state = state, arena = arena, battle = battle, shot = nil,
-              armed = false, token = 0 }
+  session = { state = state, arena = arena,
+              battle = isGen2BattleState(battle) and battle or nil,
+              model = isGen2BattleState(battle) and nil or battle,
+              shot = nil, armed = false, token = 0 }
   cullCast(state)
   BattleCam.reset()
   return true
@@ -489,11 +511,15 @@ function OverworldBattle.ensure(battle)
   if session then
     -- a battle pushed through the overworld reaches begin() before it is
     -- built far enough to draw; battle.started is where it is finished
-    if battle and not session.battle then session.battle = battle end
+    if isGen2BattleState(battle) then
+      session.battle = session.battle or battle
+    else
+      session.model = session.model or battle
+    end
     return
   end
   local g = game()
-  local ow = g and g.overworld
+  local ow = g and (g.overworld or g.world)
   if ow and ow.map then OverworldBattle.begin(ow, battle) end
 end
 
@@ -506,7 +532,12 @@ end
 function OverworldBattle.finish()
   if not session then return end
   restoreCast()
-  pcall(AnimatedBattleArt.finish, session.battle)
+  local artBattle = gen2ArtBattle(session.battle)
+  pcall(AnimatedBattleArt.finish, artBattle)
+  pcall(BattleArt.releaseSpeciesOverrides, artBattle)
+  for mon in pairs(session.gen2Mons or {}) do
+    mon.sprite, mon.picAnim = nil, nil
+  end
   StadiumModels.release()
   if session.battle then
     local audit = session.animAudit
@@ -538,7 +569,7 @@ function OverworldBattle.update(dt)
 
   local g = game()
   local top = g and g.stack and g.stack:top()
-  local ow = g and g.overworld
+  local ow = g and (g.overworld or g.world)
   -- A battle that ended without saying so (a script tearing the state down,
   -- a path that never emits battle.ended) would otherwise leave the cast
   -- culled for good. Armed only once something has actually covered the
@@ -553,7 +584,8 @@ function OverworldBattle.update(dt)
   -- ANIMATED mode: advance atlas playback for both battlers and the player
   -- trainer intro before this frame's textures are captured. Other modes
   -- release any managed frames and fall back to STATIC/ROM ownership.
-  pcall(AnimatedBattleArt.update, session.battle, dt)
+  local artBattle = gen2ArtBattle(session.battle)
+  pcall(AnimatedBattleArt.update, artBattle, dt)
 
   -- Whether the shot is the player's to steer at all. BACK SPRITES pins
   -- their own mon to the GB's slot on the menu while the foe stands out on
@@ -571,7 +603,12 @@ function OverworldBattle.update(dt)
   BattleCam.update(dt)
   -- the battle only exists once it has been pushed; a session opened at
   -- pushBattle time has it, one opened from battle.started was handed it
-  session.battle = session.battle or (top ~= ow and top or nil)
+  if isGen2BattleState(top) then
+    session.battle = top
+  elseif not session.battle and top ~= ow and top
+      and type(top.drawPicsLayer) == "function" then
+    session.battle = top
+  end
   -- the world pass is hidden behind the battle, so mesh builds get the wide
   -- slice: nothing visible can hitch on them
   ChunkMesher.pump(true)
@@ -581,8 +618,7 @@ function OverworldBattle.update(dt)
   -- inside somebody else's frame means putting the frame back afterwards.
   local okTex, textures = pcall(OverworldBattle.textures, session.battle)
   if not okTex then textures = nil end
-  local owned = AnimatedBattleArt.ownsFrame(
-    session.battle and session.battle.enemy)
+  local owned = AnimatedBattleArt.ownsFrame(artBattle and artBattle.enemy)
   if owned ~= nil then
     local audit = session.animAudit
     if not audit then
@@ -643,13 +679,14 @@ function OverworldBattle.update(dt)
     -- about to sit on it.
     local ios = isIOS()
     local okHud, up = false, false
-    if not ios then
+    if not ios and not isGen2BattleState(session.battle) then
       okHud, up = pcall(OverworldBattle.snapHUDs, session.battle, shot)
     end
     session.snapped = (okHud and up) and true or false
     -- once per battle, not once per frame: a driver that cannot do this cannot
     -- do it sixty times a second either, and the fallback is silent and fine
-    if not ios and not okHud and not session.hudWarned then
+    if not ios and not isGen2BattleState(session.battle)
+       and not okHud and not session.hudWarned then
       session.hudWarned = true
       V.mod.log:warn("overworld battle HUD snap failed: %s -- the HUDs draw "
                      .. "in the battle frame this battle", tostring(up))
@@ -963,18 +1000,21 @@ local OFF = {
 -- Render one side's pics layer into its canvas and report where the pic's
 -- feet ended up, in canvas coordinates.
 function OverworldBattle.sideTexture(battle, side)
-  if not (innerPics and battle) then return nil end
+  if not battle then return nil end
+  local gen2 = isGen2BattleState(battle)
+  if not gen2 and not innerPics then return nil end
   -- Battle Art installs its selected species/trainer/player art onto the
   -- battlers before the engine's own pics layer is captured, so the billboard
   -- wears the replacement exactly as the flat battle would draw it. MODDED
   -- (DUPLICATE FIX) makes apply() a no-op for species and leaves the
   -- underlying sprite provider's answer in place.
-  pcall(BattleArt.apply, battle)
-  if not OverworldBattle.sideVisible(battle, side) then return nil end
+  pcall(BattleArt.apply, gen2 and gen2ArtBattle(battle) or battle)
+  if not gen2 and not OverworldBattle.sideVisible(battle, side) then return nil end
   -- apply() can release a stale static replacement back to the engine's ROM
   -- sprite after AnimatedBattleArt.update() already chose this frame. Reclaim
   -- the managed image at the consumer boundary, without ticking playback.
-  pcall(AnimatedBattleArt.reassert, battle[side])
+  local mon = gen2 and battle:activeMon(side) or battle[side]
+  pcall(AnimatedBattleArt.reassert, mon)
   local canvas = texCanvasFor(side)
   if not canvas then return nil end
 
@@ -992,30 +1032,42 @@ function OverworldBattle.sideTexture(battle, side)
   g.getScissor = function() return nil end
 
   local saved = {}
-  for k, v in pairs(OFF[side]) do saved[k] = battle[k]; battle[k] = v end
-  texturing = side
+  if not gen2 then
+    for k, v in pairs(OFF[side]) do saved[k] = battle[k]; battle[k] = v end
+    texturing = side
+  end
 
   local ok, err = pcall(function()
     g.setCanvas(canvas)
     g.clear(0, 0, 0, 0)
     g.setBlendMode("alpha")
     g.setColor(1, 1, 1, 1)
-    innerPics(battle, 0, 0, 0)
+    if gen2 then
+      battle:drawPic(mon, side == "player")
+    else
+      innerPics(battle, 0, 0, 0)
+    end
   end)
 
   texturing = nil
-  for k in pairs(OFF[side]) do battle[k] = saved[k] end
+  if not gen2 then
+    for k in pairs(OFF[side]) do battle[k] = saved[k] end
+  end
   g.setScissor, g.intersectScissor, g.getScissor =
     setScissor, intersectScissor, getScissor
   if prevCanvas then g.setCanvas(prevCanvas) else g.setCanvas() end
   g.setBlendMode(prevBlend or "alpha", prevAlpha)
   if not ok then error(err, 0) end
 
-  local ax, ay = TEX_AX, TEX_AY
+  local ax, ay = gen2 and (side == "player" and 40 or 124) or TEX_AX,
+                 gen2 and (side == "player" and 96 or 56) or TEX_AY
   local trainer = false
   -- The intro trainer pic draws itself straight into its own 7x7 slot rather
   -- than through the placement helpers, so it is hung from that slot instead.
-  if side == "enemy" and battle.showEnemyTrainer and battle.trainerPic then
+  if gen2 then
+    trainer = (side == "enemy" and battle.showEnemyTrainer)
+      or (side == "player" and battle.showPlayerTrainer) or false
+  elseif side == "enemy" and battle.showEnemyTrainer and battle.trainerPic then
     ax, ay, trainer = TRAINER_AX, TRAINER_AY, true
   elseif side == "player" and battle.showPlayerBack and battle.playerBackPic then
     trainer = true
@@ -1066,6 +1118,63 @@ end
 -- Four wraps, each idempotent so a hot reload cannot stack them.
 
 function OverworldBattle.install()
+  local BattleState = require("src.battle.BattleState")
+  if BattleState.dramaticShapeBattleHook then return end
+
+  -- Gold/Silver exposes its finished 160x144 battle through battle.overlay.
+  -- Replace that finished image with the staged arena, then ask the native
+  -- panel renderer for its HUD and menus while suppressing its two flat pics.
+  if isGen2BattleState(BattleState) and not BattleState.drawPicsLayer then
+    gen2InnerPic = BattleState.pic
+    function BattleState:pic(mon, back)
+      local image, trueColor, path = gen2InnerPic(self, mon, back)
+      if mon and BattleArt.isExternal(mon.sprite) then
+        return mon.sprite, true, path
+      end
+      return image, trueColor, path
+    end
+
+    V.mod.hooks:wrap("battle.overlay", function(next, state)
+      next(state)
+      if not isGen2BattleState(state) then return end
+      if session then session.battle = state end
+      local shot = OverworldBattle.shot()
+      if not (shot and shot.canvas) then return end
+
+      local g = love.graphics
+      local cw, ch = shot.canvas:getDimensions()
+      g.setColor(1, 1, 1, 1)
+      local target = g.getCanvas()
+      local tw, th = target and target:getDimensions() or g.getDimensions()
+      if tw == cw and th == ch then
+        -- drawWidescreen has already put the 160x144 panel transform on the
+        -- stack. Reset it just for the world so its native-resolution surround
+        -- reaches the actual window, then return to panel coordinates below.
+        g.push()
+        g.origin()
+        g.draw(shot.canvas, 0, 0)
+        g.pop()
+      else
+        local quad = g.newQuad(shot.lx, shot.ly,
+                               BattleScene.GB_W * shot.scale,
+                               BattleScene.GB_H * shot.scale, cw, ch)
+        g.draw(shot.canvas, quad, 0, 0, 0,
+               1 / shot.scale, 1 / shot.scale)
+      end
+
+      local Chrome = require("src.ui.gen2.Chrome")
+      local clear, drawPic = Chrome.clear, rawget(state, "drawPic")
+      Chrome.clear = function() g.setColor(0, 0, 0, 1) end
+      state.drawPic = function() end
+      local ok, err = pcall(state.drawPanel, state)
+      state.drawPic = drawPic
+      Chrome.clear = clear
+      if not ok then error(err, 0) end
+    end)
+    BattleState.dramaticShapeBattleHook = true
+    return
+  end
+
   local OverworldState = require("src.world.OverworldController")
   if not OverworldState.dramaticShapeBattleHook then
     local inner = OverworldState.pushBattle
@@ -1078,9 +1187,6 @@ function OverworldBattle.install()
     end
     OverworldState.dramaticShapeBattleHook = true
   end
-
-  local BattleState = require("src.battle.BattleState")
-  if BattleState.dramaticShapeBattleHook then return end
 
   -- Integer scales only. The camera is solved to make one overworld square
   -- exactly big enough for a pic at its own integer scale (see BattleCam), so
