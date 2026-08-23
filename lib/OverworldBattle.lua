@@ -1121,9 +1121,29 @@ function OverworldBattle.install()
     local shot = OverworldBattle.shot()
     -- AskName blanks the field on purpose (the nickname prompt is meant to
     -- sit on nothing); leave that one alone.
-    if not shot or self.blankForAskName then
+    if self.blankForAskName then
       -- nil, not false: the class default is inherited again, so a battle
       -- that loses its arena mid-fight goes back to white voids
+      self.letterboxWhite = nil
+      self.dramaticShapeShot = nil
+      return innerDraw(self)
+    end
+    if not shot then
+      -- A staged battle whose first shot is still rendering (the transition
+      -- wipe frames). Falling through to the flat battle here flashes the ROM
+      -- sprites and the white field through the wipe's holes on top of the
+      -- voxel world behind them -- the "flickering duplicate" on battle
+      -- start. Hold a plain white frame instead: the wipe is about to
+      -- reveal the composed world, and a battle that never stages (no
+      -- arena) takes the flat path again as soon as session clears.
+      if session and not session.broken then
+        self.letterboxWhite = true
+        self.dramaticShapeShot = nil
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.rectangle("fill", 0, 0, BattleScene.GB_W,
+                                BattleScene.GB_H)
+        return
+      end
       self.letterboxWhite = nil
       self.dramaticShapeShot = nil
       return innerDraw(self)
