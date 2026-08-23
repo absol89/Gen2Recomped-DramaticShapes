@@ -33,6 +33,7 @@ local V = ...
 local Assets = require("src.render.Assets")
 local TileRenderer = require("src.render.TileRenderer")
 local PaletteFX = require("src.render.PaletteFX")
+local GbcPalette = require("src.render.GbcPalette")
 
 local TerrainAtlas = {}
 
@@ -69,6 +70,55 @@ local function paletteKey(colors)
   return table.concat(parts, ";")
 end
 
+-- Gen1Recomp's Gold/Silver world bakes maps itself rather than attaching a
+-- TileRenderer to each Map.  VoxelScene supplies the eight live BG palettes;
+-- bake those per tile so the mesh samples the same colors as the flat world.
+local function gen2Atlas(map)
+  local set = map._battleArtGen2BgSet
+  local slots = map.tileset and map.tileset.tilePalettes
+  if not (set and slots and love.image and love.image.newImageData) then
+    return nil
+  end
+
+  local resolved, keyParts = {}, {}
+  for slot = 1, 8 do
+    local colors = {}
+    for shade = 1, 4 do
+      colors[shade] = GbcPalette.color(set[slot], shade)
+    end
+    resolved[slot] = colors
+    keyParts[slot] = paletteKey(colors)
+  end
+  local key = map.tileset.image .. "#gen2#" .. table.concat(keyParts, "|")
+  if cache[key] ~= nil then return cache[key] or nil, cacheData[key] end
+
+  local data
+  local ok, image = pcall(function()
+    local src = Assets.imageData(map.tileset.image)
+    local w, h = src:getDimensions()
+    local out = love.image.newImageData(w, h)
+    local perRow = map.tileset.tilesPerRow or 16
+    for tile = 0, (w / 8) * (h / 8) - 1 do
+      local colors = resolved[slots[tile + 1] or 1] or resolved[1]
+      local ox, oy = (tile % perRow) * 8, math.floor(tile / perRow) * 8
+      for y = 0, 7 do
+        for x = 0, 7 do
+          local r, g, b, a = src:getPixel(ox + x, oy + y)
+          r, g, b, a = TileRenderer.recolorSample(r, g, b, a, colors)
+          out:setPixel(ox + x, oy + y, r, g, b, a)
+        end
+      end
+    end
+    local img = love.graphics.newImage(out)
+    img:setFilter("nearest", "nearest")
+    data = out
+    return img
+  end)
+  cache[key] = ok and image or false
+  cacheData[key] = (ok and data) or false
+  return cache[key] or nil, cacheData[key]
+end
+
 -- The atlas image `map`'s terrain should sample, given the 4-color world
 -- palette it sits under (nil to leave the atlas as-is). Falls back to the
 -- renderer's own image whenever a bake is impossible -- headless, or no
@@ -81,6 +131,8 @@ local function staticAtlas(map, colors)
   local renderer = map.renderer
   local base = renderer and renderer.image
   if not base then return nil end
+  local gen2, gen2Data = gen2Atlas(map)
+  if gen2 then return gen2, gen2Data end
   -- already true color: RED++'s baked per-map atlas, or a mod's own art.
   --
   -- `renderer.trueColor` rather than the tileset flag, because Gen 2 sets

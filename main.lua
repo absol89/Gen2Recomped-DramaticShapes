@@ -46,6 +46,10 @@ local mod = ...
 
 local V = { mod = mod, path = mod.path }
 
+function V.game()
+  return mod.game or require("src.core.Game")
+end
+
 local function chunkFor(rel)
   local source = mod:read(rel)
   if not source then
@@ -231,8 +235,8 @@ mod.content.render_pipelines:register("voxel", {
     -- shows the flat screen on the floating panel.
     VR.update(dt)
     if not Voxel.active() then return end
-    local Game = require("src.core.Game")
-    local ow = Game and Game.overworld
+    local Game = V.game()
+    local ow = Game and (Game.overworld or Game.world)
     if ow and ow.map and ow.camera then
       pcall(VoxelScene.prefetch, ow)
     end

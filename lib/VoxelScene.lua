@@ -35,6 +35,42 @@ local Map = require("src.world.Map")
 
 local VoxelScene = {}
 
+-- Gen1Recomp's Gold/Silver world keeps connected maps as lightweight
+-- neighbor records.  The voxel renderer needs the corresponding runtime Map
+-- objects for meshing, while Gen 1 and Gen2Recomp already provide them.
+local function prepareMap(state, map)
+  if not (state and map) then return end
+  if not map.renderer then
+    local image = state.atlasFor and state:atlasFor(map.def) or nil
+    if not image then return end
+    map.renderer = { image = image }
+  end
+
+  local ok, Palettes = pcall(require, "src.world.gen2.Palettes")
+  if ok and Palettes and Palettes.bgSet and state.palettes then
+    local colors = Palettes.bgSet(state.palettes, map.def, state.daytime)
+    if colors and state.daytime == "DARK" and Palettes.withCaveFlicker then
+      colors = Palettes.withCaveFlicker(colors, state.flickerPhase or 1)
+    end
+    map._battleArtGen2BgSet = colors
+  end
+end
+
+local function prepareNeighbors(state)
+  if not (state and state.maps and state.tilesets) then return end
+  local ok, Gen2Map = pcall(require, "src.world.gen2.Map")
+  if not (ok and Gen2Map and Gen2Map.new) then return end
+  prepareMap(state, state.map)
+  for _, neighbor in ipairs(state.neighbors or {}) do
+    if not neighbor.map then
+      local def = state.maps[neighbor.id]
+      local tileset = def and state.tilesets[def.tileset]
+      if def and tileset then neighbor.map = Gen2Map.new(def, tileset) end
+    end
+    prepareMap(state, neighbor.map)
+  end
+end
+
 -- What the active display mode actually paints with.
 --
 -- paletteFor hands back a map's RAW SGB zone palette, and that is not what
@@ -458,6 +494,7 @@ local lastLiveKey = nil
 -- fallback while the first slices run.
 function VoxelScene.prefetch(state)
   local Voxel = V.require("VoxelState")
+  prepareNeighbors(state)
 
   -- The live set is the current map plus its rendered neighbours. When
   -- it changes, everything outside it (and the previous set, which
@@ -536,8 +573,17 @@ local function posesOf(state, spriteColors)
   local colors = spriteColors(state.map)
   local posed = {}
   local me = nil
+  local function poseOf(entity)
+    if entity.pose then return entity:pose() end
+    -- Gen1Recomp's Gold/Silver player uses the same public sprite state as
+    -- its NPCs, but does not expose the Gen 1 pose() convenience method.
+    local phase = entity.walkPhase and entity:walkPhase() or 0
+    return entity.sprite, entity.px,
+           entity.py + (entity.spriteYOffset or 0),
+           entity.facing, phase, entity.stepFlip or false
+  end
   for _, g in ipairs(state.ghosts or {}) do
-    local sprite, vx, vy, facing, phase, flip = g.npc:pose()
+    local sprite, vx, vy, facing, phase, flip = poseOf(g.npc)
     posed[#posed + 1] = {
       sprite = sprite, px = vx + g.ox, py = g.npc.py + g.oy,
       facing = facing, phase = phase, flip = flip,
@@ -547,7 +593,7 @@ local function posesOf(state, spriteColors)
   end
   for _, e in ipairs(state.entities or {}) do
     if not (state.flyAnim and e == state.player) then
-      local sprite, vx, vy, facing, phase, flip = e:pose()
+      local sprite, vx, vy, facing, phase, flip = poseOf(e)
       posed[#posed + 1] = {
         sprite = sprite, px = vx, py = e.py,
         facing = facing, phase = phase, flip = flip,
@@ -905,6 +951,7 @@ end
 -- canvases comes back: the VR path, two eyes over one shared shadow map,
 -- pose capture and glint step.
 function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
+  prepareNeighbors(state)
   -- With nothing cached at all (the first frame of a fresh toggle),
   -- return nil: the engine keeps the 2D path for the frame and
   -- Voxel.ready holds the camera tween at flat, so the switch waits

@@ -385,7 +385,7 @@ function Structures.forMap(map)
   -- silently did nothing and the flights stayed painted on the floor.
   for cy = math.floor(y0 / 2), math.floor(y1 / 2) do
     for cx = math.floor(x0 / 2), math.floor(x1 / 2) do
-      if map.doorTiles[map:cellTile(cx, cy)] then
+      if map.doorTiles and map.doorTiles[map:cellTile(cx, cy)] then
         local northK = keyOf(cx * 2, cy * 2 - 1)
         local ns = shapeAt[northK]
         if ns and ns.art == "upright" then
