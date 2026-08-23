@@ -437,6 +437,19 @@ function OverworldBattle.begin(state, battle)
   local ok, arena = pcall(BattleArena.find, state.map,
                           state.player.cellX, state.player.cellY,
                           state.player.surfing)
+  -- TEMP DIAGNOSTIC: trace why a fight does not stage. Remove once resolved.
+  -- (Logger writes to the engine log; plain print does not in fused builds.)
+  pcall(function()
+    local L = require("src.core.Logger")
+    L.info("[DRAMATIC_SHAPE] begin: enabled=%s map=%s cell=%s,%s surf=%s",
+      tostring(OverworldBattle.enabled()),
+      tostring(state.map and state.map.id),
+      tostring(state.player.cellX), tostring(state.player.cellY),
+      tostring(state.player.surfing))
+    L.info("[DRAMATIC_SHAPE] begin: arenaOk=%s arena=%s voxel3d=%s",
+      tostring(ok), tostring(arena ~= nil),
+      tostring(Voxel3D.available()))
+  end)
   if not (ok and arena) then return false end
 
   -- the fight is staged from here on, so the layout it is composed for is not
@@ -540,6 +553,22 @@ function OverworldBattle.update(dt)
   -- inside somebody else's frame means putting the frame back afterwards.
   local okTex, textures = pcall(OverworldBattle.textures, session.battle)
   if not okTex then textures = nil end
+  -- TEMP DIAGNOSTIC: did BattleArt.apply install replacement art? (Logger ->
+  -- engine log; plain print does not land there in fused builds.)
+  pcall(function()
+    local L = require("src.core.Logger")
+    local b = session.battle
+    local function speciesOf(battler)
+      local mon = battler and (battler.mon or battler)
+      return mon and tostring(mon.species) or "?"
+    end
+    L.info("[DRAMATIC_SHAPE] tex: ok=%s enemySprite=%s playerSprite=%s species=%s/%s trainerPic=%s",
+      tostring(okTex),
+      type(b and b.enemy and b.enemy.sprite),
+      type(b and b.player and b.player.sprite),
+      speciesOf(b and b.enemy), speciesOf(b and b.player),
+      tostring(b and b.trainerPic ~= nil))
+  end)
   -- stashed for the VR eye pass, which stands these same pics on the map
   -- in ITS view of the world (VoxelScene's eyes path). Stashed HERE
   -- because rendering them binds canvases, which the eye pass -- mid-scene
@@ -1126,8 +1155,23 @@ function OverworldBattle.install()
   -- does the whole job: one call, the player's branches alone, in the slot and
   -- at the scale the GB always put them -- feet on the box, 2x, back view.
   innerPics = BattleState.drawPicsLayer
+  local TraceLog = pcall(require, "src.core.Logger") and require("src.core.Logger")
   function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
     local shot = self.dramaticShapeShot
+    -- TEMP DIAGNOSTIC: intro flicker between ROM pic and billboard. Logger
+    -- writes to the engine log; plain print does not in fused builds.
+    if TraceLog then
+      if not OverworldBattle._picTrace then
+        OverworldBattle._picTrace = { n = 0 }
+      end
+      local t = OverworldBattle._picTrace
+      if t.n < 150 then
+        t.n = t.n + 1
+        TraceLog.warn("[DRAMATIC_SHAPE] pics #%d slide=%s side=%s shot=%s backPinned=%s",
+          t.n, tostring(slide), tostring(onlySide),
+          tostring(shot ~= nil), tostring(OverworldBattle.backPinned()))
+      end
+    end
     if not shot then
       return innerPics(self, slide, sx, sy, onlySide, skipMenuClip)
     end
@@ -1145,7 +1189,6 @@ function OverworldBattle.install()
                       skipMenuClip)
     end
   end
-
   -- The battle's text box and its menus, over the frosted glass laid down for
   -- them rather than over their own white paper -- and their ink flipped with
   -- the HUD's when the ground under the frame is dark, by the same rule and
