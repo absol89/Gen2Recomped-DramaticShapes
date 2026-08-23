@@ -1206,7 +1206,10 @@ function OverworldBattle.install()
       if session and OverworldBattle.enabled() then
         -- staged but no shot yet: suppressed. Log only transitions into
         -- this state and every Nth frame, so an intro's worth of frames is
-        -- visible without flooding.
+        -- visible without flooding. The flat pics draw NOTHING here: the
+        -- mons belong to the 3D world, and letting the engine's ROM sprites
+        -- slide in during these frames glitched against our billboard once
+        -- the shot arrived (most visibly with animated atlases).
         local t = OverworldBattle._suppressTrace
         if not t then t = { n = 0 }; OverworldBattle._suppressTrace = t end
         t.n = t.n + 1
@@ -1215,6 +1218,7 @@ function OverworldBattle.install()
             t.n, tostring(slide), tostring(onlySide),
             tostring(OverworldBattle.backPinned()))
         end
+        return
       end
       return innerPics(self, slide, sx, sy, onlySide, skipMenuClip)
     end
