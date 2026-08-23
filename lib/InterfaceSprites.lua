@@ -422,11 +422,13 @@ function InterfaceSprites.installSummary()
       if self then
         self.__battleArtOriginalSprite = self.sprite
         self.__battleArtOriginalTrueColor = self.spriteTrueColor
+        self.__battleArtOriginalPicAnim = self.picAnim
         self.__battleArtOriginalCaptured = true
-        selectedPlayback(self, summaryStates,
+        local state = selectedPlayback(self, summaryStates,
           self.mon and self.mon.species,
           self.mon and summarySources[self.mon]
             or self.__battleArtOriginalSprite)
+        if state then self.picAnim = nil end
       end
       return self
     end
@@ -442,6 +444,7 @@ function InterfaceSprites.installSummary()
     if self and not self.__battleArtOriginalCaptured then
       self.__battleArtOriginalSprite = self.sprite
       self.__battleArtOriginalTrueColor = self.spriteTrueColor
+      self.__battleArtOriginalPicAnim = self.picAnim
       self.__battleArtOriginalCaptured = true
     end
     local state = selectedPlayback(self, summaryStates,
@@ -456,9 +459,12 @@ function InterfaceSprites.installSummary()
       end
       self.sprite = state.summaryFrames[state.frame]
       self.spriteTrueColor = true
+      -- SummaryMenu otherwise prefers its native Crystal picAnim over sprite.
+      self.picAnim = nil
     elseif self and self.__battleArtOriginalCaptured then
       self.sprite = self.__battleArtOriginalSprite
       self.spriteTrueColor = self.__battleArtOriginalTrueColor
+      self.picAnim = self.__battleArtOriginalPicAnim
     end
     originalDraw(self, ...)
   end
