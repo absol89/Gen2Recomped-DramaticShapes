@@ -1118,7 +1118,9 @@ function OverworldBattle.install()
        or shinyPic then
       return out
     end
-    if OverworldBattle.isFrontPokemonPic(self, img) then return out end
+    if OverworldBattle.isFrontPokemonPic(self, img) then
+      return BattlePics.transparentWhite(out)
+    end
     return BattlePics.filled(out, OverworldBattle.pinnedPic(self, img))
   end
 
