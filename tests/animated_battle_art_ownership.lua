@@ -1,0 +1,74 @@
+local atlas = {
+  image = "test-atlas.png",
+  autoColumns = 2,
+  durations = { 50, 50 },
+}
+local frames = {}
+
+local function setting(value)
+  return { get = function() return value end }
+end
+
+local BattleArt = {
+  setting = setting("animated"),
+  frontAnimationSetting = setting("gen2"),
+  backAnimationSetting = setting("gen2"),
+  playerAnimationSetting = setting("rom"),
+  ownsSpeciesArt = function() return true end,
+  ownsShinyArt = function() return false end,
+  speciesFor = function(battler) return battler.mon.species end,
+  speciesAlias = function(species) return species end,
+  isShiny = function() return false end,
+  displayMode = function() return "color" end,
+  releaseSpeciesOverrides = function() end,
+  applyTrainers = function() end,
+  playerSide = function() return "back" end,
+  prepareData = function()
+    local frame = { index = #frames + 1 }
+    frames[#frames + 1] = frame
+    return frame
+  end,
+}
+
+love = {
+  image = {
+    newImageData = function(width)
+      if type(width) == "string" then
+        return { getDimensions = function() return 2, 1 end }
+      end
+      return { paste = function() end }
+    end,
+  },
+}
+
+local V = {
+  require = function(name)
+    assert(name == "BattleArt")
+    return BattleArt
+  end,
+  data = function(name)
+    if name == "animated_battle_sprites_gen2" then
+      return { SPECIES_TEST = { front = atlas } }
+    end
+    return {}
+  end,
+  mod = { assets = { path = function(_, path) return path end } },
+}
+
+local AnimatedBattleArt = assert(loadfile("lib/AnimatedBattleArt.lua"))(V)
+local rom, foreign = {}, {}
+local enemy = { mon = { species = "SPECIES_TEST" }, sprite = rom }
+local battle = { enemy = enemy }
+
+AnimatedBattleArt.update(battle, 0)
+assert(enemy.sprite == frames[1], "Battle Art did not claim the first frame")
+
+enemy.sprite = foreign
+AnimatedBattleArt.update(battle, 0.05)
+assert(enemy.sprite == frames[2],
+  "a foreign sprite refresh reset animation ownership")
+
+AnimatedBattleArt.finish(battle)
+assert(enemy.sprite == rom, "finishing did not restore the original sprite")
+
+print("animated battle-art ownership regression: ok")
