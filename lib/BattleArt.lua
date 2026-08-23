@@ -156,9 +156,11 @@ local function speciesAlias(species)
   if type(species) == "number" then
     number = species
   elseif type(species) == "string" then
-    -- Accept common mod-facing numeric spellings without confusing named
-    -- forms (DEOXYS_D etc.) with Pokédex identifiers.
+    -- Gen2Recomp names species "SPECIES_187"; accept that spelling, common
+    -- numeric forms, and plain names without confusing named forms
+    -- (DEOXYS_D etc.) with Pokedex identifiers.
     number = tonumber(species:match("^#?0*(%d+)$"))
+      or tonumber(species:match("^SPECIES_0*(%d+)$"))
   end
   if number and number % 1 == 0 then
     return SPECIES_BY_DEX[number] or species
