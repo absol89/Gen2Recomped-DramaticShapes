@@ -30,6 +30,10 @@ local spriteLight = assert(main:find("{ UiBackplates.spriteLight,", frontFlip, t
 assert(main:sub(frontFlip, spriteLight - 1):find(
   'BattleArt.playerSide() == "front"', 1, true),
   "FLIP FRONT SPRITE remains visible for selected back sprites")
+local rowsRefresh = assert(main:find(
+  "local hadPlayerSide = BattleArt.playerSide()", 1, true))
+assert(main:find("BattleArt.playerSide() ~= hadPlayerSide", rowsRefresh, true),
+  "switching PLAYER does not refresh its conditional option rows")
 
 local worldFill = assert(main:find("{ WorldUnderlay.setting,", 1, true))
 local nextSetting = assert(main:find("{ DayNight.setting,", worldFill, true))

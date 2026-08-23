@@ -1013,7 +1013,7 @@ end)
 -- and a player who stepped off FULL could not see the rows come back.
 --
 -- Rebuilt in place, and only on a step that changes the LIST: crossing FULL,
--- or toggling 3D-BTL, which is the other row that owns one (BATTLE LAYOUT).
+-- toggling 3D-BTL, or switching the player's selected sprite side.
 -- Every other rung returns the same list, and rebuilding on all of them would
 -- rerun every mod's ui.options.rows hook once per keypress. The cursor is
 -- clamped rather than reset, so it stays on the row it was just used on
@@ -1035,13 +1035,15 @@ do
       -- the VR row hides the two battle rows while it is on, so stepping
       -- it changes the LIST exactly the way 3D-BTL does
       local hadVR = VR.enabled()
+      local hadPlayerSide = BattleArt.playerSide()
       local wasOn = idAt(self, self.index)
       inner(self, dt)
       local after = Pipelines.level("voxel")
       local crossedFull = after ~= before
                           and (Voxel.isFull(before) or Voxel.isFull(after))
       if crossedFull or OverworldBattle.enabled() ~= hadBattles
-         or VR.enabled() ~= hadVR then
+         or VR.enabled() ~= hadVR
+         or BattleArt.playerSide() ~= hadPlayerSide then
         local rebuilt = OptionsMenu.new(self.game)
         self.rows = rebuilt.rows
         -- Follow the row the cursor was ON rather than the slot it was in:
