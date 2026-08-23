@@ -431,15 +431,15 @@ local SETTINGS = {
     "Fight on the map: the battle draws over the nearest clear ground, "
     .. "shot over the shoulder with a slow parallax drift.",
     when = function() return not VR.enabled() end, full = true },
-  -- Only offered while a fight can actually be staged on the map: with 3D-BTL
-  -- off the engine draws the classic screen, which is this row's ON already,
-  -- and a row that no longer decides anything is worse than no row.
+  -- Advanced compatibility control, kept off the in-game menu because it
+  -- pins the player pic to the UI camera and applies the world's night tint,
+  -- overriding the staged camera and SPRITE LIGHT presentation controls.
   { OverworldBattle.backSetting,
     "Keep your own Pokemon on the battle menu, seen from behind in its "
     .. "original slot, instead of standing it on the map facing the foe. "
     .. "The foe is still out there on its own tile.",
     when = function() return stagedBattles() and not VR.enabled() end,
-    full = true },
+    full = true, managerOnly = true },
   -- Battle Art rows (ported from the Gen1 fork). Only offered while a fight
   -- can actually be staged on the map.
   { BattleArt.setting,
