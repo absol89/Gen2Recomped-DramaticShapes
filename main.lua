@@ -91,6 +91,7 @@ local BattleArt = V.require("BattleArt")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
 local InterfaceSprites = V.require("InterfaceSprites")
 local WorldUnderlay = V.require("WorldUnderlay")
+local UiBackplates = V.require("UiBackplates")
 local BattleStage = V.require("BattleStage")
 local BattlePresentation = V.require("BattlePresentation")
 local DayNight = V.require("DayNight")
@@ -489,6 +490,11 @@ local SETTINGS = {
     .. "front art so it faces the opponent. DEFAULT preserves the image's "
     .. "authored direction, for sprite mods that already supply a flipped "
     .. "player picture such as Crystal Animated Sprites.",
+    when = function() return stagedBattles() end, full = true },
+  { UiBackplates.spriteLight,
+    "SHADED lets the mons receive the world's day tint and cast shadows; "
+    .. "UNLIT draws them flat and full bright. UNLIT is what the OG "
+    .. "battle's sprites look like.",
     when = function() return stagedBattles() end, full = true },
   { InterfaceSprites.setting,
     "INTERFACE SPRITES: show BATTLE ART's regular-form FRONT outside battle. "

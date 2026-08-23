@@ -41,6 +41,7 @@ local VoxelScene = V.require("VoxelScene")
 local BattleCam = V.require("BattleCam")
 local BattleBillboard = V.require("BattleBillboard")
 local StadiumModels = V.require("StadiumModels")
+local UiBackplates = V.require("UiBackplates")
 local VoxelGrid = V.require("VoxelGrid")
 local DayNight = V.require("DayNight")
 local AntiAlias = V.require("AntiAlias")
@@ -584,12 +585,19 @@ function BattleScene.render(state, arena, textures, token, battle)
     Voxel3D.glass(false)
     -- Trainers aside, an available model replaces only its own side's card;
     -- a side without a placement keeps the exact established card path.
+    -- SPRITE LIGHT: UNLIT draws the card flat and full bright -- no sun-map
+    -- shadow (nil snug) and no hour tint, so night or a cave does not dim
+    -- it. SHADED (the default) keeps both, as intended.
+    local unlit = UiBackplates.spritesUnlit()
+    local savedTint = Voxel3D.tint
+    if unlit then Voxel3D.tint = { 1, 1, 1 } end
     for _, card in ipairs(monCards(arena, groundY, textures)) do
       if not StadiumModels.uses(stadium, card.side) then
         -- the sun stored this card snugged (castShadows), so its own shadow
         -- lookup must read the same snugged transform -- see ShadowMap.snug
+        local sunModel = not unlit and ShadowMap.snug(card.model) or nil
         Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
-                     BattleBillboard.PULL, ShadowMap.snug(card.model))
+                     BattleBillboard.PULL, sunModel)
       end
     end
     -- The models themselves: two passes over the placements, with a per-side
@@ -618,11 +626,13 @@ function BattleScene.render(state, arena, textures, token, battle)
     if failedModels.player or failedModels.enemy then
       for _, card in ipairs(monCards(arena, groundY, textures)) do
         if failedModels[card.side] then
+          local sunModel = not unlit and ShadowMap.snug(card.model) or nil
           Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
-                       BattleBillboard.PULL, ShadowMap.snug(card.model))
+                       BattleBillboard.PULL, sunModel)
         end
       end
     end
+    if unlit then Voxel3D.tint = savedTint end
     Voxel3D.glass(true)
     Voxel3D.seams(true)
     if flashing then Voxel3D.flatten(nil) end
