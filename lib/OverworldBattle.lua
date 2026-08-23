@@ -156,9 +156,10 @@ function OverworldBattle.pinnedPic(battle, img)
   return (player and img == player.sprite) and true or false
 end
 
--- Whether this is one of the two live Pokemon pictures rather than trainer
--- art. Native Pokemon seal their lower silhouette; trainers keep an open stride.
-function OverworldBattle.isPokemonPic(battle, img)
+-- Whether this is a live front Pokemon picture rather than trainer or back
+-- art. ROM fronts keep the decoder's keyed transparency; ROM backs retain the
+-- paper reconstruction needed by their original white battle-field slot.
+function OverworldBattle.isFrontPokemonPic(battle, img)
   if not (battle and img) then return false end
   return ((battle.enemy and img == battle.enemy.sprite)
           or (battle.player and img == battle.player.sprite)) and true or false
@@ -1099,10 +1100,9 @@ function OverworldBattle.install()
     return math.max(1, math.floor((tonumber(base) or 1) + 0.5))
   end
 
-  -- Keyed-out whites inside a pic used to be filled by the white field
-  -- behind it. There is a world back there now, so they are filled here
-  -- instead -- see BattlePics, which puts the paper back without touching
-  -- the silhouette.
+  -- ROM backs retain their keyed-white paper reconstruction. ROM fronts do
+  -- not: an enclosed transparent void and a painted shade-0 pixel are already
+  -- indistinguishable after decoding, and front art favors a clean silhouette.
   --
   -- Authored PNGs already distinguish painted white from transparent void;
   -- only decoded ROM art needs its keyed shade-0 paper reconstructed.
@@ -1118,9 +1118,8 @@ function OverworldBattle.install()
        or shinyPic then
       return out
     end
-    local pokemon = OverworldBattle.isPokemonPic(self, img)
-    return BattlePics.filled(
-      out, pokemon or OverworldBattle.pinnedPic(self, img))
+    if OverworldBattle.isFrontPokemonPic(self, img) then return out end
+    return BattlePics.filled(out, OverworldBattle.pinnedPic(self, img))
   end
 
   -- While a billboard texture is being rendered both pics are put in the same

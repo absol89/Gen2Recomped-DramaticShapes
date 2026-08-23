@@ -15,9 +15,15 @@ assert(overworld:sub(sideTexture, sideTextureEnd - 1):find(
 local picHook = assert(overworld:find("function BattleState:picImage", 1, true))
 local externalBypass = assert(overworld:find(
   "BattleArt.isExternal(img)", picHook, true))
-local romFill = assert(overworld:find("BattlePics.filled", externalBypass, true))
-assert(externalBypass < romFill,
-  "authored PNG transparency is not preserved before ROM paper reconstruction")
+local frontRomBypass = assert(overworld:find(
+  "OverworldBattle.isFrontPokemonPic(self, img)", externalBypass, true))
+local romBackFill = assert(overworld:find("BattlePics.filled", frontRomBypass, true))
+local pinnedBack = assert(overworld:find(
+  "OverworldBattle.pinnedPic(self, img)", romBackFill, true))
+assert(externalBypass < frontRomBypass and frontRomBypass < romBackFill,
+  "front ROM transparency is not preserved before back ROM reconstruction")
+assert(romBackFill < pinnedBack,
+  "ROM back reconstruction no longer retains its pinned-slot behavior")
 local apply = assert(overworld:find("pcall(BattleArt.apply, battle)", sideTexture, true))
 local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, battle[side])", apply, true))
 local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true))
