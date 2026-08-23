@@ -51,6 +51,13 @@ local UiBackplates = V.require("UiBackplates")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
 local StadiumModels = V.require("StadiumModels")
 local Voxel3D = V.require("Voxel3D")
+-- Event logger for the staged-battle path (engine log; plain print does not
+-- reach it in fused builds). Module-level so every seam in this file can use
+-- it, not just the ones below install().
+local TraceLog = pcall(require, "src.core.Logger") and require("src.core.Logger")
+local function trace(fmt, ...)
+  if TraceLog then TraceLog.warn("[BATTLE_ART_VOXEL_GEN2] " .. fmt, ...) end
+end
 local ChunkMesher = V.require("ChunkMesher")
 
 local OverworldBattle = {}
@@ -491,8 +498,8 @@ function OverworldBattle.finish()
   restoreCast()
   pcall(AnimatedBattleArt.finish, session.battle)
   StadiumModels.release()
-  if OverworldBattle.trace and session.battle then
-    trace("battle finished (shot frames drawn this fight: %s)",
+  if session.battle then
+    trace("battle finished (staged frames suppressed: %s)",
       tostring(OverworldBattle._suppressTrace and OverworldBattle._suppressTrace.n or 0))
     OverworldBattle._suppressTrace = nil
   end
@@ -647,10 +654,8 @@ function OverworldBattle.update(dt)
   -- over from the white/staging hold. One line per battle.
   if shot and shot.canvas and not session.firstShotLogged then
     session.firstShotLogged = true
-    if OverworldBattle.trace then
-      trace("first shot ready (token %s) -- billboards take over",
-        tostring(session.token))
-    end
+    trace("first shot ready (token %s) -- billboards take over",
+      tostring(session.token))
   end
 end
 
@@ -1195,17 +1200,6 @@ function OverworldBattle.install()
   -- does the whole job: one call, the player's branches alone, in the slot and
   -- at the scale the GB always put them -- feet on the box, 2x, back view.
   innerPics = BattleState.drawPicsLayer
-  local TraceLog = pcall(require, "src.core.Logger") and require("src.core.Logger")
-  -- Event logger for the staged-battle draw path. Logs the decisions that
-  -- decide what is actually on screen during a fight: whether a battle
-  -- staged, when its first shot exists, and every flat-pics draw that slips
-  -- through (or is suppressed) before then. Capped per battle so a normal
-  -- session cannot flood log.txt; the cap resets when the battle ends.
-  local function trace(fmt, ...)
-    if not TraceLog then return end
-    TraceLog.warn("[BATTLE_ART_VOXEL_GEN2] " .. fmt, ...)
-  end
-  OverworldBattle.trace = trace
   function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
     local shot = self.dramaticShapeShot
     if not shot then
