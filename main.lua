@@ -496,7 +496,9 @@ local SETTINGS = {
     .. "front art so it faces the opponent. DEFAULT preserves the image's "
     .. "authored direction, for sprite mods that already supply a flipped "
     .. "player picture such as Crystal Animated Sprites.",
-    when = function() return stagedBattles() end, full = true },
+    when = function()
+      return stagedBattles() and BattleArt.playerSide() == "front"
+    end, full = true },
   { UiBackplates.spriteLight,
     "SHADED lets the mons receive the world's day tint and cast shadows; "
     .. "UNLIT draws them flat and full bright. UNLIT is what the OG "

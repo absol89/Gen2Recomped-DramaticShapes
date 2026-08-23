@@ -1014,7 +1014,7 @@ function OverworldBattle.sideTexture(battle, side)
   -- FLIP FRONT SPRITE: DEFAULT marks an external player front that is already
   -- authored facing the foe, so BattleScene must not mirror it a second time.
   local playerNoMirror = side == "player"
-                         and not BattleArt.flipsPlayerFront()
+                         and not BattleArt.mirrorsPlayerSprite()
   return { canvas = canvas, ax = ax, ay = ay, trainer = trainer,
            noMirror = playerNoMirror }
 end

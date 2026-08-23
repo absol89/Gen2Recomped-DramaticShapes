@@ -103,6 +103,10 @@ function BattleArt.flipsPlayerFront()
   return BattleArt.frontFlipSetting:get() == "battle_art"
 end
 
+function BattleArt.mirrorsPlayerSprite()
+  return BattleArt.playerSide() == "front" and BattleArt.flipsPlayerFront()
+end
+
 -- Upgrade the two settings used through 1.7.8 without keeping two dead rows
 -- in the new schema. If the old front/back choices disagreed, MODDED wins: it
 -- is the only migration that does not silently take a user's modded art away.

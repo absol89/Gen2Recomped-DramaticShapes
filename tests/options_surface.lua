@@ -25,6 +25,11 @@ local playerAnim = assert(main:find("{ BattleArt.playerAnimationSetting,", 1, tr
 local frontAnim = assert(main:find("{ BattleArt.frontAnimationSetting,", 1, true))
 assert(playerAnim < frontAnim,
   "PLAYER ANIM is not exposed beside the animated Battle Art rows")
+local frontFlip = assert(main:find("{ BattleArt.frontFlipSetting,", 1, true))
+local spriteLight = assert(main:find("{ UiBackplates.spriteLight,", frontFlip, true))
+assert(main:sub(frontFlip, spriteLight - 1):find(
+  'BattleArt.playerSide() == "front"', 1, true),
+  "FLIP FRONT SPRITE remains visible for selected back sprites")
 
 local worldFill = assert(main:find("{ WorldUnderlay.setting,", 1, true))
 local nextSetting = assert(main:find("{ DayNight.setting,", worldFill, true))
