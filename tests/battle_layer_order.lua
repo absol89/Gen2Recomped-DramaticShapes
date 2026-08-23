@@ -12,6 +12,12 @@ local sideTextureEnd = assert(overworld:find(
 assert(overworld:sub(sideTexture, sideTextureEnd - 1):find(
   "not BattleArt.mirrorsPlayerSprite()", 1, true),
   "player capture does not respect front-versus-back mirror policy")
+local picHook = assert(overworld:find("function BattleState:picImage", 1, true))
+local externalBypass = assert(overworld:find(
+  "BattleArt.isExternal(img)", picHook, true))
+local romFill = assert(overworld:find("BattlePics.filled", externalBypass, true))
+assert(externalBypass < romFill,
+  "authored PNG transparency is not preserved before ROM paper reconstruction")
 local apply = assert(overworld:find("pcall(BattleArt.apply, battle)", sideTexture, true))
 local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, battle[side])", apply, true))
 local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true))

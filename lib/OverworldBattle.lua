@@ -156,6 +156,14 @@ function OverworldBattle.pinnedPic(battle, img)
   return (player and img == player.sprite) and true or false
 end
 
+-- Whether this is one of the two live Pokemon pictures rather than trainer
+-- art. Native Pokemon seal their lower silhouette; trainers keep an open stride.
+function OverworldBattle.isPokemonPic(battle, img)
+  if not (battle and img) then return false end
+  return ((battle.enemy and img == battle.enemy.sprite)
+          or (battle.player and img == battle.player.sprite)) and true or false
+end
+
 -- ------- both mons face you
 --
 -- Standing on a map, seen from in front, a Pokemon showing you its BACK is
@@ -1096,16 +1104,23 @@ function OverworldBattle.install()
   -- instead -- see BattlePics, which puts the paper back without touching
   -- the silhouette.
   --
-  -- The pinned pic is told that its feet are on the box, which is what lets
-  -- the pale-bodied back sprites be filled at all: their bellies leak out
-  -- through an opening too wide to read as a drain, and only the box under
-  -- them settles that it is not a hole. Passed the pre-bake image, because
-  -- that is the one the battle holds a reference to.
+  -- Authored PNGs already distinguish painted white from transparent void;
+  -- only decoded ROM art needs its keyed shade-0 paper reconstructed.
   local innerPic = BattleState.picImage
   function BattleState:picImage(img)
     local out = innerPic(self, img)
     if not OverworldBattle.shot() then return out end
-    return BattlePics.filled(out, OverworldBattle.pinnedPic(self, img))
+    local shinyPic = (self.enemy and img == self.enemy.sprite
+                      and BattleArt.isShiny(self.enemy))
+                  or (self.player and img == self.player.sprite
+                      and BattleArt.isShiny(self.player))
+    if BattleArt.isExternal(img) or BattleArt.isExternal(out)
+       or shinyPic then
+      return out
+    end
+    local pokemon = OverworldBattle.isPokemonPic(self, img)
+    return BattlePics.filled(
+      out, pokemon or OverworldBattle.pinnedPic(self, img))
   end
 
   -- While a billboard texture is being rendered both pics are put in the same
