@@ -88,6 +88,8 @@ local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
 local BattleExit = V.require("BattleExit")
 local BattleArt = V.require("BattleArt")
+local AnimatedBattleArt = V.require("AnimatedBattleArt")
+local InterfaceSprites = V.require("InterfaceSprites")
 local BattleStage = V.require("BattleStage")
 local BattlePresentation = V.require("BattlePresentation")
 local DayNight = V.require("DayNight")
@@ -487,6 +489,12 @@ local SETTINGS = {
     .. "authored direction, for sprite mods that already supply a flipped "
     .. "player picture such as Crystal Animated Sprites.",
     when = function() return stagedBattles() end, full = true },
+  { InterfaceSprites.setting,
+    "INTERFACE SPRITES: show BATTLE ART's regular-form FRONT outside battle. "
+    .. "Title and status support timed atlas animation; other hook-aware "
+    .. "screens use single-image sets or retain ROM art, independent of "
+    .. "DUPLICATE FIX (which owns only battle pictures). "
+    .. "MODDED leaves the interfaces to another sprite mod or the ROM." },
   -- Marked `full` on the battle rows' reasoning, and then some. FULL SETS this
   -- to SYNC on arrival (applyFull) because the diorama's sky should follow the
   -- clock on the wall; it used to HOLD it there and take the row away, which
@@ -1228,6 +1236,9 @@ mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,
 -- effects mods) read the same battler identity Battle Art staged.
 mod.exports.battleArt = BattleArt
+-- Hook-aware screens (title, summary, dex entry) pick up BATTLE ART fronts
+-- outside battle; every hook pcalls its screen module and skips on mismatch.
+InterfaceSprites.install()
 -- exposed so a companion mod can pin its own tiles' shapes or read the
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V
