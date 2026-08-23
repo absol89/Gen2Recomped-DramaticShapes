@@ -1171,6 +1171,35 @@ function OverworldBattle.install()
       Chrome.clear = clear
       if not ok then error(err, 0) end
     end)
+
+    -- Game2 first composes widescreen screens into a window-sized scene
+    -- canvas, then offers that finished canvas through render.compose. Keep
+    -- only its integer-scaled GB panel (HUD, menu and battle glyphs) and put
+    -- it over the arena's native-resolution full-window surround. This drops
+    -- BattleState:drawWidescreen's paper-white clear without replacing the
+    -- screen method or depending on a Gen 1 renderer override.
+    V.mod.hooks:wrap("render.compose", function(next, renderer, ctx)
+      if next(renderer, ctx) == true then return true end
+      local shot = OverworldBattle.shot()
+      local scene = ctx and (ctx.sceneCanvas or ctx.uiCanvas)
+      if not (isGen2BattleState(session and session.battle)
+              and shot and shot.canvas and scene) then
+        return false
+      end
+
+      local g = love.graphics
+      local sw, sh = shot.canvas:getDimensions()
+      local fw, fh = ctx.ww or sw, ctx.wh or sh
+      g.setColor(1, 1, 1, 1)
+      g.draw(shot.canvas, 0, 0, 0, fw / sw, fh / sh)
+
+      local cw, ch = scene:getDimensions()
+      local ox, oy = ctx.ox or 0, ctx.oy or 0
+      local pw, ph = ctx.vpw or cw, ctx.vph or ch
+      local quad = g.newQuad(ox, oy, pw, ph, cw, ch)
+      g.draw(scene, quad, ox, oy)
+      return true
+    end)
     BattleState.dramaticShapeBattleHook = true
     return
   end
