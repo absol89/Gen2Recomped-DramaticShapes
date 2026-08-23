@@ -47,6 +47,7 @@ local BattleHud = V.require("BattleHud")
 local BattlePics = V.require("BattlePics")
 local BattlePresentation = V.require("BattlePresentation")
 local BattleArt = V.require("BattleArt")
+local BattleVisibility = V.require("BattleVisibility")
 local UiBackplates = V.require("UiBackplates")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
 local StadiumModels = V.require("StadiumModels")
@@ -945,19 +946,7 @@ end
 -- Whether this side has anything to draw at all. Mirrors drawPicsLayer's own
 -- guards, so an empty canvas is never hung on a quad: a fainted, hidden or
 -- not-yet-sent-out mon simply has no billboard this frame.
-local function sideVisible(battle, side)
-  if side == "enemy" then
-    if battle.showEnemyTrainer and battle.trainerPic then return true end
-    return (battle.enemy and battle.enemy.sprite and not battle.enemyHidden
-            and not battle.enemySendingOut
-            and not battle:fxHidden(battle.enemy)) and true or false
-  end
-  if battle.showPlayerBack and battle.playerBackPic then return true end
-  local hide = battle.safari or battle.demo
-  return (battle.player and battle.player.sprite and not hide
-          and not battle.sendingOut
-          and not battle:fxHidden(battle.player)) and true or false
-end
+OverworldBattle.sideVisible = BattleVisibility.sideVisible
 
 local OFF = {
   enemy = { player = false, showPlayerBack = false },
@@ -974,7 +963,7 @@ function OverworldBattle.sideTexture(battle, side)
   -- (DUPLICATE FIX) makes apply() a no-op for species and leaves the
   -- underlying sprite provider's answer in place.
   pcall(BattleArt.apply, battle)
-  if not sideVisible(battle, side) then return nil end
+  if not OverworldBattle.sideVisible(battle, side) then return nil end
   local canvas = texCanvasFor(side)
   if not canvas then return nil end
 
