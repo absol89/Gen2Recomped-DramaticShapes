@@ -90,6 +90,7 @@ local BattleExit = V.require("BattleExit")
 local BattleArt = V.require("BattleArt")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
 local InterfaceSprites = V.require("InterfaceSprites")
+local WorldUnderlay = V.require("WorldUnderlay")
 local BattleStage = V.require("BattleStage")
 local BattlePresentation = V.require("BattlePresentation")
 local DayNight = V.require("DayNight")
@@ -495,6 +496,15 @@ local SETTINGS = {
     .. "screens use single-image sets or retain ROM art, independent of "
     .. "DUPLICATE FIX (which owns only battle pictures). "
     .. "MODDED leaves the interfaces to another sprite mod or the ROM." },
+  { WorldUnderlay.setting,
+    "Choose the solid outdoor world beneath terrain holes and beyond map edges: "
+    .. "CYAN or BLACK. OFF/KFP leaves the underlay to Kanto First Person. "
+    .. "NATURE uses a black underlay and continues each biome beyond loaded "
+    .. "ROM cells with stable random-sized tree or rock billboards. "
+    .. "Indoor horizons automatically match "
+    .. "the room's own border/void material so the finite map ring cannot reveal "
+    .. "a differently coloured infinite fill behind it.",
+    full = true },
   -- Marked `full` on the battle rows' reasoning, and then some. FULL SETS this
   -- to SYNC on arrival (applyFull) because the diorama's sky should follow the
   -- clock on the wall; it used to HOLD it there and take the row away, which
