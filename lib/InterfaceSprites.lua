@@ -531,9 +531,10 @@ function InterfaceSprites.installDexList()
     local result = originalDraw(self, ...)
     local item = self and self.items and self.items[self.index]
     local preview = dexListPreview(item and item.value)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", 6, 6, 58, 60)
+    love.graphics.rectangle("fill", 64, 5, 1, 126)
     if preview then
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.rectangle("fill", 6, 6, 58, 60)
       love.graphics.draw(preview.image, preview.x, preview.y)
     end
     return result

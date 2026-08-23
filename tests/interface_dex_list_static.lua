@@ -17,6 +17,14 @@ local listBlock = interface:sub(listDraw, entryDraw - 1)
 assert(listBlock:find('love.graphics.setColor(1, 1, 1, 1)', 1, true)
   and listBlock:find('love.graphics.rectangle("fill", 6, 6, 58, 60)', 1, true),
   "Pokedex list preview does not restore its white paper backdrop")
+local fill = assert(listBlock:find(
+  'love.graphics.rectangle("fill", 6, 6, 58, 60)', 1, true))
+local previewGuard = assert(listBlock:find("if preview then", 1, true))
+assert(fill < previewGuard,
+  "Pokedex list preview turns black on an empty entry")
+assert(listBlock:find(
+  'love.graphics.rectangle("fill", 64, 5, 1, 126)', 1, true),
+  "Pokedex left panels are missing their shared white divider")
 assert(interface:find("InterfaceSprites.installDex()", 1, true),
   "selected Pokedex entry page lost its animated playback")
 assert(interface:find("function InterfaceSprites.installDex()", 1, true),
