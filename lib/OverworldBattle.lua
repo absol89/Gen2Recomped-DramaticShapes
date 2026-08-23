@@ -925,6 +925,7 @@ local texturing = nil
 
 local texCanvas = {}
 local innerPics = nil                   -- captured by install()
+local stagedPics = nil                  -- our class wrapper, immune to instance overrides
 local innerHUDs = nil                   -- likewise, for the snapped HUD layer
 -- (innerAnim, their sibling, is declared up beside animTexture, which
 -- sits earlier in the chunk than this group and must see the local)
@@ -1177,7 +1178,13 @@ function OverworldBattle.install()
     -- canvas; there is a world out to the window edges now
     self.letterboxWhite = false
     OverworldBattle.drawHudPanels(self)
-    withoutBackgroundFill(self, innerDraw)
+    -- A per-state decorator can shadow the class method and revive flat ROM
+    -- pics. Pin this draw to the staged wrapper, then restore its exact seam.
+    local instancePics = rawget(self, "drawPicsLayer")
+    self.drawPicsLayer = stagedPics
+    local ok, err = pcall(withoutBackgroundFill, self, innerDraw)
+    self.drawPicsLayer = instancePics
+    if not ok then error(err, 0) end
   end
 
   -- The mons are geometry standing on the map now, drawn in the 3D pass
@@ -1232,6 +1239,7 @@ function OverworldBattle.install()
                       skipMenuClip)
     end
   end
+  stagedPics = BattleState.drawPicsLayer
   -- The battle's text box and its menus, over the frosted glass laid down for
   -- them rather than over their own white paper -- and their ink flipped with
   -- the HUD's when the ground under the frame is dark, by the same rule and

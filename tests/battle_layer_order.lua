@@ -20,6 +20,15 @@ assert(capture < render and render < hud,
 assert(overworld:find("if shot.animInWorld then return end", 1, true),
   "the duplicate UI animation layer is not suppressed")
 
+local stagedPics = assert(overworld:find("stagedPics = BattleState.drawPicsLayer", 1, true))
+local pinPics = assert(overworld:find("self.drawPicsLayer = stagedPics", 1, true))
+local uiDraw = assert(overworld:find(
+  "pcall(withoutBackgroundFill, self, innerDraw)", pinPics, true))
+local restorePics = assert(overworld:find(
+  "self.drawPicsLayer = instancePics", uiDraw, true))
+assert(stagedPics > restorePics and pinPics < uiDraw and uiDraw < restorePics,
+  "staged draws do not transactionally defeat per-state picture overrides")
+
 local scene = source("lib/BattleScene.lua")
 local effect = assert(scene:find("BattleScene.fxCard", 1, true))
 local effectDraw = assert(scene:find("BattleBillboard.PULL + 6", effect, true))
