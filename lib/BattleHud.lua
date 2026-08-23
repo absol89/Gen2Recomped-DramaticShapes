@@ -373,6 +373,29 @@ end
 -- whiten the terrain behind the glyphs along with them.
 local hudLayer = nil
 
+-- v0.7.20's flat HUD path asks for EXPBAR color 3, the darker blue. Gen2's
+-- bar uses color 2. Substitute it only while the detached HUD is captured;
+-- the engine's ordinary zone-colored battle path remains untouched.
+function BattleHud.withBrightExpBar(fn)
+  local okPalette, PaletteFX = pcall(require, "src.render.PaletteFX")
+  if not (okPalette and PaletteFX and type(PaletteFX.pal) == "function") then
+    return fn()
+  end
+  local pal = PaletteFX.pal
+  PaletteFX.pal = function(data, name)
+    local colors = pal(data, name)
+    if name ~= "EXPBAR" or not (colors and colors[2]) then return colors end
+    local bright = {}
+    for key, color in pairs(colors) do bright[key] = color end
+    bright[3] = colors[2]
+    return bright
+  end
+  local ran, result = pcall(fn)
+  PaletteFX.pal = pal
+  if not ran then error(result, 0) end
+  return result
+end
+
 function BattleHud.layerTexture(w, h, dark, fn)
   if not hudLayer or hudLayer:getWidth() ~= w or hudLayer:getHeight() ~= h then
     hudLayer = canvasOf(w, h, "nearest")
