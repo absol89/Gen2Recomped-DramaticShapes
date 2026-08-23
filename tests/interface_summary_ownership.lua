@@ -14,7 +14,6 @@ love = { graphics = {
   end,
 } }
 local native = { updates = 0 }
-local nativeScale = 1
 function native:update() self.updates = self.updates + 1 end
 function native:image() return rom end
 
@@ -30,8 +29,7 @@ end
 function SummaryMenu:draw()
   self.drawn = (self.picAnim and self.picAnim:image()) or self.sprite
   local width = self.drawn:getWidth()
-  local x = nativeScale < 0 and 8 + width or 8
-  love.graphics.draw(self.drawn, x, 0, 0, nativeScale, 1)
+  love.graphics.draw(self.drawn, 8 + width, 0, 0, -1, 1)
 end
 package.loaded["src.ui.SummaryMenu"] = SummaryMenu
 
@@ -72,13 +70,12 @@ assert(native.updates == 0, "suppressed native summary animation still advanced"
 summary:draw()
 assert(summary.drawn == replacement, "summary did not draw replacement art")
 assert(drawn[2] == 64 and drawn[5] == -1,
-  "BATTLE ART did not force a mirrored summary front")
+  "BATTLE ART no longer mirrors the summary front sprite")
 
 flipFront = false
-nativeScale = -1
 summary:draw()
 assert(drawn[2] == 8 and drawn[5] == 1,
-  "DEFAULT did not force authored summary orientation")
+  "DEFAULT did not preserve summary sprite orientation")
 
 interfaceMode = "off"
 summary:draw()
