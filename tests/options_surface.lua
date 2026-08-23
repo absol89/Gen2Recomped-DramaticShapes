@@ -33,4 +33,22 @@ assert(main:sub(worldFill, nextSetting - 1):find("managerOnly = true", 1, true),
 assert(main:find("local offered = not entry.managerOnly", 1, true),
   "the in-game options menu does not honor manager-only settings")
 
+local presentation = assert(main:find(
+  "local function applyPresentationDefaults", 1, true))
+local rowsHook = assert(main:find(
+  'mod.hooks:wrap("ui.options.rows"', presentation, true))
+local preset = main:sub(presentation, rowsHook - 1)
+assert(preset:find('opts.colors = "redpp"', 1, true),
+  "COLORS does not start at ADVANCED")
+assert(preset:find('opts.uiLayout = "centered"', 1, true),
+  "UI LAYOUT does not start CENTERED")
+for _, event in ipairs({ "save.loaded", "save.created" }) do
+  local handler = assert(main:find(
+    'mod.events:on("' .. event .. '"', 1, true))
+  local handlerEnd = assert(main:find("end)", handler, true))
+  assert(main:sub(handler, handlerEnd):find(
+    "applyPresentationDefaults()", 1, true),
+    event .. " does not apply the presentation defaults")
+end
+
 print("options surface regression: ok")

@@ -840,6 +840,20 @@ local function pinEngineFx(game)
   if changed and game.writeOptions then pcall(game.writeOptions, game) end
 end
 
+-- The staged composition is authored against ADVANCED (RED++) and the original
+-- centered 160x144 furniture. Apply that presentation when a journey starts,
+-- then leave both engine rows live so the player can change either afterward.
+local function applyPresentationDefaults(game)
+  game = game or require("src.core.Game")
+  local opts = game and game.save and game.save.options
+  if not opts then return end
+  local changed = opts.colors ~= "redpp" or opts.uiLayout ~= "centered"
+  opts.colors = "redpp"
+  opts.uiLayout = "centered"
+  pcall(require("src.render.PaletteFX").setMode, "redpp")
+  if changed and game.writeOptions then pcall(game.writeOptions, game) end
+end
+
 -- call next() first and decorate what comes back, so every other mod's
 -- rows survive this one
 mod.hooks:wrap("ui.options.rows", function(next, game, rows)
@@ -1256,11 +1270,13 @@ mod.events:on("save.loaded", function()
   -- pinEngineFx). Answered here rather than only when the menu opens, so a
   -- player who never opens it is not left playing under one.
   pinEngineFx()
+  applyPresentationDefaults()
 end)
 
 mod.events:on("save.created", function()
   DayNight.restore()
   pinEngineFx()
+  applyPresentationDefaults()
 end)
 
 -- The engine's own time-of-day seam. OverworldState:timeOfDay() is an
