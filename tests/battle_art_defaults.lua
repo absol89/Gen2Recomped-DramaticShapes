@@ -27,6 +27,10 @@ assert(settings.battleArt.values[2] == "static"
 assert(settings.trainerArtSet.values[1] == "rom"
   and settings.trainerArtSet.labels[1] == "ROM",
   "fresh installs do not default opponent trainer art to ROM")
+assert(BattleArt.playerArtSetting:get() == "gen2",
+  "fresh installs do not default static player art to Gen 2")
+assert(BattleArt.playerAnimationSetting:get() == "gen2",
+  "fresh installs do not default animated player art to Gen 2")
 
 assert(not BattleArt.mirrorsPlayerSprite(),
   "default selected back sprites are incorrectly mirrored")

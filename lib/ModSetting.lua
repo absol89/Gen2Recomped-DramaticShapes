@@ -31,11 +31,13 @@ local function modId()
 end
 
 -- `values` are the stored values in ladder order and `labels` what the row
--- shows for each; values[1] is the default, and the one an unreadable or
--- unrecognised stored value falls back to.
-function ModSetting.new(key, label, values, labels)
+-- shows for each. `defaultIndex` selects the fresh-install and fallback value.
+function ModSetting.new(key, label, values, labels, defaultIndex)
+  defaultIndex = tonumber(defaultIndex) or 1
+  if defaultIndex < 1 or defaultIndex > #values then defaultIndex = 1 end
   return setmetatable({
     key = key, label = label, values = values, labels = labels,
+    defaultIndex = defaultIndex,
     index = nil,          -- nil = not yet read back from the persisted options
   }, ModSetting)
 end
@@ -44,7 +46,7 @@ local function indexOf(self, value)
   for i, v in ipairs(self.values) do
     if v == value then return i end
   end
-  return 1
+  return self.defaultIndex
 end
 
 -- What the player left it at last session. Read lazily rather than at load
@@ -126,7 +128,7 @@ function ModSetting:schema(help)
              default = self.values[1], help = help }
   end
   return { key = self.key, type = "choice", label = self.label,
-           choices = choices, default = self.values[1], help = help }
+           choices = choices, default = self.values[self.defaultIndex], help = help }
 end
 
 return ModSetting

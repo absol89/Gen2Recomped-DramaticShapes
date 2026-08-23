@@ -29,13 +29,13 @@ BattleArt.trainerSetting = ModSetting.new(
 BattleArt.playerArtSetting = ModSetting.new(
   "playerArtSet", "PLAYER ART",
   { "png", "gen1", "gen2", "gen3", "gen4", "gen5", "ash", "gary", "boy", "lass", "hilbert", "rom" },
-  { "PNG", "GEN 1", "GEN 2", "GEN 3", "GEN 4", "GEN 5", "ASH", "GARY", "BOY", "LASS", "HILBERT", "ROM" })
+  { "PNG", "GEN 1", "GEN 2", "GEN 3", "GEN 4", "GEN 5", "ASH", "GARY", "BOY", "LASS", "HILBERT", "ROM" }, 3)
 BattleArt.playerAnimationSetting = ModSetting.new(
   "playerAnimatedSet", "PLAYER ANIM",
   { "png", "gen1", "gen2", "gen3", "gen4", "gen5", "ash", "gary", "red",
     "ash_front", "misty_front", "brock_front", "bulma_front", "gary_front", "rom" },
   { "PNG", "GEN 1", "GEN 2", "GEN 3", "GEN 4", "GEN 5", "ASH", "GARY", "RED",
-    "ASH FRONT", "MISTY FRONT", "BROCK FRONT", "BULMA FRONT", "GARY FRONT", "ROM" }, 9)
+    "ASH FRONT", "MISTY FRONT", "BROCK FRONT", "BULMA FRONT", "GARY FRONT", "ROM" }, 3)
 -- One owner for species pictures. BATTLE ART keeps this mod's selected front
 -- and back collections in charge, including its imported shiny children.
 -- MODDED leaves every Pokemon picture to the underlying sprite provider (or
