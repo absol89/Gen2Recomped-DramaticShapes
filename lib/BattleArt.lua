@@ -7,7 +7,7 @@ local BattleArt = {}
 local SPECIES_BY_DEX = V.data("battle_species_dex_386")
 
 BattleArt.setting = ModSetting.new("battleArt", "BATTLE ART",
-  { "static", "animated", "rom" }, { "STATIC", "ANIMATED", "ROM" }, 2)
+  { "animated", "static", "rom" }, { "ANIMATED", "STATIC", "ROM" })
 BattleArt.frontAnimationSetting = ModSetting.new("frontAnimatedSet", "ANIM FRONT GEN",
   { "gen1", "gen2", "gen3", "gen4", "gen5" },
   { "GEN 1", "GEN 2", "GEN 3", "GEN 4", "GEN 5" }, 5)
