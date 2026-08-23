@@ -418,6 +418,23 @@ BattleScene.FLASH_STRENGTH = 0.5
 -- one place that means "a staged battle is drawing this frame, and the
 -- overworld is not". From the update hook the condition would have to be
 -- guessed at, and a frame where both ran would double the rate.
+-- SPRITE LIGHT: UNLIT needs per-draw uniform sends. This fork's Voxel3D
+-- sends dayTint/sunDark once per beginScene, so the card pass re-sends them
+-- itself (the shader stays bound, so mid-scene sends land) and restores the
+-- scene values afterwards.
+local function setUnlit(on)
+  local sh = Voxel3D.shader()
+  if not sh then return end
+  if on then
+    pcall(sh.send, sh, "dayTint", { 1, 1, 1 })
+    pcall(sh.send, sh, "sunDark", 0)
+  else
+    pcall(sh.send, sh, "dayTint", Voxel3D.tint or { 1, 1, 1 })
+    pcall(sh.send, sh, "sunDark",
+          ShadowMap.active() and Voxel3D.SHADOW_ALPHA or 0)
+  end
+end
+
 local function tickTiles()
   local Game = require("src.core.Game")
   local ow = Game and Game.overworld
@@ -589,8 +606,8 @@ function BattleScene.render(state, arena, textures, token, battle)
     -- shadow (nil snug) and no hour tint, so night or a cave does not dim
     -- it. SHADED (the default) keeps both, as intended.
     local unlit = UiBackplates.spritesUnlit()
-    local savedTint = Voxel3D.tint
-    if unlit then Voxel3D.tint = { 1, 1, 1 } end
+    if unlit then setUnlit(true) end
+
     for _, card in ipairs(monCards(arena, groundY, textures)) do
       if not StadiumModels.uses(stadium, card.side) then
         -- the sun stored this card snugged (castShadows), so its own shadow
@@ -632,7 +649,7 @@ function BattleScene.render(state, arena, textures, token, battle)
         end
       end
     end
-    if unlit then Voxel3D.tint = savedTint end
+    if unlit then setUnlit(false) end
     Voxel3D.glass(true)
     Voxel3D.seams(true)
     if flashing then Voxel3D.flatten(nil) end
