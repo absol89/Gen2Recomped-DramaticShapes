@@ -434,6 +434,13 @@ function AnimatedBattleArt.hasWorldBack(battler)
          and battler.sprite == currentImage(state) or false
 end
 
+-- nil is unmanaged; false means another provider replaced the active frame.
+function AnimatedBattleArt.ownsFrame(battler)
+  local state = battler and states[battler]
+  if not state then return nil end
+  return battler.sprite == currentImage(state)
+end
+
 -- UI scaling needs to distinguish any supplied native-resolution player image
 -- (the static PNG or an animated atlas frame) from the ROM's deliberately
 -- half-resolution back picture. Both occupy the same engine field, but only

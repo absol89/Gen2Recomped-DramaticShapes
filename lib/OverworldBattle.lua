@@ -500,6 +500,11 @@ function OverworldBattle.finish()
   pcall(AnimatedBattleArt.finish, session.battle)
   StadiumModels.release()
   if session.battle then
+    local audit = session.animAudit
+    if audit then
+      trace("animated enemy ownership: misses=%d managed_frames=%d",
+        audit.misses, audit.frames)
+    end
     trace("battle finished (staged frames suppressed: %s)",
       tostring(OverworldBattle._suppressTrace and OverworldBattle._suppressTrace.n or 0))
     OverworldBattle._suppressTrace = nil
@@ -567,22 +572,17 @@ function OverworldBattle.update(dt)
   -- inside somebody else's frame means putting the frame back afterwards.
   local okTex, textures = pcall(OverworldBattle.textures, session.battle)
   if not okTex then textures = nil end
-  -- TEMP DIAGNOSTIC: did BattleArt.apply install replacement art? (Logger ->
-  -- engine log; plain print does not land there in fused builds.)
-  pcall(function()
-    local L = require("src.core.Logger")
-    local b = session.battle
-    local function speciesOf(battler)
-      local mon = battler and (battler.mon or battler)
-      return mon and tostring(mon.species) or "?"
+  local owned = AnimatedBattleArt.ownsFrame(
+    session.battle and session.battle.enemy)
+  if owned ~= nil then
+    local audit = session.animAudit
+    if not audit then
+      audit = { frames = 0, misses = 0 }
+      session.animAudit = audit
     end
-    L.info("[BATTLE_ART_VOXEL_GEN2] tex: ok=%s enemySprite=%s playerSprite=%s species=%s/%s trainerPic=%s",
-      tostring(okTex),
-      type(b and b.enemy and b.enemy.sprite),
-      type(b and b.player and b.player.sprite),
-      speciesOf(b and b.enemy), speciesOf(b and b.player),
-      tostring(b and b.trainerPic ~= nil))
-  end)
+    audit.frames = audit.frames + 1
+    if not owned then audit.misses = audit.misses + 1 end
+  end
   -- stashed for the VR eye pass, which stands these same pics on the map
   -- in ITS view of the world (VoxelScene's eyes path). Stashed HERE
   -- because rendering them binds canvases, which the eye pass -- mid-scene

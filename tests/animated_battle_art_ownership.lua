@@ -62,13 +62,21 @@ local battle = { enemy = enemy }
 
 AnimatedBattleArt.update(battle, 0)
 assert(enemy.sprite == frames[1], "Battle Art did not claim the first frame")
+assert(AnimatedBattleArt.ownsFrame(enemy) == true,
+  "claimed frame was not reported as owned")
 
-enemy.sprite = foreign
-AnimatedBattleArt.update(battle, 0.05)
-assert(enemy.sprite == frames[2],
-  "a foreign sprite refresh reset animation ownership")
+for tick = 1, 180 do
+  enemy.sprite = foreign
+  assert(AnimatedBattleArt.ownsFrame(enemy) == false,
+    "foreign refresh was not visible to the ownership audit")
+  AnimatedBattleArt.update(battle, 1 / 60)
+  assert(AnimatedBattleArt.ownsFrame(enemy) == true,
+    "a foreign sprite refresh reset animation ownership at tick " .. tick)
+end
 
 AnimatedBattleArt.finish(battle)
 assert(enemy.sprite == rom, "finishing did not restore the original sprite")
+assert(AnimatedBattleArt.ownsFrame(enemy) == nil,
+  "finished battler remained managed")
 
 print("animated battle-art ownership regression: ok")
