@@ -1429,11 +1429,9 @@ end
 -- in-frame draw must be skipped; false leaves the battle screen's own HUD
 -- exactly as it was before any of this existed.
 --
--- Both bands are blitted whether or not that side's HUD is LIVE, because a band
--- carries more than the HUD: the pokeball rows of the intro and of an enemy
--- faint, and the safari ball count, all draw in these rows and belong at the
--- same edge as the block they share it with. The panels are the ones that
--- follow hudLive -- frosted glass under nothing is a slab floating in the arena.
+-- Both bands are blitted whether or not that side's HUD is live: they also
+-- carry intro balls and the safari count. HUD glyphs draw directly over the
+-- world; only text boxes retain frosted glass.
 function OverworldBattle.snapHUDs(battle, shot)
   if not (battle and shot and shot.canvas and (shot.scale or 0) > 0) then
     return false
@@ -1448,21 +1446,22 @@ function OverworldBattle.snapHUDs(battle, shot)
   local slide = (battle.introSlide or 0) * 4
   local rects, bandX = OverworldBattle.snapRects(shot)
   local enemy, player = OverworldBattle.hudLive(battle, slide)
-  local live = {}
-  if enemy then live.enemy = rects.enemy end
-  if player then live.player = rects.player end
+  local readable, panels = {}, {}
+  if enemy then readable.enemy = rects.enemy end
+  if player then readable.player = rects.player end
   -- and the text box's own glass, on the same pass. It stays in the middle of
   -- the frame where the engine draws it -- only the HUDs were snapped out --
   -- so its GB rect is mapped into the letterbox rather than to an edge.
   for key, rect in pairs(OverworldBattle.textRects(battle)) do
-    live[key] = toWorld(rect, shot)
+    local worldRect = toWorld(rect, shot)
+    readable[key], panels[key] = worldRect, worldRect
   end
   -- measured under the SNAPPED rects: the panels are over whatever the world
   -- shows at the window's edges now, which is not what was behind them in the
   -- middle of the frame. ONE verdict over all of them, HUDs and box together,
   -- for the reason BattleHud.verdict gives: a frame with white glyphs in the
   -- corner and black ones on the menu reads as a bug rather than as adaptation.
-  local dark = BattleHud.verdict(live, shot, true)
+  local dark = BattleHud.verdict(readable, shot, true)
   -- the box's own ink is flipped where the engine draws it, in the GB frame,
   -- so the answer has to outlive this function (see drawHudPanels)
   if session then session.dark = dark end
@@ -1475,7 +1474,7 @@ function OverworldBattle.snapHUDs(battle, shot)
   local ok, err = pcall(function()
     g.setCanvas(shot.canvas)
     g.setBlendMode("alpha")
-    for _, rect in pairs(live) do BattleHud.panel(rect, shot, dark, true) end
+    for _, rect in pairs(panels) do BattleHud.panel(rect, shot, dark, true) end
     g.setColor(1, 1, 1, 1)
     for side, band in pairs(OverworldBattle.HUD_BAND) do
       local quad = g.newQuad(band[1], band[2], band[3], band[4],
@@ -1491,8 +1490,7 @@ function OverworldBattle.snapHUDs(battle, shot)
   return true
 end
 
--- Lay the frosted glass down under whichever HUD and box are about to draw,
--- and record which way the glyphs have to flip.
+-- Lay frosted glass under text boxes and record which way all UI ink flips.
 --
 -- The panels are the fallback path only: normally the HUDs are snapped out to
 -- the window's edges and their glass, and the box's, went into the world image
@@ -1503,14 +1501,6 @@ function OverworldBattle.drawHudPanels(battle)
   battle.dramaticShapeDark = nil
   if not shot then return end
   if isIOS() then
-    local slide = (battle.introSlide or 0) * 4
-    local enemy, player = OverworldBattle.hudLive(battle, slide)
-    local rect = OverworldBattle.HUD_RECT
-    love.graphics.setColor(1, 1, 1, 0.84)
-    if enemy then love.graphics.rectangle("fill", rect.enemy[1], rect.enemy[2], rect.enemy[3], rect.enemy[4]) end
-    if player then love.graphics.rectangle("fill", rect.player[1], rect.player[2], rect.player[3], rect.player[4]) end
-    love.graphics.setColor(1, 1, 1, 1)
-    battle.dramaticShapeDark = nil
     return
   end
   if snapped() then
@@ -1520,14 +1510,16 @@ function OverworldBattle.drawHudPanels(battle)
   local slide = (battle.introSlide or 0) * 4
   local enemy, player = OverworldBattle.hudLive(battle, slide)
   local rect = OverworldBattle.HUD_RECT
-  local live = {}
-  if enemy then live.enemy = rect.enemy end
-  if player then live.player = rect.player end
-  for key, r in pairs(OverworldBattle.textRects(battle)) do live[key] = r end
-  if not next(live) then return end
-  local dark = BattleHud.verdict(live, shot)
+  local readable, panels = {}, {}
+  if enemy then readable.enemy = rect.enemy end
+  if player then readable.player = rect.player end
+  for key, r in pairs(OverworldBattle.textRects(battle)) do
+    readable[key], panels[key] = r, r
+  end
+  if not next(readable) then return end
+  local dark = BattleHud.verdict(readable, shot)
   battle.dramaticShapeDark = dark
-  for _, r in pairs(live) do BattleHud.panel(r, shot, dark) end
+  for _, r in pairs(panels) do BattleHud.panel(r, shot, dark) end
 end
 
 return OverworldBattle
