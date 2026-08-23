@@ -86,7 +86,14 @@ $worldFillFiles = @(Get-ChildItem -LiteralPath $worldFillRoot -Recurse -File -Fo
   } |
   ForEach-Object { Relative-Path $_.FullName })
 
-$entries = @($source + $battleDirs + $battleFiles + $worldFillDirs + $worldFillFiles | Sort-Object -Unique)
+# The OpenXR loader DLL is read through mod:read at runtime (VRXR): tracked in
+# git, so a clean checkout has it and the clean package must ship it too.
+$vrFiles = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\vr') `
+  -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+    Relative-Path $_.FullName
+  })
+
+$entries = @($source + $battleDirs + $battleFiles + $worldFillDirs + $worldFillFiles + $vrFiles | Sort-Object -Unique)
 if (-not $entries.Count) { throw "no package entries found" }
 
 if (Test-Path -LiteralPath $Output) {

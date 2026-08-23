@@ -68,7 +68,13 @@ $worldFill = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\world-fill') 
     $relative = Relative-Path $_.FullName
     if (-not (Test-ExcludedFolder $relative)) { $relative }
   })
-$files = @($source + $contracts + $localArt + $worldFill | Sort-Object -Unique)
+# The OpenXR loader DLL is read through mod:read at runtime (VRXR); without it
+# every VR session fails from an installed zip even though it works from git.
+$vrRuntime = @(Get-ChildItem -LiteralPath (Join-Path $repo 'assets\vr') `
+  -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+    Relative-Path $_.FullName
+  })
+$files = @($source + $contracts + $localArt + $worldFill + $vrRuntime | Sort-Object -Unique)
 if (-not $files.Count) { throw "no package files found" }
 
 if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Force }
