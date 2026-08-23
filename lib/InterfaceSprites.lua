@@ -77,6 +77,7 @@ end
 local titleStates = setmetatable({}, { __mode = "k" })
 local summaryStates = setmetatable({}, { __mode = "k" })
 local dexStates = setmetatable({}, { __mode = "k" })
+local dexListStates = setmetatable({}, { __mode = "k" })
 local summarySources = setmetatable({}, { __mode = "k" })
 local titleSources = {}
 local dexSources = {}
@@ -400,6 +401,7 @@ function InterfaceSprites.install()
 
   InterfaceSprites.installSummary()
   InterfaceSprites.installTitle()
+  InterfaceSprites.installDexList()
   InterfaceSprites.installDex()
 end
 
@@ -472,6 +474,52 @@ function InterfaceSprites.installSummary()
 end
 
 local dexInstalled = false
+local dexListInstalled = false
+
+-- Gen 2's main Pokedex list owns a separate static 56x56 preview. Temporarily
+-- lend that slot our current frame while it draws, then restore its ROM cache.
+function InterfaceSprites.installDexList()
+  if dexListInstalled then return end
+  local ok, ListMenu = pcall(require, "src.ui.ListMenu")
+  if not (ok and ListMenu and ListMenu.drawGen2Dex) then return end
+  local originalDraw, originalUpdate = ListMenu.drawGen2Dex, ListMenu.update
+  if type(originalUpdate) == "function" then
+    ListMenu.update = function(self, dt, ...)
+      local result = originalUpdate(self, dt, ...)
+      advance(dexListStates[self], dt)
+      return result
+    end
+  end
+  ListMenu.drawGen2Dex = function(self, ...)
+    local item = self and self.items and self.items[self.index]
+    local species = item and item.value
+    local cached = self and self.dexPics and self.dexPics[species]
+    local state = selectedPlayback(self, dexListStates, species,
+      species and dexSources[species] or cached)
+    local frame
+    if state then
+      if not state.dexListFrames then
+        state.dexListFrames = BattleArt.fitPreparedFrames
+          and BattleArt.fitPreparedFrames(state.frames, 56, 56)
+          or state.frames
+      end
+      frame = state.dexListFrames[state.frame]
+      self.dexPics = self.dexPics or {}
+      self.dexPics[species] = frame
+    end
+
+    local drew, result = pcall(originalDraw, self, ...)
+    if frame then
+      self.dexPics[species] = cached
+      local P = require("src.render.PaletteFX")
+      local w, h = frame:getDimensions()
+      P.markTrueColor(8, 8, w, h)
+    end
+    if not drew then error(result, 0) end
+    return result
+  end
+  dexListInstalled = true
+end
 
 -- DexEntryMenu is another Image-object owner: returning a Gen 2-5 atlas path
 -- through pokemon.sprite only makes its static loader draw the whole sheet (or
