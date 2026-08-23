@@ -87,6 +87,8 @@ local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
 local BattleExit = V.require("BattleExit")
+local BattleStage = V.require("BattleStage")
+local BattlePresentation = V.require("BattlePresentation")
 local DayNight = V.require("DayNight")
 local DayTint = V.require("DayTint")
 local Water = V.require("Water")
@@ -1168,6 +1170,8 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
 end)
 
 mod.exports.version = "1.5.5"
+mod.exports.battleStage = BattleStage.export(OverworldBattle)
+mod.exports.battlePresentation = BattlePresentation.export()
 -- exposed so a companion mod can pin its own tiles' shapes or read the
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V

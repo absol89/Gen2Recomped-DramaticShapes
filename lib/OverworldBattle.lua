@@ -1136,6 +1136,7 @@ function OverworldBattle.install()
   local innerText = BattleState.drawTextArea
   function BattleState:drawTextArea()
     if not self.dramaticShapeShot then return innerText(self) end
+    if BattlePresentation.suppressed("text", self) then return end
     if isIOS() then return innerText(self) end
     local battle = self
     if not self.dramaticShapeDark then return withoutBoxFill(battle, innerText) end
@@ -1245,6 +1246,8 @@ function OverworldBattle.install()
   -- only an exactly-black set is remapped.
   innerHUDs = BattleState.drawHUDs
   function BattleState:drawHUDs(slide)
+    if self.dramaticShapeShot
+       and BattlePresentation.suppressed("hud", self) then return end
     -- Normally the HUDs have already been drawn this frame, snapped out to the
     -- window's edges and composited into the world image (snapHUDs). Drawing
     -- them here as well would show each block twice, once in each place.
