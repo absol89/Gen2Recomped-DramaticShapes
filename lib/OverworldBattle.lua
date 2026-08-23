@@ -822,6 +822,20 @@ local function withoutBackgroundFill(battle, fn)
   if not ok then error(err, 0) end
 end
 
+-- The engine's sliding ROM silhouette is a UI-layer picture. The selected
+-- Battle Art frame is already present in the staged world, so hide only that
+-- native copy for the duration of the UI draw.
+local function withoutNativeIntroEnemy(battle, fn)
+  if (tonumber(battle.introSlide) or 0) <= 0 then
+    return withoutBackgroundFill(battle, fn)
+  end
+  local hidden = battle.enemyHidden
+  battle.enemyHidden = true
+  local ok, err = pcall(withoutBackgroundFill, battle, fn)
+  battle.enemyHidden = hidden
+  if not ok then error(err, 0) end
+end
+
 -- ------- the box, without its paper
 --
 -- Font.drawBox is a white fill and then six border glyphs, and the fill is the
@@ -1177,7 +1191,7 @@ function OverworldBattle.install()
     -- canvas; there is a world out to the window edges now
     self.letterboxWhite = false
     OverworldBattle.drawHudPanels(self)
-    withoutBackgroundFill(self, innerDraw)
+    withoutNativeIntroEnemy(self, innerDraw)
   end
 
   -- The mons are geometry standing on the map now, drawn in the 3D pass
