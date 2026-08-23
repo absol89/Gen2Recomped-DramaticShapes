@@ -445,9 +445,8 @@ BattleScene.FLASH_STRENGTH = 0.5
 -- itself (the shader stays bound, so mid-scene sends land) and restores the
 -- scene values afterwards.
 local function setUnlit(on)
-  -- beginScene binds the wireframe variant whenever the battle forces the
-  -- voxel grid on (VoxelGrid.override), so send to whichever shader this
-  -- pass is actually using.
+  -- beginScene binds the wireframe variant whenever V-GRID is enabled, so
+  -- send to whichever shader this pass is actually using.
   local sh = Voxel3D.shader(VoxelGrid.enabled())
   if not sh then return end
   if on then
@@ -571,12 +570,8 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   local sunWas = Voxel3D.SHADOW_ALPHA
   Voxel3D.SHADOW_ALPHA = BattleScene.SHADOW_ALPHA
                          * DayNight.shadowScale(outdoor)
-  -- and the wireframe is ON for a battle whatever the V-GRID row says. The
-  -- arena is a staged shot rather than the world being walked through, and
-  -- the seams are what make it read as built rather than photographed. Forced
-  -- through the override so the player's own row is never written to.
-  local gridWas = VoxelGrid.override
-  VoxelGrid.override = true
+  -- The same V-GRID row owns free roam and battles. beginScene reads it live,
+  -- so OFF produces a clean arena and ON keeps the constructed wireframe.
   local out = nil
   local animInWorld = false
   local ok, err = pcall(function()
@@ -768,7 +763,6 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   -- renders (the free-roam pipeline, next frame) must find the orbit back
   Voxel3D.camera = nil
   Voxel3D.SHADOW_ALPHA = sunWas
-  VoxelGrid.override = gridWas
   if not ok then
     -- endScene never ran, so the canvas is still bound and the shader still
     -- set; put the frame back the way it was found before rethrowing
