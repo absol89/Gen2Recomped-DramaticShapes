@@ -45,6 +45,7 @@ local BattleScene = V.require("BattleScene")
 local BattleDOF = V.require("BattleDOF")
 local BattleHud = V.require("BattleHud")
 local BattlePics = V.require("BattlePics")
+local BattleArt = V.require("BattleArt")
 local StadiumModels = V.require("StadiumModels")
 local Voxel3D = V.require("Voxel3D")
 local ChunkMesher = V.require("ChunkMesher")
@@ -910,6 +911,12 @@ local OFF = {
 -- feet ended up, in canvas coordinates.
 function OverworldBattle.sideTexture(battle, side)
   if not (innerPics and battle) then return nil end
+  -- Battle Art installs its selected species/trainer/player art onto the
+  -- battlers before the engine's own pics layer is captured, so the billboard
+  -- wears the replacement exactly as the flat battle would draw it. MODDED
+  -- (DUPLICATE FIX) makes apply() a no-op for species and leaves the
+  -- underlying sprite provider's answer in place.
+  pcall(BattleArt.apply, battle)
   if not sideVisible(battle, side) then return nil end
   local canvas = texCanvasFor(side)
   if not canvas then return nil end

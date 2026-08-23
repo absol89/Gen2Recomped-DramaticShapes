@@ -87,6 +87,7 @@ local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
 local BattleExit = V.require("BattleExit")
+local BattleArt = V.require("BattleArt")
 local BattleStage = V.require("BattleStage")
 local BattlePresentation = V.require("BattlePresentation")
 local DayNight = V.require("DayNight")
@@ -435,6 +436,57 @@ local SETTINGS = {
     .. "The foe is still out there on its own tile.",
     when = function() return stagedBattles() and not VR.enabled() end,
     full = true },
+  -- Battle Art rows (ported from the Gen1 fork). Only offered while a fight
+  -- can actually be staged on the map.
+  { BattleArt.setting,
+    "Use optional PNGs from assets/battle in fights. Missing art falls "
+    .. "back to the ROM. STATIC is the zero-configuration default.",
+    when = function() return stagedBattles() end, full = true },
+  { BattleArt.trainerSetting,
+    "Choose the static opponent trainer collection. A class missing from "
+    .. "the selected generation falls back directly to its ROM portrait.",
+    when = function()
+      return stagedBattles() and BattleArt.setting:get() ~= "rom"
+    end, full = true },
+  { BattleArt.playerArtSetting,
+    "Choose the player trainer's static battle-intro portrait. A missing "
+    .. "named choice tries player.png, then ROM. PNG uses player.png "
+    .. "directly. BATTLE ART: ROM pins this row to ROM.",
+    when = function()
+      local mode = BattleArt.setting:get()
+      return stagedBattles() and (mode == "static" or mode == "rom")
+    end, full = true },
+  { BattleArt.frontAnimationSetting,
+    "Choose the front generation used by BATTLE ART: ANIMATED. GEN 1 reads "
+    .. "single-frame PNGs; GEN 2-5 read atlases. STATIC ignores this row. "
+    .. "Missing art falls directly back to ROM.",
+    when = function()
+      return stagedBattles() and BattleArt.setting:get() == "animated"
+    end, full = true },
+  { BattleArt.backAnimationSetting,
+    "Choose the player back-art generation. STATIC reads only a PNG from "
+    .. "back-static/GEN for every choice. ANIMATED reads static GEN 1, 2, "
+    .. "and 4 PNGs, or animated GEN 3 and 5 atlases. Missing art falls "
+    .. "back to the ROM.",
+    when = function() return stagedBattles() and BattleArt.setting:get() ~= "rom"
+    end, full = true },
+  { BattleArt.duplicateSetting,
+    "Choose who owns Pokemon pictures when another sprite mod is installed. "
+    .. "BATTLE ART keeps this mod's selected front and back collections on "
+    .. "top, including its DV-routed shiny collections. MODDED installs no "
+    .. "Pokemon art and captures the pictures chosen by another sprite mod "
+    .. "or the ROM on both sides.",
+    when = function() return stagedBattles() end, full = true },
+  { BattleArt.viewSetting,
+    "Show the player's Pokemon from the front or back. Supplied art stays "
+    .. "world-placed; a missing selected back falls back to the ROM UI pic.",
+    when = function() return stagedBattles() end, full = true },
+  { BattleArt.frontFlipSetting,
+    "Orient the player-side FRONT SPRITES card. BATTLE ART mirrors ordinary "
+    .. "front art so it faces the opponent. DEFAULT preserves the image's "
+    .. "authored direction, for sprite mods that already supply a flipped "
+    .. "player picture such as Crystal Animated Sprites.",
+    when = function() return stagedBattles() end, full = true },
   -- Marked `full` on the battle rows' reasoning, and then some. FULL SETS this
   -- to SYNC on arrival (applyFull) because the diorama's sky should follow the
   -- clock on the wall; it used to HOLD it there and take the row away, which
@@ -1094,6 +1146,7 @@ mod.hooks:wrap("pokemon.sprite", function(next, path, ctx)
   if not (ctx and ctx.kind == "battle" and ctx.side == "back") then
     return out
   end
+  if BattleArt.playerSide() ~= "front" then return out end
   if not OverworldBattle.wantsFront() then return out end
   local def = ctx.data and ctx.data.pokemon and ctx.data.pokemon[ctx.species]
   return (def and def.spriteFront) or out
@@ -1172,6 +1225,9 @@ end)
 mod.exports.version = "1.5.5"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
+-- Species art ownership + metrics, so companion mods (Stadium 2 importer,
+-- effects mods) read the same battler identity Battle Art staged.
+mod.exports.battleArt = BattleArt
 -- exposed so a companion mod can pin its own tiles' shapes or read the
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V
