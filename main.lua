@@ -457,8 +457,7 @@ local SETTINGS = {
     .. "named choice tries player.png, then ROM. PNG uses player.png "
     .. "directly. BATTLE ART: ROM pins this row to ROM.",
     when = function()
-      local mode = BattleArt.setting:get()
-      return stagedBattles() and (mode == "static" or mode == "rom")
+      return stagedBattles() and BattleArt.setting:get() == "static"
     end, full = true },
   { BattleArt.playerAnimationSetting,
     "Choose the player trainer's battle-intro art under ANIMATED. PNG uses "
@@ -502,6 +501,26 @@ local SETTINGS = {
     "SHADED lets the mons receive the world's day tint and cast shadows; "
     .. "UNLIT draws them flat and full bright. UNLIT is what the OG "
     .. "battle's sprites look like.",
+    when = function() return stagedBattles() end, full = true },
+  { UiBackplates.hudColor,
+    "INVERTED uses bright white HUD ink over the arena; COLOR keeps the "
+    .. "engine's black ink. HP and EXP bars retain their native colors.",
+    when = function() return stagedBattles() end, full = true },
+  { UiBackplates.arenaFill,
+    "Choose the staged battle background: the voxel world, a flat white "
+    .. "field, or assets/battle/front-static/bosses/arena.png.",
+    when = function() return stagedBattles() end, full = true },
+  { UiBackplates.backdropOffset,
+    "Crop the selected PNG arena downward in source-image pixels.",
+    when = function()
+      return stagedBattles() and UiBackplates.arenaPng()
+    end, full = true },
+  { UiBackplates.bossBg,
+    "Allow encounter-specific boss artwork to override an illustrated arena.",
+    full = true, managerOnly = true },
+  { UiBackplates.textboxFill,
+    "Choose opaque white, translucent dark, opaque black, or paperless "
+    .. "battle text boxes.",
     when = function() return stagedBattles() end, full = true },
   { InterfaceSprites.setting,
     "INTERFACE SPRITES: show BATTLE ART's regular-form FRONT outside battle. "

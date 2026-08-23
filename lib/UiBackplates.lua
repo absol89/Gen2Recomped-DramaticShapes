@@ -50,7 +50,7 @@ end
 -- the other forks. A white arena must use black ink regardless of the saved
 -- choice or the HUD would disappear into its background.
 UiBackplates.hudColor = ModSetting.new("hudColor", "HUD COLOR",
-  { "COLOR", "INVERTED" }, { "COLOR", "INVERTED" })
+  { "INVERTED", "COLOR" }, { "INVERTED", "COLOR" })
 
 function UiBackplates.hudUsesColor()
   return UiBackplates.arenaWhite()
@@ -65,8 +65,7 @@ end
 -- ------- B) ARENA FILL -------
 
 UiBackplates.arenaFill = ModSetting.new("arenaFill", "ARENA FILL",
-  { "OFF", "WHITE", "GEN6", "PNG", "BLUE" },
-  { "OFF", "WHITE", "GEN6", "PNG", "BLUE" })
+  { "OFF", "WHITE", "PNG" }, { "OFF", "WHITE", "PNG" })
 
 -- Stadium's platform is independent of the selected arena fill. The row is
 -- exposed only when a scene provider advertises it (see main.lua), so this
@@ -88,13 +87,17 @@ end
 -- Range spans 0..400 (step 20). 100 is the fresh-install default, keeping
 -- useful floor detail in wide windows without retaining confusing negative
 -- crops in either options UI.
-local offsetValues, offsetLabels = {}, {}
-for px = 0, 400, 20 do
+local offsetValues, offsetLabels = { 100 }, { "100 PX" }
+for px = 120, 400, 20 do
+  offsetValues[#offsetValues + 1] = px
+  offsetLabels[#offsetLabels + 1] = px .. " PX"
+end
+for px = 0, 80, 20 do
   offsetValues[#offsetValues + 1] = px
   offsetLabels[#offsetLabels + 1] = px .. " PX"
 end
 UiBackplates.backdropOffset = ModSetting.new(
-  "backdropOffset", "BG Y-OFFSET", offsetValues, offsetLabels, 6)
+  "backdropOffset", "BG Y-OFFSET", offsetValues, offsetLabels)
 
 function UiBackplates.backdropOffsetPixels()
   return tonumber(UiBackplates.backdropOffset:get()) or 100
@@ -128,7 +131,7 @@ function UiBackplates.arenaArt()
 end
 
 UiBackplates.bossBg = ModSetting.new("bossBg", "BOSS BG",
-  { "ON", "OFF" }, { "ON", "OFF" })
+  { "OFF", "ON" }, { "OFF", "ON" })
 
 function UiBackplates.bossEnabled()
   return UiBackplates.bossBg:get() == "ON"
