@@ -1437,8 +1437,8 @@ end
 -- exactly as it was before any of this existed.
 --
 -- Both bands are blitted whether or not that side's HUD is live: they also
--- carry intro balls and the safari count. HUD glyphs draw directly over the
--- world; only text boxes retain frosted glass.
+  -- carry intro balls and the safari count. HUD glyphs draw directly over the
+  -- world; text boxes retain frosted glass unless their fill is OFF.
 function OverworldBattle.snapHUDs(battle, shot)
   if not (battle and shot and shot.canvas and (shot.scale or 0) > 0) then
     return false
@@ -1456,12 +1456,14 @@ function OverworldBattle.snapHUDs(battle, shot)
   local readable, panels = {}, {}
   if enemy then readable.enemy = rects.enemy end
   if player then readable.player = rects.player end
-  -- and the text box's own glass, on the same pass. It stays in the middle of
-  -- the frame where the engine draws it -- only the HUDs were snapped out --
+  -- and the text box's optional glass, on the same pass. It stays in the middle
+  -- of the frame where the engine draws it -- only the HUDs were snapped out --
   -- so its GB rect is mapped into the letterbox rather than to an edge.
+  local frostText = UiBackplates.textboxUsesFrost()
   for key, rect in pairs(OverworldBattle.textRects(battle)) do
     local worldRect = toWorld(rect, shot)
-    readable[key], panels[key] = worldRect, worldRect
+    readable[key] = worldRect
+    if frostText then panels[key] = worldRect end
   end
   -- measured under the SNAPPED rects: the panels are over whatever the world
   -- shows at the window's edges now, which is not what was behind them in the
@@ -1520,8 +1522,10 @@ function OverworldBattle.drawHudPanels(battle)
   local readable, panels = {}, {}
   if enemy then readable.enemy = rect.enemy end
   if player then readable.player = rect.player end
+  local frostText = UiBackplates.textboxUsesFrost()
   for key, r in pairs(OverworldBattle.textRects(battle)) do
-    readable[key], panels[key] = r, r
+    readable[key] = r
+    if frostText then panels[key] = r end
   end
   if not next(readable) then return end
   local dark = not UiBackplates.hudUsesColor()

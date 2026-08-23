@@ -4,8 +4,9 @@ local V = {
     if name == "ModSetting" then
       return { new = function(key, label, values, labels)
         local setting = { key = key, label = label,
-                          values = values, labels = labels }
-        function setting:get() return self.values[1] end
+                          values = values, labels = labels, index = 1 }
+        function setting:get() return self.values[self.index] end
+        function setting:setIndex(index) self.index = index end
         settings[key] = setting
         return setting
       end }
@@ -14,7 +15,7 @@ local V = {
   end,
 }
 
-assert(loadfile("lib/UiBackplates.lua"))(V)
+local UiBackplates = assert(loadfile("lib/UiBackplates.lua"))(V)
 assert(settings.hudColor.values[1] == "INVERTED",
   "HUD COLOR does not default to INVERTED")
 assert(table.concat(settings.arenaFill.values, ",") == "OFF,WHITE,PNG",
@@ -25,6 +26,9 @@ assert(settings.bossBg.values[1] == "OFF",
   "BOSS BG does not default to OFF")
 assert(settings.textboxFill.values[1] == "WHITE",
   "TEXTBOX FILL changed its established default")
+settings.textboxFill:setIndex(4)
+assert(not UiBackplates.textboxUsesFrost(),
+  "TEXTBOX FILL: OFF still requests frosted glass")
 
 local function source(path)
   local file = assert(io.open(path, "rb"))
@@ -54,5 +58,11 @@ assert(overworld:find("not UiBackplates.hudUsesColor()", 1, true),
   "HUD COLOR is not connected to staged HUD rendering")
 assert(overworld:find("UiBackplates.textboxMode()", 1, true),
   "TEXTBOX FILL is not connected to battle text rendering")
+local frostChecks = 0
+for _ in overworld:gmatch("UiBackplates%.textboxUsesFrost%(%)") do
+  frostChecks = frostChecks + 1
+end
+assert(frostChecks == 2,
+  "TEXTBOX FILL does not govern both snapped and fallback frosted panels")
 
 print("battle UI options regression: ok")

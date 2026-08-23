@@ -162,6 +162,10 @@ function UiBackplates.textboxFillStyle()
   return nil
 end
 
+function UiBackplates.textboxUsesFrost()
+  return UiBackplates.textboxMode() ~= "OFF"
+end
+
 function UiBackplates.textboxUsesWhiteInk()
   return UiBackplates.textboxMode() ~= "WHITE"
 end
