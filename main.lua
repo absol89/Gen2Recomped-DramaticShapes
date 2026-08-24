@@ -50,6 +50,30 @@ function V.game()
   return mod.game or require("src.core.Game")
 end
 
+-- Crash capture for the render pipelines: the engine's guardRender swallows
+-- any throw in drawWorld and silently falls back to the flat 2D path, which
+-- reads on screen as "voxel broke" with no trace. Capture the error, persist
+-- it through mod.storage (playthrough-scoped), and surface it once through
+-- the LOVE error handler so it lands in lua-error.log.
+local crashReported = nil
+local function captureRenderCrash(err)
+  err = tostring(err)
+  if err:find("crashcapture", 1, true) then error(err, 0) end
+  local trace = debug and debug.traceback and debug.traceback("", 2) or ""
+  crashReported = { message = err, traceback = trace,
+                    at = os.date("!%Y-%m-%d %H:%M:%S UTC") }
+  local okStorage, storage = pcall(function() return mod.storage end)
+  if okStorage and storage then
+    for _, game in ipairs({ V.game(), nil }) do
+      local okW = pcall(storage.write, storage, game,
+                        "render_crash", { crashReported })
+      if okW then break end
+    end
+  end
+  -- one loud surfacing: the LOVE error handler writes lua-error.log
+  error("crashcapture: " .. err .. "\n" .. trace, 0)
+end
+
 local function chunkFor(rel)
   local source = mod:read(rel)
   if not source then
@@ -248,6 +272,7 @@ mod.content.render_pipelines:register("voxel", {
     -- the palette closure, stashed for the VR frame: it renders from the
     -- update hook, where no ctx exists to carry one
     VR.paletteFor = ctx.paletteFor
+    return captureRenderCrash(function()
     -- With a headset running, the window's world pass becomes the MIRROR
     -- -- the left eye, fitted to the window -- rather than a third full
     -- render of the scene. Everything else about the frame (the UI the
@@ -292,7 +317,8 @@ mod.content.render_pipelines:register("voxel", {
     end
     -- and back to the window's own size, which is what the engine composites
     -- one canvas pixel to one display pixel.  A pass-through when AA is off.
-    return AntiAlias.resolve(canvas, sw, sh, "world")
+      return AntiAlias.resolve(canvas, sw, sh, "world")
+    end)
   end,
 
   invalidate = function()
