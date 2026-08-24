@@ -199,8 +199,12 @@ end
 -- Transform does not rewrite mon.species. Our engine hook records the copied
 -- shape independently, so species routing never needs another mod's marker.
 function BattleArt.speciesFor(battler)
+  -- Gold/Silver hands us the raw mon (it carries .species itself); Gen 1
+  -- battlers wrap their mon as .mon. Accept both shapes, plus the transform
+  -- override, so the art managers resolve species on either engine.
   local species = battler and (battler.__battleArtTransformed
-                               or (battler.mon and battler.mon.species)) or nil
+                               or (battler.mon and battler.mon.species)
+                               or battler.species) or nil
   return speciesAlias(species)
 end
 
