@@ -59,6 +59,31 @@ local TraceLog = pcall(require, "src.core.Logger") and require("src.core.Logger"
 local function trace(fmt, ...)
   if TraceLog then TraceLog.warn("[BATTLE_ART_VOXEL_GEN2] " .. fmt, ...) end
 end
+
+-- Same crash-capture idea as main.lua's drawWorld trap, but for hook links:
+-- the engine pcalls every hook link and silently skips one that throws, so a
+-- failing battle.overlay reads as "the HUD/vanish path broke" with no trace
+-- (gen1recomp's Logger never reaches disk). Persist through mod.storage and
+-- surface once via the LOVE error handler.
+function OverworldBattle.captureHookCrash(stage, err)
+  err = tostring(err)
+  if err:find("crashcapture", 1, true) then error(err, 0) end
+  local traceBack = debug and debug.traceback and debug.traceback("", 2) or ""
+  local okStorage, storage = pcall(function() return V.mod.storage end)
+  if okStorage and storage then
+    local okW = pcall(storage.write, storage, V.game(),
+                      "overlay_crash_" .. stage,
+                      { message = err, traceback = traceBack,
+                        at = os.date("!%Y-%m-%d %H:%M:%S UTC") })
+    if not okW then
+      okW = pcall(storage.write, storage, nil,
+                  "overlay_crash_" .. stage,
+                  { message = err, traceback = traceBack })
+    end
+  end
+  error("crashcapture: battle.overlay/" .. stage .. ": " .. err
+        .. "\n" .. traceBack, 0)
+end
 local ChunkMesher = V.require("ChunkMesher")
 
 local OverworldBattle = {}
@@ -1135,6 +1160,7 @@ function OverworldBattle.install()
     end
 
     V.mod.hooks:wrap("battle.overlay", function(next, state)
+      local okOverlay, overlayErr = xpcall(function()
       next(state)
       if not isGen2BattleState(state) then return end
       if session then session.battle = state end
@@ -1170,6 +1196,10 @@ function OverworldBattle.install()
       state.drawPic = drawPic
       Chrome.clear = clear
       if not ok then error(err, 0) end
+      end, function(e)
+        return OverworldBattle.captureHookCrash("overlay", e)
+      end)
+      if not okOverlay then error(overlayErr, 0) end
     end)
 
     -- Game2 first composes widescreen screens into a window-sized scene
