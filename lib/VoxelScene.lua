@@ -505,8 +505,10 @@ function VoxelScene.prefetch(state)
   local liveKey = state.map.id
   local live = { [state.map.id] = true }
   for _, nb in ipairs(state.neighbors or {}) do
-    live[nb.map.id] = true
-    liveKey = liveKey .. "|" .. nb.map.id
+    if nb.map then
+      live[nb.map.id] = true
+      liveKey = liveKey .. "|" .. nb.map.id
+    end
   end
   if liveKey ~= lastLiveKey then
     lastLiveKey = liveKey
@@ -520,9 +522,11 @@ function VoxelScene.prefetch(state)
   -- suppressed under them (see runGeometry)
   local masks = {}
   for _, nb in ipairs(state.neighbors or {}) do
-    masks[#masks + 1] = { nb.ox, nb.oy,
-                          nb.ox + nb.map.def.width * 32,
-                          nb.oy + nb.map.def.height * 32 }
+    if nb.map then
+      masks[#masks + 1] = { nb.ox, nb.oy,
+                            nb.ox + nb.map.def.width * 32,
+                            nb.oy + nb.map.def.height * 32 }
+    end
   end
 
   -- Builds are asynchronous (ChunkMesher.pump runs in the pipeline's
@@ -545,11 +549,14 @@ function VoxelScene.prefetch(state)
     terrain, water = ChunkMesher.pair(state.map, true)
   end
   local nbMesh, nbWater = {}, {}
-  for i, nb in ipairs(state.neighbors or {}) do
-    ChunkMesher.request(nb.map, true)
-    nbMesh[i], nbWater[i] = ChunkMesher.pair(nb.map, true)
-    if not nbMesh[i] then
-      nbMesh[i], nbWater[i] = ChunkMesher.pair(nb.map, false)
+  for _, nb in ipairs(state.neighbors or {}) do
+    if nb.map then
+      ChunkMesher.request(nb.map, true)
+      local mesh, water = ChunkMesher.pair(nb.map, true)
+      if not mesh then
+        mesh, water = ChunkMesher.pair(nb.map, false)
+      end
+      nbMesh[#nbMesh + 1], nbWater[#nbWater + 1] = mesh, water
     end
   end
   Voxel.ready = terrain ~= nil
