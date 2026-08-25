@@ -24,6 +24,8 @@ function BattleState:drawWidescreen(w, h)
   if self.fail then error("native failure") end
   graphics.setColor(1, 1, 1, 1)
   graphics.rectangle("fill", 0, 0, w, h)
+  graphics.setColor(1, 1, 1, 0.85)
+  graphics.rectangle("fill", 0, 0, 160, 144)
   Chrome.clear()
   self:drawPic()
   return "native-result"
@@ -53,14 +55,14 @@ assert(nativeResolver ~= nil, "native Gen 2 picture resolver was not retained")
 
 local state = setmetatable({}, { __index = BattleState })
 assert(state:drawWidescreen(320, 288) == "native-result")
-assert(calls.arena == 0 and calls.paper == 1 and calls.clear == 1
+assert(calls.arena == 0 and calls.paper == 2 and calls.clear == 1
   and calls.pic == 1, "unstaged battle no longer falls through unchanged")
 
 shot = { canvas = { getDimensions = function() return 320, 288 end } }
 assert(state:drawWidescreen(320, 288) == "native-result")
 assert(calls.arena == 1, "staged arena was not drawn")
-assert(calls.paper == 1 and calls.clear == 1 and calls.pic == 1,
-  "opaque paper or native pictures survived staged composition")
+assert(calls.paper == 2 and calls.clear == 1 and calls.pic == 1,
+  "opaque paper, screen flash, or native pictures survived staged composition")
 
 local image, trueColor, path = state:pic({ sprite = "external-image" }, false)
 assert(image == "external-image" and trueColor == true and path == "native-path",

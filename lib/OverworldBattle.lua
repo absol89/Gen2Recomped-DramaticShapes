@@ -1045,6 +1045,7 @@ function OverworldBattle.sideTexture(battle, side)
   if not battle then return nil end
   local gen2 = isGen2BattleState(battle)
   if not gen2 and not innerPics then return nil end
+  if gen2 and battle.picHidden and battle.picHidden[side] then return nil end
   -- Battle Art installs its selected species/trainer/player art onto the
   -- battlers before the engine's own pics layer is captured, so the billboard
   -- wears the replacement exactly as the flat battle would draw it. MODDED
@@ -1057,8 +1058,21 @@ function OverworldBattle.sideTexture(battle, side)
   -- the managed image at the consumer boundary, without ticking playback.
   local mon = gen2 and battle:activeMon(side) or battle[side]
   pcall(AnimatedBattleArt.reassert, mon)
+  local sink = 0
+  local savedFaintSlide = nil
+  if gen2 and battle.faintSlide and battle.faintSlide.side == side
+      and type(battle.faintSink) == "function" then
+    sink = battle:faintSink(side)
+    -- The flat renderer crops the picture inside its fixed box. The staged
+    -- renderer instead lowers the intact billboard through the ground.
+    savedFaintSlide = battle.faintSlide
+    battle.faintSlide = nil
+  end
   local canvas = texCanvasFor(side)
-  if not canvas then return nil end
+  if not canvas then
+    if savedFaintSlide then battle.faintSlide = savedFaintSlide end
+    return nil
+  end
 
   local g = love.graphics
   local prevCanvas = g.getCanvas()
@@ -1092,6 +1106,7 @@ function OverworldBattle.sideTexture(battle, side)
   end)
 
   texturing = nil
+  if savedFaintSlide then battle.faintSlide = savedFaintSlide end
   if not gen2 then
     for k in pairs(OFF[side]) do battle[k] = saved[k] end
   end
@@ -1119,7 +1134,7 @@ function OverworldBattle.sideTexture(battle, side)
   local playerNoMirror = side == "player"
                          and not BattleArt.mirrorsPlayerSprite()
   return { canvas = canvas, ax = ax, ay = ay, trainer = trainer,
-           noMirror = playerNoMirror }
+           noMirror = playerNoMirror, sink = sink }
 end
 
 -- Whether the hit flash is showing this frame.

@@ -198,7 +198,8 @@ local function monMatrix(tex, x, groundY, z, mirror)
   local yaw = BattleBillboard.yawToward(x, z, Voxel3D.eye)
   local card = Mat4.mul(Mat4.translate(ox, oy, 0), Mat4.scale(w, h, 1))
   if mirror then card = Mat4.mul(Mat4.scale(-1, 1, 1), card) end
-  return Mat4.mul(Mat4.mul(Mat4.translate(x, groundY, z), Mat4.rotateY(yaw)),
+  local y = groundY - (tex.sink or 0) * k
+  return Mat4.mul(Mat4.mul(Mat4.translate(x, y, z), Mat4.rotateY(yaw)),
                   card)
 end
 
@@ -221,7 +222,7 @@ local function monCards(arena, groundY, textures)
             tostring(tex.noMirror), tostring(BattleArt.flipsPlayerFront()))
         end
       end
-      out[#out + 1] = { tex = tex.canvas,
+      out[#out + 1] = { tex = tex.canvas, side = side,
                         model = monMatrix(tex, cell[1], groundY, cell[2],
                                           mirror) }
     end

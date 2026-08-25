@@ -48,6 +48,12 @@ assert(gen2:find("withoutOpaqueBattlePaper", 1, true),
   "Gen 2 staged battles no longer suppress the opaque native backdrop")
 assert(gen2:find("state.drawPic = function() end", 1, true),
   "Gen 2 staged battles no longer suppress duplicate native pictures")
+assert(gen2:find("isScreenFlash", 1, true),
+  "Gen 2 staged battles no longer remove the opaque-paper flash")
+assert(overworld:find("battle.picHidden[side]", sideTexture, true),
+  "Gen 2 fainted pictures remain eligible for a world billboard")
+assert(overworld:find("battle.faintSlide = nil", sideTexture, true),
+  "Gen 2 fainting pictures are still cropped instead of lowered in-world")
 
 local stagedPics = assert(overworld:find("stagedPics = BattleState.drawPicsLayer", 1, true))
 local pinPics = assert(overworld:find("self.drawPicsLayer = stagedPics", 1, true))
@@ -59,6 +65,8 @@ assert(stagedPics > restorePics and pinPics < uiDraw and uiDraw < restorePics,
   "staged draws do not transactionally defeat per-state picture overrides")
 
 local scene = source("lib/BattleScene.lua")
+assert(scene:find("groundY %- %(tex.sink or 0%)", 1),
+  "Gen 2 faint progress does not lower the world billboard")
 local effect = assert(scene:find("BattleScene.fxCard", 1, true))
 local effectDraw = assert(scene:find("BattleBillboard.PULL + 6", effect, true))
 local finish = assert(scene:find("Voxel3D.endScene", effectDraw, true))

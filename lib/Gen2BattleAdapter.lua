@@ -21,6 +21,11 @@ local function isWhite(r, g, b, a)
   return r >= 0.999 and g >= 0.999 and b >= 0.999 and a >= 0.999
 end
 
+local function isScreenFlash(mode, x, y, w, h, r, g, b, a)
+  return mode == "fill" and x == 0 and y == 0 and w == 160 and h == 144
+    and r >= 0.999 and g >= 0.999 and b >= 0.999 and a > 0 and a < 1
+end
+
 local function drawArena(canvas, width, height)
   local cw, ch = canvas:getDimensions()
   if not (cw and ch and cw > 0 and ch > 0) then return false end
@@ -43,6 +48,8 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
       local r, gr, b, a = g.getColor()
       if isWhite(r, gr, b, a) then return end
     end
+    local r, gr, b, a = g.getColor()
+    if isScreenFlash(mode, x, y, w, h, r, gr, b, a) then return end
     return nativeRectangle(mode, x, y, w, h, ...)
   end
 
