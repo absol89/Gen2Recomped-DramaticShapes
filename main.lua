@@ -814,19 +814,26 @@ local function cycleVoxel(game)
   -- player can step the ladder: the "3" key, the pad's SELECT, and the VR
   -- left-stick click all come through it.
   if Horde.viewLocked() then return false end
-  local top = game.stack and game.stack:top()
-  if not Pipelines.canToggle("voxel", top, game.overworld) then return false end
+  local top, world
+  if type(game.pipelineGate) == "function" then
+    top, world = game:pipelineGate()
+  else
+    top = game.stack and game.stack:top()
+    world = game.overworld or game.world
+  end
+  if not Pipelines.canToggle("voxel", top, world) then return false end
   Pipelines.setLevel("voxel", Voxel.nextHotkeyLevel(Pipelines.level("voxel")))
-  Pipelines.syncOptions(game.save.options)
+  local options = game.options or (game.save and game.save.options) or {}
+  Pipelines.syncOptions(options)
   -- 3 is the key that used to turn TILT on and sits next to the one that
   -- used to turn GBC FX on, and this mod has taken both away. A player who
   -- left either running before enabling the mod would otherwise have no
   -- way back to off, and both fight the diorama -- so the VOXEL step
   -- clears them on EVERY press, not just the press that switches on.
-  game.save.options.tilt = 0
-  game.save.options.gbcfx = 0
+  options.tilt = 0
+  options.gbcfx = 0
   require("src.render.GBCFX").setLevel(0)
-  require("src.render.Tilt").setLevel(game.save.options.tilt or 0)
+  require("src.render.Tilt").setLevel(options.tilt or 0)
   game:writeOptions()
   return true
 end
@@ -902,6 +909,19 @@ if V.generation() ~= 2 then
       end
     end
     return inner(self, key)
+  end
+else
+  -- Gold/Silver reserves 3 for its flat TILT before pipeline hotkeys are
+  -- offered. Claim it at that same display-hotkey layer so the voxel camera
+  -- ladder wins while this mod is installed, exactly as on Gen1.
+  local Game = require("src.core.Game")
+  if type(Game.hotkey) == "function" and not Game.battleArtVoxelGen2Hotkey then
+    local innerHotkey = Game.hotkey
+    function Game:hotkey(key)
+      if key == "3" and cycleVoxel(self) then return true end
+      return innerHotkey(self, key)
+    end
+    Game.battleArtVoxelGen2Hotkey = true
   end
 end
 
