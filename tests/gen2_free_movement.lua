@@ -7,6 +7,7 @@ end
 
 local main = read("main.lua")
 local move = read("lib/Gen2FreeMove.lua")
+local first = read("lib/FirstPerson.lua")
 
 assert(main:find('if V.generation() == 2 then', 1, true),
   "Silver does not select its own movement bridge")
@@ -14,8 +15,10 @@ assert(main:find('V.require("Gen2FreeMove")', 1, true),
   "Silver free movement is not installed")
 assert(move:find('function World:pollInput(input)', 1, true),
   "camera-relative intent does not enter through Gold pollInput")
-assert(move:find('function World:stepBody(...)', 1, true),
-  "continuous movement does not tick through Gold stepBody")
+assert(move:find('freeTick(self)', 1, true),
+  "continuous movement does not run at Gold's pollInput choke point")
+assert(not move:find('function World:stepBody(...)', 1, true),
+  "Silver free movement is still split across the post-update body hook")
 assert(move:find('FirstPerson.moveWorld(mx, mz)', 1, true),
   "movement intent is not rotated by camera yaw")
 assert(move:find('FirstPerson.bindGame(self.game)', 1, true),
