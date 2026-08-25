@@ -396,6 +396,7 @@ end
 -- nil when no overworld battle is running. Never more than one: battles do
 -- not nest.
 local session = nil
+local handoffShot = nil
 
 local function isIOS()
   return love.system and love.system.getOS and love.system.getOS() == "iOS"
@@ -509,6 +510,7 @@ end
 -- battle it always did, cast and all.
 function OverworldBattle.begin(state, battle)
   OverworldBattle.finish()
+  handoffShot = nil
   if not OverworldBattle.enabled() then return false end
   if not (state and state.map and state.player) then return false end
   if not Voxel3D.available() then return false end
@@ -559,6 +561,9 @@ end
 
 function OverworldBattle.finish()
   if not session then return end
+  if session.shot and session.shot.canvas then
+    handoffShot = session.shot
+  end
   restoreCast()
   local artBattle = gen2ArtBattle(session.battle)
   pcall(AnimatedBattleArt.finish, artBattle)
@@ -673,20 +678,20 @@ function OverworldBattle.update(dt)
                          textures, session.token, session.battle,
                          session.animTex, OverworldBattle.ANCHOR)
   if not ok then
-    -- One failure retires the arena for THIS battle and nothing else: the
-    -- battle screen carries on as the engine's own, the free-roam pipeline
-    -- this runs inside keeps rendering the overworld, and the next battle
-    -- tries again. Rethrowing would hand the whole voxel mode to Pipelines'
-    -- guard, which retires a pipeline for the session.
-    session.shot = nil
-    session.snapped = false
-    session.broken = true
-    V.mod.log:warn("overworld battle scene failed: %s -- this battle draws "
-                   .. "on the plain battle background", tostring(shot))
+    -- Animation and faint transitions can temporarily expose incomplete
+    -- battler state. Keep the last finished arena while retrying instead of
+    -- flashing the native white battle paper for that one frame.
+    if not session.renderWarned then
+      session.renderWarned = true
+      V.mod.log:warn("overworld battle scene frame failed: %s -- retaining "
+                     .. "the previous composed frame", tostring(shot))
+    end
     return
   end
+  session.renderWarned = false
+  if not (shot and shot.canvas) then return end
   session.snapped = false
-  if shot and shot.canvas then
+  if shot.canvas then
     -- the depth of field is measured off the two marks: the slab in focus is
     -- the one the mons are standing in, at whatever the drift has done to
     -- where that lands
@@ -733,10 +738,19 @@ end
 -- The finished shot for this frame, or nil when there is none and the battle
 -- should draw the way it always did.
 function OverworldBattle.shot()
-  if not session or session.broken then return nil end
-  local s = session.shot
+  local s = session and not session.broken and session.shot or handoffShot
   if s and s.canvas then return s end
   return nil
+end
+
+-- Hold the last arena across BattleState's teardown until the Silver world
+-- pipeline has produced its first replacement frame.
+function OverworldBattle.handoff()
+  return handoffShot and handoffShot.canvas or nil
+end
+
+function OverworldBattle.worldReady()
+  handoffShot = nil
 end
 
 -- The staged fight's WORLD-side pieces, for a pass that stands the mons in

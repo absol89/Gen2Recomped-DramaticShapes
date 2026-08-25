@@ -313,7 +313,12 @@ mod.content.render_pipelines:register("voxel", {
     local rw, rh = AntiAlias.expand(sw, sh)
     local canvas = VoxelScene.render(ctx.state, rw, rh,
                                      ctx.vw, ctx.vh, ctx.paletteFor)
-    if not canvas then return nil end   -- fall back to the 2D path
+    if not canvas then
+      -- Battle teardown can reveal the world before its streamed terrain is
+      -- ready. Keep the clean arena backdrop for that short handoff instead
+      -- of exposing Silver's flat world between the two composites.
+      return OverworldBattle.handoff()
+    end
     if Voxel3D.beginOverlay() then
       -- the FX closures are ordinary 2D draws sized in DISPLAY pixels, and
       -- they are drawing into the supersampled canvas alongside everything
@@ -332,7 +337,9 @@ mod.content.render_pipelines:register("voxel", {
     end
     -- and back to the window's own size, which is what the engine composites
     -- one canvas pixel to one display pixel.  A pass-through when AA is off.
-      return AntiAlias.resolve(canvas, sw, sh, "world")
+      local resolved = AntiAlias.resolve(canvas, sw, sh, "world")
+      if resolved then OverworldBattle.worldReady() end
+      return resolved
     end)
   end,
 
