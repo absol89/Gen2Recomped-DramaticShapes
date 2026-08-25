@@ -205,7 +205,8 @@ end
 
 local function overworld()
   local ok, ow = pcall(function()
-    return require("src.core.Game").overworld
+    local Game = require("src.core.Game")
+    return Game.world or Game.overworld
   end)
   if not ok or not ow or not ow.map then return nil end
   return ow

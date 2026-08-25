@@ -163,11 +163,26 @@ end
 -- the mod that asks the same question of the same stack (CamControl's
 -- zooms above all), rather than each restating the pcall.
 function FirstPerson.onTop()
-  local ok, top, ow = pcall(function()
+  local ok, result = pcall(function()
     local Game = require("src.core.Game")
-    return Game.stack and Game.stack:top(), Game.overworld
+    local stack = Game.stack
+    local top = stack and stack.top and stack:top() or nil
+
+    -- Gold/Silver keeps its world outside the state stack; an empty stack is
+    -- ordinary free roam. pipelineGate translates that into the same
+    -- (world, world) pair used by Gen1's pipeline checks and also rejects
+    -- scripted/transition frames where camera input must stay quiet.
+    if Game.world and Game.world.map then
+      if type(Game.pipelineGate) == "function" then
+        local gateTop, world = Game:pipelineGate()
+        return gateTop ~= nil and gateTop == world and world == Game.world
+      end
+      return top == nil
+    end
+
+    return top ~= nil and top == Game.overworld
   end)
-  return ok and top ~= nil and top == ow
+  return ok and result == true
 end
 
 -- Whether first person should be READING the player's inputs right now:
@@ -467,8 +482,8 @@ function FirstPerson.update(dt)
   if engagedNow and not wasEngaged then
     local ok, facing = pcall(function()
       local Game = require("src.core.Game")
-      return Game.overworld and Game.overworld.player
-             and Game.overworld.player.facing
+      local world = Game.world or Game.overworld
+      return world and world.player and world.player.facing
     end)
     FirstPerson.yaw = (ok and FACING_ANGLE[facing]) or 0
     FirstPerson.pitch = FirstPerson.PITCH_DEFAULT
@@ -505,7 +520,7 @@ function FirstPerson.update(dt)
   -- the window has focus, released the moment either ends. Checked against
   -- the live mode rather than toggled on edges, so a capture lost to the
   -- OS (alt-tab) re-arms itself on the next focused frame.
-  local wantCapture = engagedNow
+  local wantCapture = engagedNow and FirstPerson.onTop()
   if wantCapture and love.window and love.window.hasFocus then
     local okF, focus = pcall(love.window.hasFocus)
     wantCapture = okF and focus or false
