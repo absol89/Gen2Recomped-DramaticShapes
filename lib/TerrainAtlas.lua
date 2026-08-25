@@ -34,6 +34,7 @@ local Assets = require("src.render.Assets")
 local TileRenderer = require("src.render.TileRenderer")
 local PaletteFX = require("src.render.PaletteFX")
 local GbcPalette = require("src.render.GbcPalette")
+local Gen2WorldAdapter = V.require("Gen2WorldAdapter")
 
 local TerrainAtlas = {}
 
@@ -89,12 +90,14 @@ local function gen2Atlas(map)
     resolved[slot] = colors
     keyParts[slot] = paletteKey(colors)
   end
-  local key = map.tileset.image .. "#gen2#" .. table.concat(keyParts, "|")
+  local sourceKey = map._battleArtGen2AtlasKey or map.tileset.image
+  local key = sourceKey .. "#gen2#" .. table.concat(keyParts, "|")
   if cache[key] ~= nil then return cache[key] or nil, cacheData[key] end
 
   local data
   local ok, image = pcall(function()
-    local src = Assets.imageData(map.tileset.image)
+    local src = Gen2WorldAdapter.sourcePixels(map)
+      or Assets.imageData(map.tileset.image)
     local w, h = src:getDimensions()
     local out = love.image.newImageData(w, h)
     local perRow = map.tileset.tilesPerRow or 16

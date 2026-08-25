@@ -30,46 +30,11 @@ local BattleBillboard = V.require("BattleBillboard")
 local Pokedex = V.require("Pokedex")
 local WorldUnderlay = V.require("WorldUnderlay")
 local WorldFillProps = V.require("WorldFillProps")
+local Gen2WorldAdapter = V.require("Gen2WorldAdapter")
 local PaletteFX = require("src.render.PaletteFX")
 local Map = require("src.world.Map")
 
 local VoxelScene = {}
-
--- Gen1Recomp's Gold/Silver world keeps connected maps as lightweight
--- neighbor records.  The voxel renderer needs the corresponding runtime Map
--- objects for meshing, while Gen 1 and Gen2Recomp already provide them.
-local function prepareMap(state, map)
-  if not (state and map) then return end
-  if not map.renderer then
-    local image = state.atlasFor and state:atlasFor(map.def) or nil
-    if not image then return end
-    map.renderer = { image = image }
-  end
-
-  local ok, Palettes = pcall(require, "src.world.gen2.Palettes")
-  if ok and Palettes and Palettes.bgSet and state.palettes then
-    local colors = Palettes.bgSet(state.palettes, map.def, state.daytime)
-    if colors and state.daytime == "DARK" and Palettes.withCaveFlicker then
-      colors = Palettes.withCaveFlicker(colors, state.flickerPhase or 1)
-    end
-    map._battleArtGen2BgSet = colors
-  end
-end
-
-local function prepareNeighbors(state)
-  if not (state and state.maps and state.tilesets) then return end
-  local ok, Gen2Map = pcall(require, "src.world.gen2.Map")
-  if not (ok and Gen2Map and Gen2Map.new) then return end
-  prepareMap(state, state.map)
-  for _, neighbor in ipairs(state.neighbors or {}) do
-    if not neighbor.map then
-      local def = state.maps[neighbor.id]
-      local tileset = def and state.tilesets[def.tileset]
-      if def and tileset then neighbor.map = Gen2Map.new(def, tileset) end
-    end
-    prepareMap(state, neighbor.map)
-  end
-end
 
 -- What the active display mode actually paints with.
 --
@@ -494,7 +459,7 @@ local lastLiveKey = nil
 -- fallback while the first slices run.
 function VoxelScene.prefetch(state)
   local Voxel = V.require("VoxelState")
-  prepareNeighbors(state)
+  Gen2WorldAdapter.prepareWorld(state)
 
   -- The live set is the current map plus its rendered neighbours. When
   -- it changes, everything outside it (and the previous set, which
@@ -951,7 +916,7 @@ end
 -- canvases comes back: the VR path, two eyes over one shared shadow map,
 -- pose capture and glint step.
 function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
-  prepareNeighbors(state)
+  Gen2WorldAdapter.prepareWorld(state)
   -- With nothing cached at all (the first frame of a fresh toggle),
   -- return nil: the engine keeps the 2D path for the frame and
   -- Voxel.ready holds the camera tween at flat, so the switch waits
