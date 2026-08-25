@@ -52,6 +52,44 @@ local function safeBusy(world)
   return ok and busy or false
 end
 
+-- Silver's live game is the instance owned by World; src.core.Game is the
+-- separate Gen-1 singleton. Read Game2's own pipeline gate here so movement
+-- ownership cannot accidentally depend on the wrong state stack.
+local function driving(world)
+  if not (FirstPerson.engaged() and world and world.game) then return false end
+  local game = world.game
+  if type(game.pipelineGate) == "function" then
+    local ok, top, live = pcall(game.pipelineGate, game)
+    return ok and top == world and live == world
+  end
+  local top = game.stack and game.stack.top and game.stack:top() or nil
+  return top == nil and game.world == world
+end
+
+-- World:pollInput already hands us the live Gen-2 Input instance. Preserve
+-- the original free camera's analog/key priority without reaching sideways
+-- into Gen 1's Game.input singleton.
+local function moveVector(input)
+  local dead = FirstPerson.MOVE_DEAD or 0.25
+  local axis = input and input.stickAxis or nil
+  if axis then
+    local mag = math.sqrt(axis.x * axis.x + axis.y * axis.y)
+    if mag > dead then
+      local amount = math.min(1, (mag - dead) / (1 - dead))
+      return axis.x / mag * amount, -axis.y / mag * amount
+    end
+  end
+  if input and type(input.isDown) == "function" then
+    local x = (input:isDown("right") and 1 or 0)
+      - (input:isDown("left") and 1 or 0)
+    local z = (input:isDown("up") and 1 or 0)
+      - (input:isDown("down") and 1 or 0)
+    local mag = math.sqrt(x * x + z * z)
+    if mag > 0 then return x / mag, z / mag end
+  end
+  return 0, 0
+end
+
 local function collisionOf(world)
   if type(world.playerCollision) ~= "function" then return nil end
   local ok, collision = pcall(world.playerCollision, world)
@@ -76,7 +114,7 @@ local function nativeSpecial(world)
 end
 
 local function eligible(world)
-  return FirstPerson.driving() and world and world.map and world.player
+  return driving(world) and world and world.map and world.player
     and not nativeSpecial(world)
 end
 
@@ -159,7 +197,8 @@ local function blockedCell(world, p, cx, cy)
     allowed, reason = false, "entity"
   end
   allowed, reason = collisionHook(world, p, allowed, reason, cx, cy)
-  return allowed and nil or (reason or "tile")
+  if allowed then return nil end
+  return reason or "tile"
 end
 
 local function slideX(world, p, dx)
@@ -340,11 +379,11 @@ function Controls.install()
   local pollInput = World.pollInput
   function World:pollInput(input)
     local out = pollInput(self, input)
-    if not FirstPerson.driving() then
+    if not driving(self) then
       self._battleArtIntentX, self._battleArtIntentZ = nil, nil
       return out
     end
-    local mx, mz = FirstPerson.moveVector()
+    local mx, mz = moveVector(input)
     local wx, wz = FirstPerson.moveWorld(mx, mz)
     if eligible(self) then
       self._battleArtIntentX, self._battleArtIntentZ = wx, wz
@@ -369,7 +408,7 @@ function Controls.install()
   if type(World.interact) == "function" then
     local interact = World.interact
     function World:interact(...)
-      if FirstPerson.driving() and Voxel.isFirstPerson(Voxel.level)
+      if driving(self) and Voxel.isFirstPerson(Voxel.level)
          and self.player and not self.player.moving then
         local sx, sz = FirstPerson.lookFlat()
         local dir = direction(sx, sz)

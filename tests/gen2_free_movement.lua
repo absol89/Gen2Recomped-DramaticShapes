@@ -18,6 +18,12 @@ assert(move:find('function World:stepBody(...)', 1, true),
   "continuous movement does not tick through Gold stepBody")
 assert(move:find('FirstPerson.moveWorld(mx, mz)', 1, true),
   "movement intent is not rotated by camera yaw")
+assert(move:find('local function driving(world)', 1, true),
+  "Silver movement ownership still depends on the Gen-1 game singleton")
+assert(move:find('local function moveVector(input)', 1, true),
+  "Silver movement does not read the live input passed to pollInput")
+assert(move:find('if allowed then return nil end', 1, true),
+  "allowed Silver cells still fall through to the blocked fallback")
 assert(move:find('landingEvents(world, p)', 1, true),
   "cell crossings do not replay Gold landing events")
 assert(move:find('world:tryConnection(dir)', 1, true)
