@@ -1317,15 +1317,23 @@ OverworldBattle.install()
 -- move vector). Every wrap forwards whatever it does not claim, and claims
 -- only while one of the two rungs is actually driving.
 --
--- FreeMove.install wraps OverworldState:handleInput -- the one choke point
--- where the grid walk reads the pad, and the same seam the engine's own
--- Cycling Road pull lives behind. While either drives, the walk is continuous
--- and camera-relative; the player's logical cell stays synced and every
--- per-cell consequence still runs through the engine's own machinery
--- (onStepComplete, checkEdgeExit, checkLedgeHop, checkBoulderPush). The
--- file argues the whole arrangement.
+-- Movement is generation-specific. Gen1FreeMove wraps
+-- OverworldState:handleInput; Gen2FreeMove instead wraps Gold/Silver's
+-- World:pollInput and World:stepBody. Both keep a continuous camera-relative
+-- body while synchronising the logical cell and handing warps, encounters,
+-- ledges, boulders, map connections and forced movement back to the native
+-- generation's own machinery.
 FirstPerson.install()
-FreeMove.install()
+if V.generation() == 2 then
+  local Gen2FreeMove = V.require("Gen2FreeMove")
+  local ok, why = Gen2FreeMove.install()
+  if not ok then
+    error("BATTLE_ART_VOXEL_GEN2: Silver free movement unavailable: "
+      .. tostring(why), 0)
+  end
+else
+  FreeMove.install()
+end
 
 -- ------- the zooms, and the battle camera the player can steer
 --
@@ -1355,10 +1363,10 @@ CamControl.install()
 -- to the key, the pad's own binding and the OPTIONS row.  With nothing
 -- registered SELECT is idle exactly as in Gen 1, and still steps.
 --
--- Installed AFTER FreeMove.install, deliberately: its wrap must sit
--- OUTSIDE the free walk's, or first person -- where FreeMove.tick takes
--- the frame and never calls further in -- would eat the button, and the
--- one rung SELECT could not step off of would be 1ST itself.
+-- Installed after the movement bridge. On Gen1 its wrap must sit outside
+-- FreeMove's handleInput replacement or 1ST would eat SELECT. Silver's bridge
+-- lives on World instead, so the compatibility OverworldController wrap does
+-- not compete with continuous movement there.
 do
   local OverworldState = require("src.world.OverworldController")
   local GameVersion = require("src.core.GameVersion")
