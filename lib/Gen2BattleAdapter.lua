@@ -41,14 +41,33 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   local nativeRectangle = g.rectangle
   local instancePic = rawget(state, "drawPic")
 
+  -- A palette flash (BATTLE_BG_EFFECT_FLASH_*) makes the engine re-bake the
+  -- panel under a remapped BGP and blit it back as one opaque near-white
+  -- sheet over the arena; its own fillBackground() also paints a plain white
+  -- full-screen rect whose color may no longer read as exact white once the
+  -- remap tint is applied. While a flash is live, suppress EVERY fullscreen
+  -- fill together with the paper: HUD ink and boxes are never fullscreen
+  -- fills, so they survive.
+  local flashActive = false
+  do
+    local bg = state.anim and state.anim.bg
+    if bg and bg.bgp ~= nil then
+      local okPal, Pal = pcall(require, "src.ui.gen2.GbcPalette")
+      if okPal and Pal and Pal.BGP_IDENTITY and bg.bgp ~= Pal.BGP_IDENTITY then
+        flashActive = true
+      end
+    end
+  end
+
   Chrome.clear = function() end
   state.drawPic = function() end
   g.rectangle = function(mode, x, y, w, h, ...)
-    if mode == "fill" and x == 0 and y == 0 and w == width and h == height then
-      local r, gr, b, a = g.getColor()
-      if isWhite(r, gr, b, a) then return end
-    end
     local r, gr, b, a = g.getColor()
+    local coversFrame = mode == "fill" and w >= width * 0.9
+                        and h >= height * 0.9
+    if coversFrame then
+      if isWhite(r, gr, b, a) or flashActive then return end
+    end
     if isScreenFlash(mode, x, y, w, h, r, gr, b, a) then return end
     return nativeRectangle(mode, x, y, w, h, ...)
   end
