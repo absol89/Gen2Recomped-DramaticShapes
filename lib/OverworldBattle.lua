@@ -1144,9 +1144,20 @@ end
 -- there is no seam that reports it. Read-only, so the worst a future engine
 -- change can do is flash on a frame the engine would not have.
 function OverworldBattle.flashing(battle)
-  local fx = battle and battle.fx
-  if not (fx and fx.flash and fx.flash > 0) then return false end
-  return (battle.frame or 0) % 4 < 2
+  -- Gen 1 battlers carry an fx.flash counter. Gold/Silver has no such
+  -- field: its hit flash is a BG-palette flash (BATTLE_BG_EFFECT_FLASH_*),
+  -- visible as the animation runner's bg.bgp leaving identity while the
+  -- effect alternates the palette. Read that instead, so the staged cards
+  -- whiten on the same frames the flat game would.
+  if battle and battle.fx and battle.fx.flash and battle.fx.flash > 0 then
+    return (battle.frame or 0) % 4 < 2
+  end
+  local anim = battle and battle.anim
+  local bg = anim and anim.bg
+  if not (bg and bg.bgp) then return false end
+  local okPal, Pal = pcall(require, "src.render.GbcPalette")
+  if not (okPal and Pal and Pal.BGP_IDENTITY) then return false end
+  return bg.bgp ~= Pal.BGP_IDENTITY
 end
 
 -- Both sides, or nil when neither has anything to show.
