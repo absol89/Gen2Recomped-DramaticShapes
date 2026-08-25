@@ -12,6 +12,22 @@ local function active()
     and tonumber(GameVersion.generation()) == 2
 end
 
+-- Gen1Recomp's generated Gen-2 cache names tilesets with ROM constants such
+-- as TILESET_JOHTO. Dramatic Shapes' authored geometry predates that cache
+-- vocabulary and is keyed as TilesetJohto. Only normalize the presentation
+-- id consumed by the voxel modules; map.def.tileset remains the engine key.
+local function profileTilesetId(raw)
+  if type(raw) ~= "string" or raw:sub(1, 8) ~= "TILESET_" then return raw end
+  local out = { "Tileset" }
+  for word in raw:sub(9):gmatch("[^_]+") do
+    local lower = word:lower()
+    out[#out + 1] = lower:sub(1, 1):upper() .. lower:sub(2)
+  end
+  return table.concat(out)
+end
+
+Adapter.profileTilesetId = profileTilesetId
+
 local function paletteSet(world, map)
   local ok, Palettes = pcall(require, "src.world.gen2.Palettes")
   if not (ok and Palettes and Palettes.bgSet and world.palettes
@@ -30,7 +46,17 @@ function Adapter.prepareMap(world, map)
   local ok, atlas, tileset = pcall(world.atlasFor, world, map.def)
   if not (ok and atlas) then return map end
   map.tileset = tileset or map.tileset
+  if map.tileset then
+    local engineId = map.def.tileset or map.tileset.id
+    local profileId = profileTilesetId(engineId)
+    if profileId then
+      map.tileset._battleArtEngineTilesetId =
+        map.tileset._battleArtEngineTilesetId or map.tileset.id or engineId
+      map.tileset.id = profileId
+    end
+  end
   map.renderer = map.renderer or {}
+  map.renderer.data = (world.game and world.game.data) or map.renderer.data
   map.renderer.image = atlas
   map._battleArtGen2BgSet = paletteSet(world, map)
   map._battleArtGen2AtlasKey = tostring(atlas)

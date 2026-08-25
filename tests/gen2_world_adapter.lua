@@ -28,29 +28,40 @@ package.preload["src.world.gen2.Map"] = function()
 end
 
 local Adapter = assert(loadfile("lib/Gen2WorldAdapter.lua"))({})
+assert(Adapter.profileTilesetId("TILESET_JOHTO") == "TilesetJohto")
+assert(Adapter.profileTilesetId("TILESET_JOHTO_MODERN") == "TilesetJohtoModern")
+assert(Adapter.profileTilesetId("OVERWORLD") == "OVERWORLD")
 local atlas = { getDimensions = function() return 128, 48 end }
 local maps = {
-  HOME = { id = "HOME", tileset = "JOHTO" },
-  NEXT = { id = "NEXT", tileset = "JOHTO" },
+  HOME = { id = "HOME", tileset = "TILESET_JOHTO" },
+  NEXT = { id = "NEXT", tileset = "TILESET_JOHTO" },
 }
-local tilesets = { JOHTO = { id = "JOHTO", image = "johto.png" } }
+local tilesets = {
+  TILESET_JOHTO = { id = "TILESET_JOHTO", image = "johto.png" },
+}
 local world = {
   maps = maps,
   tilesets = tilesets,
   palettes = {},
   daytime = "DARK",
   flickerPhase = 3,
-  map = { id = "HOME", def = maps.HOME, tileset = tilesets.JOHTO },
+  game = { data = { marker = "silver" } },
+  map = { id = "HOME", def = maps.HOME, tileset = tilesets.TILESET_JOHTO },
   neighbors = { { id = "NEXT", ox = 32, oy = 0 } },
   atlasFor = function(_, def)
     assert(def == maps.HOME or def == maps.NEXT)
-    return atlas, tilesets.JOHTO
+    return atlas, tilesets.TILESET_JOHTO
   end,
 }
 
 assert(Adapter.prepareWorld(world) == world)
 assert(world.map.renderer.image == atlas,
   "current Gold map did not receive its runtime atlas")
+assert(world.map.tileset.id == "TilesetJohto"
+  and world.map.tileset._battleArtEngineTilesetId == "TILESET_JOHTO",
+  "Gold tileset id did not select the authored voxel profile")
+assert(world.map.renderer.data == world.game.data,
+  "Gold map renderer did not receive the live data registry")
 assert(world.map._battleArtGen2BgSet.marker == "HOME:DARK"
   and world.map._battleArtGen2BgSet.flicker == 3,
   "current Gold palette did not retain time and cave flicker")
