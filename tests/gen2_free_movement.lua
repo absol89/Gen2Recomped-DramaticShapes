@@ -18,6 +18,14 @@ assert(move:find('function World:stepBody(...)', 1, true),
   "continuous movement does not tick through Gold stepBody")
 assert(move:find('FirstPerson.moveWorld(mx, mz)', 1, true),
   "movement intent is not rotated by camera yaw")
+assert(move:find('FirstPerson.bindGame(self.game)', 1, true),
+  "Silver's World does not lend the live Game2 instance to the camera")
+assert(move:find('FirstPerson.moveVector(input)', 1, true),
+  "Silver movement does not read the input passed to World:pollInput")
+assert(first:find('Game = require("src.core.Game2")', 1, true),
+  "Silver camera handlers are still installed on the Gen-1 game singleton")
+assert(first:find('local Game = currentGame()', 1, true),
+  "camera ownership does not consult Silver's bound live game")
 assert(move:find('landingEvents(world, p)', 1, true),
   "cell crossings do not replay Gold landing events")
 assert(move:find('world:tryConnection(dir)', 1, true)

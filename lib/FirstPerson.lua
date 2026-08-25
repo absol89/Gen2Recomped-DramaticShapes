@@ -125,6 +125,7 @@ local mouseDX, mouseDY = 0, 0         -- relative counts since last update
 local lookTouch = nil                 -- { id, x, y } of the claimed finger
 local touchMove = nil                 -- the touch d-pad's analog deflection
 local captured = false                -- mouse relative mode engaged by us
+local liveGame = nil                  -- Game2 instance supplied by its World
 
 -- the placed-camera record this module last handed to Voxel3D, so passes
 -- that key behaviour off "is the first-person rig the one drawing" (the
@@ -158,13 +159,28 @@ function FirstPerson.engaged()
   return Voxel.isFreeCam(Voxel.level) and Voxel3D.available()
 end
 
+-- Gen 1 exposes its live game as the src.core.Game singleton. Gold/Silver's
+-- src.core.Game2 module is a class and the live instance belongs to World.
+-- Let the Gen-2 movement seam lend us that instance so every camera input
+-- reads the game that is actually on screen.
+function FirstPerson.bindGame(game)
+  if game then liveGame = game end
+end
+
+local function currentGame()
+  if liveGame and liveGame.input then return liveGame end
+  local ok, game = pcall(require, "src.core.Game")
+  return ok and game or nil
+end
+
 -- Whether the overworld is what the player is looking at: nothing pushed
 -- over it, so the buttons are free-roam's. Shared with everything else in
 -- the mod that asks the same question of the same stack (CamControl's
 -- zooms above all), rather than each restating the pcall.
 function FirstPerson.onTop()
   local ok, result = pcall(function()
-    local Game = require("src.core.Game")
+    local Game = currentGame()
+    if not Game then return false end
     local stack = Game.stack
     local top = stack and stack.top and stack:top() or nil
 
@@ -424,9 +440,9 @@ end
 -- answers -- the left stick's raw axes first (the engine quantises them to
 -- a d-pad; the raw pair is the analog truth), then a touch d-pad finger,
 -- then the held keys. Magnitude caps at 1.
-function FirstPerson.moveVector()
-  local ok, Game = pcall(require, "src.core.Game")
-  local input = ok and Game.input or nil
+function FirstPerson.moveVector(input)
+  local Game = currentGame()
+  input = input or (Game and Game.input) or nil
 
   local ax = input and input.stickAxis or nil
   if ax then
@@ -704,6 +720,11 @@ function FirstPerson.install()
   installed = true
 
   local Game = require("src.core.Game")
+  local okVersion, GameVersion = pcall(require, "src.core.GameVersion")
+  if okVersion and GameVersion and type(GameVersion.generation) == "function"
+     and tonumber(GameVersion.generation()) == 2 then
+    Game = require("src.core.Game2")
+  end
 
   -- ------- right stick
   do
