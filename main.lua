@@ -64,7 +64,8 @@ end
 -- it through mod.storage (playthrough-scoped), and surface it once through
 -- the LOVE error handler so it lands in lua-error.log.
 local crashReported = nil
-local worldProbe = { updates = 0, draws = 0, wrote = {} }
+local worldProbe = { updates = 0, draws = 0, wrote = {} } -- plus voxelStuck below
+local voxelStuck = 0
 
 local function writeWorldProbe(key, text)
   if worldProbe.wrote[key] then return end
@@ -292,9 +293,31 @@ mod.content.render_pipelines:register("voxel", {
     VR.update(dt)
     local Game = V.game()
     local ow = Game and (Game.overworld or Game.world)
+    local Pipelines = require("src.render.Pipelines")
+    local opts = (Game and ((Game.save and Game.save.options)
+      or Game.options)) or {}
+    opts.pipelines = opts.pipelines or {}
     -- Sample every ~10s and OVERWRITE: the first samples land on the title
     -- screen before Game2 builds its world, so a one-shot probe only ever
     -- recorded world=false. The latest sample is the interesting one.
+    -- Belt-and-braces restore: the game.ready listener can miss its window
+    -- (options may load after our chunk registers), so watch for the stuck
+    -- state directly -- stored level > 0 while the runtime sits at 0. Two
+    -- consecutive samples past boot before acting, so a deliberate OFF by
+    -- the player is respected once they have had a chance to choose it.
+    if Pipelines.level("voxel") <= 0 and (opts.pipelines.voxel or 0) > 0 then
+      voxelStuck = voxelStuck + 1
+      if voxelStuck == 2 then
+        Pipelines.setLevel("voxel", math.min(opts.pipelines.voxel,
+                                             Pipelines.maxLevel("voxel")))
+        Voxel.setLevel(Pipelines.level("voxel"))
+        writeWorldProbe("restore",
+          "restored at update " .. tostring(worldProbe.updates)
+          .. " -> level " .. tostring(Pipelines.level("voxel")))
+      end
+    else
+      voxelStuck = 0
+    end
     if worldProbe.updates % 600 == 0 then
       local top = Game and Game.stack and Game.stack.top
                 and Game.stack:top() or nil
