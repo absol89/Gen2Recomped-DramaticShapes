@@ -72,6 +72,11 @@ local function captureRenderCrash(body)
     local okDate, at = pcall(os.date, "!%Y-%m-%d %H:%M:%S UTC")
     crashReported = { message = err, traceback = trace,
                       at = okDate and at or "unknown" }
+    local okCache, cache = pcall(function() return mod.cache end)
+    if okCache and cache and type(cache.write) == "function" then
+      pcall(cache.write, cache, "render_crash.txt",
+            crashReported.at .. "\n" .. err .. "\n" .. trace)
+    end
     local okStorage, storage = pcall(function() return mod.storage end)
     if okStorage and storage then
       for _, game in ipairs({ V.game(), nil }) do
