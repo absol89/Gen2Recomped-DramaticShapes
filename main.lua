@@ -64,22 +64,29 @@ end
 -- it through mod.storage (playthrough-scoped), and surface it once through
 -- the LOVE error handler so it lands in lua-error.log.
 local crashReported = nil
-local function captureRenderCrash(err)
-  err = tostring(err)
-  if err:find("crashcapture", 1, true) then error(err, 0) end
-  local trace = debug and debug.traceback and debug.traceback("", 2) or ""
-  crashReported = { message = err, traceback = trace,
-                    at = os.date("!%Y-%m-%d %H:%M:%S UTC") }
-  local okStorage, storage = pcall(function() return mod.storage end)
-  if okStorage and storage then
-    for _, game in ipairs({ V.game(), nil }) do
-      local okW = pcall(storage.write, storage, game,
-                        "render_crash", { crashReported })
-      if okW then break end
+local function captureRenderCrash(body)
+  local ok, result = xpcall(body, function(err)
+    err = tostring(err)
+    if err:find("crashcapture", 1, true) then return err end
+    local trace = debug and debug.traceback and debug.traceback("", 2) or ""
+    local okDate, at = pcall(os.date, "!%Y-%m-%d %H:%M:%S UTC")
+    crashReported = { message = err, traceback = trace,
+                      at = okDate and at or "unknown" }
+    local okStorage, storage = pcall(function() return mod.storage end)
+    if okStorage and storage then
+      for _, game in ipairs({ V.game(), nil }) do
+        local okW = pcall(storage.write, storage, game,
+                          "render_crash", { crashReported })
+        if okW then break end
+      end
     end
+    return "crashcapture: " .. err .. "\n" .. trace
+  end)
+  if not ok then
+    -- one loud surfacing: the LOVE error handler writes lua-error.log
+    error(result, 0)
   end
-  -- one loud surfacing: the LOVE error handler writes lua-error.log
-  error("crashcapture: " .. err .. "\n" .. trace, 0)
+  return result
 end
 
 local function chunkFor(rel)
