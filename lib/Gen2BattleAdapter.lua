@@ -113,9 +113,25 @@ function Adapter.install(OverworldBattle)
 
     local drawn = drawArena(shot.canvas, width, height)
     if not drawn then return nativeWidescreen(self, width, height) end
-    return withoutOpaqueBattlePaper(self, width, height, function()
-      return nativeWidescreen(self, width, height)
+
+    -- While a move animation runs, the flat game repaints its whole panel
+    -- through BattleAnimView: bake the 160x144 screen under a remapped BGP
+    -- and blit it back as one opaque sheet. Over the arena that reads as a
+    -- white panel with HUD on it -- the attack never reaches the world.
+    -- The staged renderer composites the move IN WORLD instead (the anim
+    -- layer rides the mon cards through OverworldBattle.animTexture), so
+    -- here the animation view is set aside and the native draw runs its
+    -- plain panel path: HUD, text box, nothing else.
+    local anim = self.anim
+    if anim ~= nil then self.anim = nil end
+    local ok, result = pcall(function()
+      return withoutOpaqueBattlePaper(self, width, height, function()
+        return nativeWidescreen(self, width, height)
+      end)
     end)
+    self.anim = anim
+    if not ok then error(result, 0) end
+    return result
   end
 
   BattleState[MARKER] = true
