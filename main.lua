@@ -50,6 +50,14 @@ function V.game()
   return mod.game or require("src.core.Game")
 end
 
+function V.generation()
+  local ok, GameVersion = pcall(require, "src.core.GameVersion")
+  if ok and GameVersion and type(GameVersion.generation) == "function" then
+    return tonumber(GameVersion.generation()) or 1
+  end
+  return 1
+end
+
 -- Crash capture for the render pipelines: the engine's guardRender swallows
 -- any throw in drawWorld and silently falls back to the flat 2D path, which
 -- reads on screen as "voxel broke" with no trace. Capture the error, persist
@@ -711,7 +719,7 @@ end
 -- reimplementation drifting out of date in lib/VR.lua.
 VR.cycleVoxel = cycleVoxel
 
-do
+if V.generation() ~= 2 then
   local Game = require("src.core.Game")
   local Pipelines = require("src.render.Pipelines")
   local inner = Game.keypressed
@@ -1207,8 +1215,9 @@ Horde.install()
 -- predicate answers yes for as long as one is. Held menus blit where they
 -- were drawn in the 160x144 canvas -- the START menu's 9,0 x 11 slot is
 -- already flush with the frame's right edge, which is the right edge of
--- what the headset sees. Off-headset frames fall through untouched.
-do
+-- what the headset sees. Off-headset frames fall through untouched. Gold's
+-- Game2 compositor already keeps its screen stack inside the GB frame.
+if V.generation() ~= 2 then
   local Game = require("src.core.Game")
   if not Game.dramaticShapeAnchorHold then
     local inner = Game.uiAnchorsHeldInStack
@@ -1269,11 +1278,12 @@ end)
 -- Declared as a transitions record rather than a constant in that file, so the
 -- fade is retunable in data exactly like the eight wipes it answers, and a total
 -- conversion can make it as long or as short as its own pacing wants.
-mod.content.transitions:register(BattleExit.ID, {
-  frames = BattleExit.FRAMES,
-})
-
-BattleExit.install()
+if V.generation() ~= 2 then
+  mod.content.transitions:register(BattleExit.ID, {
+    frames = BattleExit.FRAMES,
+  })
+  BattleExit.install()
+end
 
 -- ------- and the hour on the flat world
 --

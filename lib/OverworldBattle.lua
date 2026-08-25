@@ -52,6 +52,7 @@ local UiBackplates = V.require("UiBackplates")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
 local StadiumModels = V.require("StadiumModels")
 local Voxel3D = V.require("Voxel3D")
+local OverworldBattle = {}
 -- Event logger for the staged-battle path (engine log; plain print does not
 -- reach it in fused builds). Module-level so every seam in this file can use
 -- it, not just the ones below install().
@@ -85,8 +86,6 @@ function OverworldBattle.captureHookCrash(stage, err)
         .. "\n" .. traceBack, 0)
 end
 local ChunkMesher = V.require("ChunkMesher")
-
-local OverworldBattle = {}
 
 -- DS_BATTLE_DEBUG=1 logs what the HUD's brightness probe is reading, once a
 -- second, which is how the glyph flip is checked from a shot run. Read
