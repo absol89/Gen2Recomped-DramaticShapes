@@ -16,8 +16,8 @@ local Controls = {
 
 Controls.RADIUS = 5.5
 Controls.WALK_SPEED = 1.0
-Controls.BIKE_SPEED = 2.0
 local EPS = 0.01
+local unpackResults = (table and table.unpack) or unpack
 
 local FieldMoves, Permissions, Runtime
 local DIRS = { "down", "right", "up", "left" }
@@ -60,6 +60,8 @@ end
 
 local function nativeSpecial(world)
   if not (world and world.player) then return true end
+  if FieldMoves.isBiking(world.playerState)
+     or FieldMoves.isSurfing(world.playerState) then return true end
   local c = collisionOf(world)
   if c ~= nil then
     if type(Permissions.isIce) == "function" and Permissions.isIce(c) then
@@ -75,8 +77,12 @@ end
 
 local function eligible(world)
   return FirstPerson.driving() and world and world.map and world.player
-    and not nativeSpecial(world) and not world.player.moving
-    and not safeBusy(world)
+    and not nativeSpecial(world)
+end
+
+local function tickEligible(world)
+  local p = world and world.player
+  return eligible(world) and p and not p.moving and not safeBusy(world)
     and not world.mapSetup and not world.moveState and not world.fieldMove
     and not world.fishing and not world.headbutt
 end
@@ -93,7 +99,6 @@ local function clear(world, snap)
   world._battleArtIntentX, world._battleArtIntentZ = nil, nil
   world._battleArtAnimDistance = nil
   world._battleArtVisualMoving = nil
-  if p then p._battleArtVisualMoving = nil end
   FirstPerson.releaseBody()
 end
 
@@ -148,11 +153,7 @@ end
 local function blockedCell(world, p, cx, cy)
   if cx == p.cellX and cy == p.cellY then return nil end
   if not world.map:inBounds(cx, cy) then return "bounds" end
-  local coll = world.map:cellCollision(cx, cy)
-  local terrain = FieldMoves.isSurfing(world.playerState)
-    and Permissions.surfable(coll) ~= nil
-    or world.map:isWalkable(cx, cy)
-  local allowed = terrain and permitted(world, p, cx, cy)
+  local allowed = world.map:isWalkable(cx, cy) and permitted(world, p, cx, cy)
   local reason = allowed and nil or "tile"
   if allowed and entityBlocked(world, p, cx, cy) then
     allowed, reason = false, "entity"
@@ -274,31 +275,17 @@ local function freeTick(world)
   local wz = tonumber(world._battleArtIntentZ) or 0
   local mag = math.sqrt(wx * wx + wz * wz)
   if mag > 1 then wx, wz, mag = wx / mag, wz / mag, 1 end
-  p.facing = FirstPerson.pointBody(0, 0)
-
-  -- Cycling Road supplies PAD_DOWN when the player holds nothing. The free
-  -- camera keeps that cart rule, with A/B braking, before rotating ordinary
-  -- camera-space input.
-  if mag <= 1e-6 and FieldMoves.isBiking(world.playerState)
-     and type(world.downhill) == "function" and world:downhill() then
-    local input = world.game and world.game.input
-    local braking = input and (input:isDown("a") or input:isDown("b"))
-    if not braking then wx, wz, mag = 0, 1, 1 end
-  end
   if mag <= 1e-6 then world._battleArtVisualMoving = false return end
 
   p.facing = FirstPerson.pointBody(wx, wz)
   p.animClock = (p.animClock or 0) + 1
-  local speed = FieldMoves.isBiking(world.playerState)
-    and Controls.BIKE_SPEED or Controls.WALK_SPEED
-  local dx, dz = wx * speed, wz * speed
+  local dx, dz = wx * Controls.WALK_SPEED, wz * Controls.WALK_SPEED
   local ox, oz = world._battleArtFreeX, world._battleArtFreeZ
   local hitX, hitZ = slideX(world, p, dx), slideZ(world, p, dz)
   if hitX or hitZ then Controls.wallSlides = Controls.wallSlides + 1 end
   local mx, mz = world._battleArtFreeX - ox, world._battleArtFreeZ - oz
   local moved = math.sqrt(mx * mx + mz * mz)
   world._battleArtVisualMoving = moved > 0.01
-  p._battleArtVisualMoving = world._battleArtVisualMoving
   world._battleArtAnimDistance = (world._battleArtAnimDistance or 0) + moved
   while world._battleArtAnimDistance >= 16 do
     world._battleArtAnimDistance = world._battleArtAnimDistance - 16
@@ -317,11 +304,6 @@ local function freeTick(world)
     local taken = landingEvents(world, p)
     world.heldDir = held
     if taken then clear(world, false) return end
-    if FieldMoves.isSurfing(world.playerState)
-       and Permissions.surfable(world.map:cellCollision(cx, cy)) == "land"
-       and type(world.applyPlayerState) == "function" then
-      world:applyPlayerState(FieldMoves.PLAYER_NORMAL)
-    end
     if forcedHandoff(world, p) then return end
   end
 
@@ -331,7 +313,7 @@ local function freeTick(world)
   elseif hitZ then
     why, dir = hitZ, dz > 0 and "down" or "up"
   end
-  if why and moved < speed * 0.75 then
+  if why and moved < Controls.WALK_SPEED * 0.75 then
     if blockedSpecial(world, p, dir, why) then return end
     p.facing = FirstPerson.pointBody(wx, wz)
   end
@@ -358,41 +340,31 @@ function Controls.install()
   local pollInput = World.pollInput
   function World:pollInput(input)
     FirstPerson.bindGame(self.game)
+    local out = pollInput(self, input)
     if not FirstPerson.driving() then
-      clear(self, self.player and not self.player.moving)
-      return pollInput(self, input)
+      self._battleArtIntentX, self._battleArtIntentZ = nil, nil
+      return out
     end
     local mx, mz = FirstPerson.moveVector(input)
     local wx, wz = FirstPerson.moveWorld(mx, mz)
     if eligible(self) then
       self._battleArtIntentX, self._battleArtIntentZ = wx, wz
       self.heldDir = nil
-      freeTick(self)
     elseif mx ~= 0 or mz ~= 0 then
-      clear(self, self.player and not self.player.moving)
-      return pollInput(self, input)
-    else
-      clear(self, self.player and not self.player.moving)
-      return pollInput(self, input)
+      self.heldDir = direction(wx, wz, self.heldDir)
     end
+    return out
   end
 
-  -- Gen-2's player reports a grid walk phase only while Player.moving. The
-  -- free tick deliberately leaves that flag false so World:stepBody cannot
-  -- start or finish a second movement. Let the sprite read the free walk's
-  -- own distance clock instead.
-  local okPlayer, Player = pcall(require, "src.world.gen2.Player")
-  if okPlayer and Player and type(Player.walkPhase) == "function"
-     and not Player.battleArtFreeWalkPhaseHook then
-    local walkPhase = Player.walkPhase
-    function Player:walkPhase()
-      if self._battleArtVisualMoving then
-        local clock = self.animClock or 0
-        return (clock % 16 >= 4 and clock % 16 < 12) and 1 or 0
-      end
-      return walkPhase(self)
+  local stepBody = World.stepBody
+  function World:stepBody(...)
+    local out = { stepBody(self, ...) }
+    if tickEligible(self) then
+      freeTick(self)
+    else
+      clear(self, self.player and not self.player.moving)
     end
-    Player.battleArtFreeWalkPhaseHook = true
+    return unpackResults(out)
   end
 
   if type(World.interact) == "function" then

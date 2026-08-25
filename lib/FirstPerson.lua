@@ -173,11 +173,6 @@ local function currentGame()
   return ok and game or nil
 end
 
-function FirstPerson.world()
-  local game = currentGame()
-  return game and (game.world or game.overworld) or nil
-end
-
 -- Whether the overworld is what the player is looking at: nothing pushed
 -- over it, so the buttons are free-roam's. Shared with everything else in
 -- the mod that asks the same question of the same stack (CamControl's
@@ -502,7 +497,8 @@ function FirstPerson.update(dt)
   -- pitched gently down -- the reading pose of the flat game
   if engagedNow and not wasEngaged then
     local ok, facing = pcall(function()
-      local world = FirstPerson.world()
+      local Game = require("src.core.Game")
+      local world = Game.world or Game.overworld
       return world and world.player and world.player.facing
     end)
     FirstPerson.yaw = (ok and FACING_ANGLE[facing]) or 0
