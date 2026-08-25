@@ -768,7 +768,7 @@ local PLANTER_SPRAY = { rows = 24, depth = 5 }
 -- silhouette that makes it read as leaves.
 local function roundTemplate(S, map, data, cx, cy, groundTiles, N, capRows,
                              NYin, spray, baseRows, bodyRows, wellRows,
-                             taperVox, bandCY)
+                             taperVox, bandCY, treeCrown)
   -- The canvas is NX wide and NX DEEP (a hull is round in plan, so its
   -- depth is its width) by NY tall. NX = 16 is one cell, 32 a 2x2-cell
   -- group; NY defaults to NX -- a ball -- and NY = 2 * NX is a drawing
@@ -863,6 +863,39 @@ local function roundTemplate(S, map, data, cx, cy, groundTiles, N, capRows,
       out = floodOutside({ off = true, light = true, white = true }, y0, y1)
       for i = y0 * NX, (y1 + 1) * NX - 1 do
         mask[i] = (not out[i] and cls[i] ~= "off") or nil
+      end
+    end
+  end
+
+  -- Some Gen 2 tree drawings touch the edge of their opaque atlas cell, so
+  -- the generic outside flood has no background margin from which to recover
+  -- the intended round crown.  Profiles can identify those exact source
+  -- tiles; give only those trees the stepped crown used by Gen2-3D-Sprites.
+  -- Texture coordinates remain the ROM pixels, so this changes geometry but
+  -- never recolours the art or rounds unrelated cylinders such as rocks.
+  if treeCrown and NX == 16 and (NY == 16 or NY == 32) then
+    local function halfWidth(y)
+      if NY == 32 then
+        if y <= 2 then return 4 end
+        if y <= 7 then return 6 end
+        if y <= 19 then return 8 end
+        if y <= 23 then return 7 end
+        if y <= 27 then return 5 end
+        return 2
+      end
+      if y <= 1 then return 4 end
+      if y <= 4 then return 6 end
+      if y <= 10 then return 8 end
+      if y <= 12 then return 6 end
+      if y <= 14 then return 4 end
+      return 2
+    end
+    for y = 0, NY - 1 do
+      local hw = halfWidth(y)
+      local x0, x1 = 8 - hw, 8 + hw - 1
+      for x = 0, NX - 1 do
+        local i = y * NX + x
+        mask[i] = (x >= x0 and x <= x1 and cls[i] ~= "off") and true or nil
       end
     end
   end
@@ -1473,11 +1506,18 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
   -- a potted plant's crown is a flat spray of leaves; a TREE's crown is a
   -- ball, and capping it to the spray depth is what makes one read as thin
   local planterSpray = PLANTER_SPRAY
+  local treeCrownTiles, planterTreeCrown = nil, false
   local columnFoot, columnMax = nil, COLUMN_MAX
   do
     local okP, prof = pcall(V.data, "voxel_heights")
     local entry = okP and type(prof) == "table" and prof.tilesets
                   and prof.tilesets[map.tileset.id]
+    if entry and type(entry.tree_crown) == "table" then
+      treeCrownTiles = {}
+      for _, id in ipairs(entry.tree_crown) do treeCrownTiles[id] = true end
+      if not next(treeCrownTiles) then treeCrownTiles = nil end
+    end
+    planterTreeCrown = entry and entry.planter_tree_crown == true or false
     if entry and entry.planter_spray ~= nil then
       local ps = entry.planter_spray
       planterSpray = (type(ps) == "table" and (tonumber(ps.rows) or 0) > 0)
@@ -1508,6 +1548,19 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
     if entry and type(entry.can_taper) == "number" then
       canTaper = entry.can_taper
     end
+  end
+
+  local function cellUsesTreeCrown(cx, cy)
+    if not treeCrownTiles then return false end
+    local hits = 0
+    for dy = 0, 1 do
+      for dx = 0, 1 do
+        if treeCrownTiles[S.tileAt[keyOf(cx * 2 + dx, cy * 2 + dy)]] then
+          hits = hits + 1
+        end
+      end
+    end
+    return hits >= 2
   end
 
   -- cells consumed by a 2x2 `canopy` group; the scan runs north to
@@ -1622,7 +1675,9 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
             local tpl = roundCache[sig]
             if not tpl then
               local tq, tbg = roundTemplate(S, map, data, cx, cy,
-                                            groundTiles, 16)
+                                            groundTiles, 16, nil, nil, nil,
+                                            nil, nil, nil, nil, nil,
+                                            cellUsesTreeCrown(cx, cy))
               tpl = { quads = tq, bg = tbg }
               roundCache[sig] = tpl
             end
@@ -1642,14 +1697,17 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                   end
                 end
               end
-              local sig = tsid .. "|tree32|" .. gsig .. "|"
+              local sig = tsid .. "|tree32|"
+                          .. (planterTreeCrown and "crown|" or "")
+                          .. gsig .. "|"
                           .. table.concat(ids, ":")
               local tpl = roundCache[sig]
               if not tpl then
                 local tq, tbg = roundTemplate(S, map, data, cx, crownCY,
                                               groundTiles, 16, nil, 32,
                                               planterSpray, nil, nil, nil,
-                                              nil, { crownCY, footCY })
+                                              nil, { crownCY, footCY },
+                                              planterTreeCrown)
                 tpl = { quads = tq, bg = tbg }
                 roundCache[sig] = tpl
               end
@@ -1686,7 +1744,9 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
         local taper = s.class == "can" and canTaper or nil
         local ground = false
         if data then
-          local sig = tsid .. (cap and ("|c" .. cap) or "")
+          local treeCrown = cellUsesTreeCrown(cx, cy)
+          local sig = tsid .. (treeCrown and "|tree" or "")
+            .. (cap and ("|c" .. cap) or "")
             .. (base and ("|b" .. base) or "")
             .. (tall and ("|h" .. tall) or "")
             .. (well and ("|w" .. well) or "")
@@ -1699,7 +1759,8 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
           if not tpl then
             local tq, tbg = roundTemplate(S, map, data, cx, cy,
                                           groundTiles, 16, cap, nil, nil,
-                                          base, tall, well, taper)
+                                          base, tall, well, taper, nil,
+                                          treeCrown)
             tpl = { quads = tq, bg = tbg }
             roundCache[sig] = tpl
           end

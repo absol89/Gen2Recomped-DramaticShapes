@@ -488,6 +488,12 @@ local profile = {
         [0x1F] = { { below = { 0x2F }, class = "planter" } },
       },
       cylinder = { 0x1E, 0x1F, 0x3E, 0x3F },
+      -- Geometry metadata used by Structures' authored stepped tree crown.
+      -- This names tree artwork without turning other round collision props
+      -- (rocks, urns and cut trees) into canopies.
+      tree_crown = { 0x1E, 0x1F, 0x3E, 0x3F },
+      tree_art = { 0x1E, 0x1F, 0x2E, 0x2F, 0x3E, 0x3F },
+      planter_tree_crown = true,
       -- $4C is the cliff's FOOT as well as the ledge's lip -- the same
       -- eight pixels of dark rim, and the mountain drawings ($0A, $6C-$6F,
       -- $72, $73) end on a course of it. There it is the bottom band of a
@@ -5690,6 +5696,8 @@ profile.tilesets.TilesetJohtoModern = {
   flower = { 0x03 },
   signpost = { 0x4E, 0x4F, 0x5E, 0x5F },
   cylinder = { 0x1E, 0x1F, 0x3E, 0x3F },
+  tree_crown = { 0x1E, 0x1F, 0x3E, 0x3F },
+  tree_art = { 0x1E, 0x1F, 0x3E, 0x3F },
   when_above = {
     [0x4C] = { { above = { 0x3C, 0x4B, 0x4C, 0x4D }, class = "wall" } },
   },
