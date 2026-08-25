@@ -1021,6 +1021,24 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
                     and (not entry.when or entry.when())
     if offered then extra[#extra + 1] = entry[1]:row() end
   end
+  -- Gold/Silver's OPTION screen never splices render-pipeline rows (only
+  -- Gen 1's menu does), so without this the VOXEL row cannot exist here no
+  -- matter what registers. Offer it beside the mod's own rows.
+  local hasVoxelRow = false
+  for _, row in ipairs(out) do
+    if row.id == "pipeline:voxel" then hasVoxelRow = true break end
+  end
+  if not hasVoxelRow then
+    extra[#extra + 1] = {
+      id = "pipeline:voxel",
+      label = "VOXEL",
+      value = function() return Pipelines.levelLabel("voxel") end,
+      step = function(g, dir)
+        cycleVoxel(g)
+        return true
+      end,
+    }
+  end
   return insertGrouped(out, extra)
 end)
 
