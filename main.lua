@@ -292,8 +292,15 @@ mod.content.render_pipelines:register("voxel", {
     VR.update(dt)
     local Game = V.game()
     local ow = Game and (Game.overworld or Game.world)
-    if worldProbe.updates == 120 then
+    -- Sample every ~10s and OVERWRITE: the first samples land on the title
+    -- screen before Game2 builds its world, so a one-shot probe only ever
+    -- recorded world=false. The latest sample is the interesting one.
+    if worldProbe.updates % 600 == 0 then
+      local top = Game and Game.stack and Game.stack.top
+                and Game.stack:top() or nil
       writeWorldProbe("update", table.concat({
+        "at_update=" .. tostring(worldProbe.updates),
+        "top=" .. tostring(top and top.name or top),
         "level=" .. tostring(level),
         "voxelLevel=" .. tostring(Voxel.level),
         "angle=" .. tostring(Voxel.angle),
@@ -301,6 +308,7 @@ mod.content.render_pipelines:register("voxel", {
         "active=" .. tostring(Voxel.active()),
         "world=" .. tostring(ow ~= nil),
         "map=" .. tostring(ow and ow.map and ow.map.id),
+        "camera=" .. tostring(ow and ow.camera ~= nil),
         "pending=" .. tostring(ChunkMesher.pending()),
       }, "\n"))
     end
@@ -344,7 +352,7 @@ mod.content.render_pipelines:register("voxel", {
     local canvas = VoxelScene.render(ctx.state, rw, rh,
                                      ctx.vw, ctx.vh, ctx.paletteFor)
     if not canvas then
-      if worldProbe.draws == 1 or worldProbe.draws == 120 then
+      if worldProbe.draws == 1 or worldProbe.draws % 120 == 0 then
         local map = ctx.state and ctx.state.map
         writeWorldProbe("decline_" .. tostring(worldProbe.draws),
           table.concat({
