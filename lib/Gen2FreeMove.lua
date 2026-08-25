@@ -339,13 +339,12 @@ function Controls.install()
 
   local pollInput = World.pollInput
   function World:pollInput(input)
-    FirstPerson.bindGame(self.game)
     local out = pollInput(self, input)
     if not FirstPerson.driving() then
       self._battleArtIntentX, self._battleArtIntentZ = nil, nil
       return out
     end
-    local mx, mz = FirstPerson.moveVector(input)
+    local mx, mz = FirstPerson.moveVector()
     local wx, wz = FirstPerson.moveWorld(mx, mz)
     if eligible(self) then
       self._battleArtIntentX, self._battleArtIntentZ = wx, wz
