@@ -66,6 +66,27 @@ end
 local crashReported = nil
 local worldProbe = { updates = 0, draws = 0, wrote = {} } -- plus voxelStuck below
 local voxelStuck = 0
+local GEN2_DEFAULT_VOXEL = 3
+
+-- Gold/Silver loads display settings from options.lua's nested `gold` block.
+-- Older Battle Art builds wrote the ladder at the file root, which Gen2
+-- intentionally ignores. Seed only a MISSING Gen2 value; an explicit 0 is a
+-- player's OFF choice and must remain off.
+local function gen2PipelineOptions(game)
+  local opts = game and (game.options
+    or (game.save and game.save.options)) or nil
+  if type(opts) ~= "table" then return nil end
+  if type(opts.pipelines) ~= "table" then opts.pipelines = {} end
+  if V.generation() == 2 and opts.pipelines.voxel == nil then
+    opts.pipelines.voxel = GEN2_DEFAULT_VOXEL
+    if game and type(game.persistOptions) == "function" then
+      pcall(game.persistOptions, game)
+    elseif game and type(game.writeOptions) == "function" then
+      pcall(game.writeOptions, game)
+    end
+  end
+  return opts
+end
 
 local function writeWorldProbe(key, text)
   if worldProbe.wrote[key] then return end
@@ -294,9 +315,7 @@ mod.content.render_pipelines:register("voxel", {
     local Game = V.game()
     local ow = Game and (Game.overworld or Game.world)
     local Pipelines = require("src.render.Pipelines")
-    local opts = (Game and ((Game.save and Game.save.options)
-      or Game.options)) or {}
-    opts.pipelines = opts.pipelines or {}
+    local opts = gen2PipelineOptions(Game) or { pipelines = {} }
     -- Sample every ~10s and OVERWRITE: the first samples land on the title
     -- screen before Game2 builds its world, so a one-shot probe only ever
     -- recorded world=false. The latest sample is the interesting one.
@@ -1078,7 +1097,7 @@ mod.events:on("game.ready", function(payload)
   if voxelRestoreDone then return end
   voxelRestoreDone = true
   local game = payload and payload.game or V.game()
-  local opts = game and ((game.save and game.save.options) or game.options)
+  local opts = gen2PipelineOptions(game)
   local stored = type(opts) == "table" and type(opts.pipelines) == "table"
     and tonumber(opts.pipelines.voxel) or nil
   if not stored then return end
