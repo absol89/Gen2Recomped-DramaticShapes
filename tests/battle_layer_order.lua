@@ -24,8 +24,8 @@ assert(externalBypass < frontRomBypass and frontRomBypass < romBackFill,
   "front ROM transparency is not preserved before back ROM reconstruction")
 assert(romBackFill < pinnedBack,
   "ROM back reconstruction no longer retains its pinned-slot behavior")
-local apply = assert(overworld:find("pcall(BattleArt.apply, battle)", sideTexture, true))
-local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, battle[side])", apply, true))
+local apply = assert(overworld:find("pcall(BattleArt.apply,", sideTexture, true))
+local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, mon)", apply, true))
 local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true))
 assert(apply < reassert and reassert < pics,
   "animated ownership is not reclaimed after Battle Art and before capture")
@@ -42,6 +42,12 @@ assert(snappedHud:find("for _, rect in pairs(panels) do BattleHud.panel", 1, tru
   "snapped text-box panels are not isolated from exposed HUD regions")
 assert(overworld:find("if shot.animInWorld then return end", 1, true),
   "the duplicate UI animation layer is not suppressed")
+
+local gen2 = source("lib/Gen2BattleAdapter.lua")
+assert(gen2:find("withoutOpaqueBattlePaper", 1, true),
+  "Gen 2 staged battles no longer suppress the opaque native backdrop")
+assert(gen2:find("state.drawPic = function() end", 1, true),
+  "Gen 2 staged battles no longer suppress duplicate native pictures")
 
 local stagedPics = assert(overworld:find("stagedPics = BattleState.drawPicsLayer", 1, true))
 local pinPics = assert(overworld:find("self.drawPicsLayer = stagedPics", 1, true))

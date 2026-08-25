@@ -413,6 +413,10 @@ end
 
 local gen2InnerPic = nil
 
+function OverworldBattle.setGen2PicResolver(resolver)
+  gen2InnerPic = type(resolver) == "function" and resolver or nil
+end
+
 -- The existing art managers own Gen 1 battlers through their `sprite` field.
 -- Gold/Silver resolves its image inside BattleState:pic instead, so expose a
 -- battle-lifetime compatibility view and remove every transient field again
@@ -1146,90 +1150,11 @@ function OverworldBattle.install()
   local BattleState = require("src.battle.BattleState")
   if BattleState.dramaticShapeBattleHook then return end
 
-  -- Gold/Silver exposes its finished 160x144 battle through battle.overlay.
-  -- Replace that finished image with the staged arena, then ask the native
-  -- panel renderer for its HUD and menus while suppressing its two flat pics.
+  -- Gold/Silver owns a window-sized battle compositor instead of Gen 1's
+  -- split world/UI canvases.  Its dedicated adapter replaces only that
+  -- opaque backdrop; the staging and art code below stays generation-neutral.
   if isGen2BattleState(BattleState) and not BattleState.drawPicsLayer then
-    gen2InnerPic = BattleState.pic
-    function BattleState:pic(mon, back)
-      local image, trueColor, path = gen2InnerPic(self, mon, back)
-      if mon and BattleArt.isExternal(mon.sprite) then
-        return mon.sprite, true, path
-      end
-      return image, trueColor, path
-    end
-
-    V.mod.hooks:wrap("battle.overlay", function(next, state)
-      local okOverlay, overlayErr = xpcall(function()
-      next(state)
-      if not isGen2BattleState(state) then return end
-      if session then session.battle = state end
-      local shot = OverworldBattle.shot()
-      if not (shot and shot.canvas) then return end
-
-      local g = love.graphics
-      local cw, ch = shot.canvas:getDimensions()
-      g.setColor(1, 1, 1, 1)
-      local target = g.getCanvas()
-      local tw, th = target and target:getDimensions() or g.getDimensions()
-      if tw == cw and th == ch then
-        -- drawWidescreen has already put the 160x144 panel transform on the
-        -- stack. Reset it just for the world so its native-resolution surround
-        -- reaches the actual window, then return to panel coordinates below.
-        g.push()
-        g.origin()
-        g.draw(shot.canvas, 0, 0)
-        g.pop()
-      else
-        local quad = g.newQuad(shot.lx, shot.ly,
-                               BattleScene.GB_W * shot.scale,
-                               BattleScene.GB_H * shot.scale, cw, ch)
-        g.draw(shot.canvas, quad, 0, 0, 0,
-               1 / shot.scale, 1 / shot.scale)
-      end
-
-      local Chrome = require("src.ui.gen2.Chrome")
-      local clear, drawPic = Chrome.clear, rawget(state, "drawPic")
-      Chrome.clear = function() g.setColor(0, 0, 0, 1) end
-      state.drawPic = function() end
-      local ok, err = pcall(state.drawPanel, state)
-      state.drawPic = drawPic
-      Chrome.clear = clear
-      if not ok then error(err, 0) end
-      end, function(e)
-        return OverworldBattle.captureHookCrash("overlay", e)
-      end)
-      if not okOverlay then error(overlayErr, 0) end
-    end)
-
-    -- Game2 first composes widescreen screens into a window-sized scene
-    -- canvas, then offers that finished canvas through render.compose. Keep
-    -- only its integer-scaled GB panel (HUD, menu and battle glyphs) and put
-    -- it over the arena's native-resolution full-window surround. This drops
-    -- BattleState:drawWidescreen's paper-white clear without replacing the
-    -- screen method or depending on a Gen 1 renderer override.
-    V.mod.hooks:wrap("render.compose", function(next, renderer, ctx)
-      if next(renderer, ctx) == true then return true end
-      local shot = OverworldBattle.shot()
-      local scene = ctx and (ctx.sceneCanvas or ctx.uiCanvas)
-      if not (isGen2BattleState(session and session.battle)
-              and shot and shot.canvas and scene) then
-        return false
-      end
-
-      local g = love.graphics
-      local sw, sh = shot.canvas:getDimensions()
-      local fw, fh = ctx.ww or sw, ctx.wh or sh
-      g.setColor(1, 1, 1, 1)
-      g.draw(shot.canvas, 0, 0, 0, fw / sw, fh / sh)
-
-      local cw, ch = scene:getDimensions()
-      local ox, oy = ctx.ox or 0, ctx.oy or 0
-      local pw, ph = ctx.vpw or cw, ctx.vph or ch
-      local quad = g.newQuad(ox, oy, pw, ph, cw, ch)
-      g.draw(scene, quad, ox, oy)
-      return true
-    end)
+    V.require("Gen2BattleAdapter").install(OverworldBattle)
     BattleState.dramaticShapeBattleHook = true
     return
   end
