@@ -8476,6 +8476,23 @@ profile.tilesets.TilesetLab = {
               0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x49,
               0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59 },
   heights = { table = 6 },
+  -- Elm's trash can: ONE tile, $09 -- a small galvanised bin in the same
+  -- 3/4 view as Vermilion Gym's, drawn on the walkable cell in front of
+  -- the machine bank it serves (block 5: $09 over floor $10, collision
+  -- solid north half only). Round in plan like its gym cousin, so it takes
+  -- the gym can's hull rather than a standee -- scaled down to what this
+  -- drawing states: 8px at the rim over a 16px cell, a squat office bin.
+  -- Scanned: $09 occurs in exactly one block grid on TILESET_LAB.
+  can = { 0x09 },
+  can_cap = 6,
+  can_base = 2,
+  can_height = 7,
+  can_well = 3,
+  can_taper = 2,
+  heights = {
+    table = 6,
+    can = 7,
+  },
 }
 
 -- ---------------------------------------------------------------------------
