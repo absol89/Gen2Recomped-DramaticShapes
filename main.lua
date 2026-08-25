@@ -832,8 +832,16 @@ local function cycleVoxel(game)
   -- clears them on EVERY press, not just the press that switches on.
   options.tilt = 0
   options.gbcfx = 0
-  require("src.render.GBCFX").setLevel(0)
-  require("src.render.Tilt").setLevel(options.tilt or 0)
+  -- Silver has the option keys and native display hotkeys, but does not ship
+  -- Gen1's standalone GBCFX module. Clear whichever optional renderer modules
+  -- this engine lineage actually exposes without making the voxel key depend
+  -- on either one existing.
+  local okGbc, GBCFX = pcall(require, "src.render.GBCFX")
+  if okGbc and GBCFX and GBCFX.setLevel then pcall(GBCFX.setLevel, 0) end
+  local okTilt, Tilt = pcall(require, "src.render.Tilt")
+  if okTilt and Tilt and Tilt.setLevel then
+    pcall(Tilt.setLevel, options.tilt or 0)
+  end
   game:writeOptions()
   return true
 end
@@ -1002,9 +1010,9 @@ end
 -- Uninstall the mod and it is back, at whatever it was last set to.
 local function pinEngineFx(game)
   game = game or require("src.core.Game")
-  local opts = game and game.save and game.save.options
-  local Tilt = require("src.render.Tilt")
-  local GBCFX = require("src.render.GBCFX")
+  local opts = game and (game.options or (game.save and game.save.options))
+  local okTilt, Tilt = pcall(require, "src.render.Tilt")
+  local okGbc, GBCFX = pcall(require, "src.render.GBCFX")
   local changed = false
   if opts then
     changed = (opts.tilt or 0) ~= 0 or (opts.gbcfx or 0) ~= 0
@@ -1012,8 +1020,8 @@ local function pinEngineFx(game)
     opts.tilt, opts.gbcfx = 0, 0
     opts.battleBg = "white"
   end
-  pcall(Tilt.setLevel, 0)
-  pcall(GBCFX.setLevel, 0)
+  if okTilt and Tilt and Tilt.setLevel then pcall(Tilt.setLevel, 0) end
+  if okGbc and GBCFX and GBCFX.setLevel then pcall(GBCFX.setLevel, 0) end
   if changed and game.writeOptions then pcall(game.writeOptions, game) end
 end
 
