@@ -64,6 +64,17 @@ end
 -- it through mod.storage (playthrough-scoped), and surface it once through
 -- the LOVE error handler so it lands in lua-error.log.
 local crashReported = nil
+local worldProbe = { updates = 0, draws = 0, wrote = {} }
+
+local function writeWorldProbe(key, text)
+  if worldProbe.wrote[key] then return end
+  worldProbe.wrote[key] = true
+  local okCache, cache = pcall(function() return mod.cache end)
+  if okCache and cache and type(cache.write) == "function" then
+    pcall(cache.write, cache, "world_probe_" .. key .. ".txt", text)
+  end
+end
+
 local function captureRenderCrash(body)
   local ok, result = xpcall(body, function(err)
     err = tostring(err)
@@ -230,6 +241,7 @@ mod.content.render_pipelines:register("voxel", {
   -- pump slice -- so stepping out of a door lands on terrain that is
   -- already there instead of a flat flash.
   update = function(dt, level)
+    worldProbe.updates = worldProbe.updates + 1
     -- FULL is a preset, so it is applied ON THE PRESS rather than held every
     -- frame: it SETS the other rows and then leaves them alone. Holding them
     -- would make the zoom keys and the wheel dead while the mode was on, and
@@ -278,9 +290,21 @@ mod.content.render_pipelines:register("voxel", {
     -- Ahead of the active() gate: with the mode off, the headset still
     -- shows the flat screen on the floating panel.
     VR.update(dt)
-    if not Voxel.active() then return end
     local Game = V.game()
     local ow = Game and (Game.overworld or Game.world)
+    if worldProbe.updates == 120 then
+      writeWorldProbe("update", table.concat({
+        "level=" .. tostring(level),
+        "voxelLevel=" .. tostring(Voxel.level),
+        "angle=" .. tostring(Voxel.angle),
+        "ready=" .. tostring(Voxel.ready),
+        "active=" .. tostring(Voxel.active()),
+        "world=" .. tostring(ow ~= nil),
+        "map=" .. tostring(ow and ow.map and ow.map.id),
+        "pending=" .. tostring(ChunkMesher.pending()),
+      }, "\n"))
+    end
+    if not Voxel.active() then return end
     if ow and ow.map and ow.camera then
       pcall(VoxelScene.prefetch, ow)
     end
@@ -289,6 +313,7 @@ mod.content.render_pipelines:register("voxel", {
   end,
 
   drawWorld = function(ctx)
+    worldProbe.draws = worldProbe.draws + 1
     -- the palette closure, stashed for the VR frame: it renders from the
     -- update hook, where no ctx exists to carry one
     VR.paletteFor = ctx.paletteFor
@@ -319,11 +344,34 @@ mod.content.render_pipelines:register("voxel", {
     local canvas = VoxelScene.render(ctx.state, rw, rh,
                                      ctx.vw, ctx.vh, ctx.paletteFor)
     if not canvas then
+      if worldProbe.draws == 1 or worldProbe.draws == 120 then
+        local map = ctx.state and ctx.state.map
+        writeWorldProbe("decline_" .. tostring(worldProbe.draws),
+          table.concat({
+            "draws=" .. tostring(worldProbe.draws),
+            "map=" .. tostring(map and map.id),
+            "renderer=" .. tostring(map and map.renderer ~= nil),
+            "atlas=" .. tostring(map and map.renderer
+                                  and map.renderer.image ~= nil),
+            "tileset=" .. tostring(map and map.tileset ~= nil),
+            "terrain=" .. tostring(map and ChunkMesher.pair(map, false)
+                                    ~= nil),
+            "body=" .. tostring(map and ChunkMesher.pair(map, true)
+                                 ~= nil),
+            "pending=" .. tostring(ChunkMesher.pending()),
+            "voxelLevel=" .. tostring(Voxel.level),
+            "angle=" .. tostring(Voxel.angle),
+            "ready=" .. tostring(Voxel.ready),
+          }, "\n"))
+      end
       -- Battle teardown can reveal the world before its streamed terrain is
       -- ready. Keep the clean arena backdrop for that short handoff instead
       -- of exposing Silver's flat world between the two composites.
       return OverworldBattle.handoff()
     end
+    writeWorldProbe("success", "draws=" .. tostring(worldProbe.draws)
+      .. "\nmap=" .. tostring(ctx.state and ctx.state.map
+                              and ctx.state.map.id))
     if Voxel3D.beginOverlay() then
       -- the FX closures are ordinary 2D draws sized in DISPLAY pixels, and
       -- they are drawing into the supersampled canvas alongside everything
