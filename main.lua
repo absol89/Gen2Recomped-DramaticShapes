@@ -1024,6 +1024,35 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
   return insertGrouped(out, extra)
 end)
 
+
+-- Game2 applies saved pipeline levels (Pipelines.applyOptions, Game2.lua:1984)
+-- while its options load -- which can run BEFORE this mod's entry chunk
+-- registers the voxel pipeline on the Gold/Silver boot path. A stored level
+-- then restores into a registry without us and is dropped; the probe caught
+-- exactly that: map=ROUTE_30, world+camera live, level=0. Re-apply once the
+-- game is up: whatever the stored option says wins, unless the player has
+-- already stepped the ladder themselves.
+local voxelRestoreDone = false
+mod.events:on("game.ready", function(payload)
+  if voxelRestoreDone then return end
+  voxelRestoreDone = true
+  local game = payload and payload.game or V.game()
+  local opts = game and ((game.save and game.save.options) or game.options)
+  local stored = type(opts) == "table" and type(opts.pipelines) == "table"
+    and tonumber(opts.pipelines.voxel) or nil
+  if not stored then return end
+  local Pipelines = require("src.render.Pipelines")
+  if Pipelines.level("voxel") <= 0 and math.floor(stored) > 0 then
+    Pipelines.setLevel("voxel", math.min(math.floor(stored),
+                                         Pipelines.maxLevel("voxel")))
+    Voxel.setLevel(Pipelines.level("voxel"))
+    Pipelines.syncOptions(opts)
+    writeWorldProbe("restore",
+      "restored voxel level " .. tostring(Pipelines.level("voxel"))
+      .. " from saved options at game.ready")
+  end
+end)
+
 -- The mod manager writes and persists on its own, so the only thing left
 -- to do is move our cached index and pick the new value up.
 mod.events:on("mod.options_changed", function(payload)
