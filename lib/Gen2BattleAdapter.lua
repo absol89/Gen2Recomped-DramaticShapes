@@ -61,10 +61,17 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
 
   Chrome.clear = function() end
   state.drawPic = function() end
+  -- BattleAnimView's fillBackground() paints its white sheet in GB space
+  -- (160x144) under the panel transform, so it never matches a window-size
+  -- test even though it lands over the whole arena. Treat an exact
+  -- GB-frame white fill as paper too.
+  local GB_W, GB_H = 160, 144
   g.rectangle = function(mode, x, y, w, h, ...)
     local r, gr, b, a = g.getColor()
-    local coversFrame = mode == "fill" and w >= width * 0.9
-                        and h >= height * 0.9
+    local coversFrame = mode == "fill" and ((w >= width * 0.9
+                          and h >= height * 0.9)
+                         or (w == GB_W and h == GB_H
+                             and x <= 0 and y <= 0))
     if coversFrame then
       if isWhite(r, gr, b, a) or flashActive then return end
     end

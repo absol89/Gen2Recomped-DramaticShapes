@@ -1415,7 +1415,16 @@ function OverworldBattle.install()
   -- give them. They ride the average, which is where the pair's centre went
   -- -- a few pixels at most, and it keeps a hit landing on the mon it is
   -- aimed at instead of drifting off it.
-  innerAnim = BattleState.drawAnimLayer
+  -- Gold/Silver's battle state has no drawAnimLayer (that is Gen 2Recomp's
+  -- seam): its move effects draw through the animation view's object
+  -- pass -- OAM sprites over the baked panel. Capture exactly that pass:
+  -- objects only, so the canvas holds move sprites on transparency and the
+  -- fxCard can stand them in the world over the mons.
+  innerAnim = function(battle)
+    local view = battle and battle.animView
+    if not (view and battle.anim) then return end
+    view:drawObjects(battle.anim, battle.battle)
+  end
   function BattleState:drawAnimLayer(colorized)
     local shot = self.dramaticShapeShot
     if not shot then return innerAnim(self, colorized) end
