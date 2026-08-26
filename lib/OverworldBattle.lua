@@ -559,6 +559,14 @@ function OverworldBattle.arena()
   return session and session.arena or nil
 end
 
+-- Gold/Silver raises battle.ended the moment the outcome is decided,
+-- while the defeat/exp dialogue is still queued; a full teardown here
+-- froze the staged arena mid-conversation. Mark the session retiring and
+-- let update() finish it once the battle screen leaves the stack.
+function OverworldBattle.retire()
+  if session then session.retiring = true end
+end
+
 function OverworldBattle.finish()
   if not session then return end
   if session.shot and session.shot.canvas then

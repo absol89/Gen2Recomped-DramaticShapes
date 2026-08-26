@@ -60,7 +60,12 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   end
 
   Chrome.clear = function() end
-  state.drawPic = function() end
+  -- Once the outcome is decided the engine re-shows the trainer (or
+  -- the standing mon) while the defeat text runs: those pics are
+  -- content now, so only suppress them mid-fight.
+  if not (state.battle and state.battle.over) then
+  	state.drawPic = function() end
+  end
   -- BattleAnimView's fillBackground() paints its white sheet in GB space
   -- (160x144) under the panel transform, so it never matches a window-size
   -- test even though it lands over the whole arena. Treat an exact

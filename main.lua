@@ -1463,8 +1463,13 @@ end)
 
 -- Every ending path emits this, including a battle skipped before it drew,
 -- so this is where the map's cast comes back.
+-- Gold/Silver raises battle.ended the moment the OUTCOME is decided --
+-- while the defeat/exp dialogue is still queued and on screen -- so a full
+-- teardown here froze the staged arena mid-conversation. Mark the session
+-- ending and let OverworldBattle.update finish it when the battle screen
+-- actually leaves the stack.
 mod.events:on("battle.ended", function()
-  OverworldBattle.finish()
+  OverworldBattle.retire()
 end)
 
 -- ------- and the way back out
