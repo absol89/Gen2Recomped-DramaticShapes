@@ -567,6 +567,57 @@ local function stagedBattles()
   return OverworldBattle.enabled()
 end
 
+-- Gen 2 does not build render-pipeline rows for either of its options
+-- screens. Keep one small bridge for those surfaces: the in-game row still
+-- edits Pipelines directly, while the mod manager stores this mirror key and
+-- the options-changed event below applies it to the same live level.
+local VOXEL_OPTION_KEY = "voxelLevel"
+local VOXEL_HELP = "Choose the voxel camera: OFF, the FULL diorama preset, "
+  .. "or an orbit/free-camera rung. This is the touch-accessible equivalent "
+  .. "of the keyboard's 3 display-mode key."
+
+local function mirrorVoxelOption(game, level)
+  game = game or V.game()
+  level = math.max(0, math.min(Voxel.MAX_LEVEL,
+                               math.floor(tonumber(level) or 0)))
+  local changed = false
+  local opts = game and game.save and game.save.options
+  if opts then
+    opts.modOptions = opts.modOptions or {}
+    opts.modOptions[mod.id] = opts.modOptions[mod.id] or {}
+    changed = opts.modOptions[mod.id][VOXEL_OPTION_KEY] ~= level
+    opts.modOptions[mod.id][VOXEL_OPTION_KEY] = level
+  end
+  local loader = game and game.mods
+  if loader then
+    loader.modOptions = loader.modOptions or {}
+    loader.modOptions[mod.id] = loader.modOptions[mod.id] or {}
+    loader.modOptions[mod.id][VOXEL_OPTION_KEY] = level
+  end
+  return changed
+end
+
+local function setVoxelOption(game, level)
+  game = game or V.game()
+  local Pipelines = require("src.render.Pipelines")
+  level = Pipelines.setLevel("voxel", level)
+  Voxel.setLevel(level)
+  local opts = gen2PipelineOptions(game)
+  if opts then
+    Pipelines.syncOptions(opts)
+    opts.tilt, opts.gbcfx = 0, 0
+  end
+  mirrorVoxelOption(game, level)
+  applyFull(level)
+  local okTilt, Tilt = pcall(require, "src.render.Tilt")
+  if okTilt and Tilt and Tilt.setLevel then pcall(Tilt.setLevel, 0) end
+  local okGbc, GBCFX = pcall(require, "src.render.GBCFX")
+  if okGbc and GBCFX and GBCFX.setLevel then pcall(GBCFX.setLevel, 0) end
+  if game and game.writeOptions then pcall(game.writeOptions, game)
+  elseif game and game.persistOptions then pcall(game.persistOptions, game) end
+  return level
+end
+
 local SETTINGS = {
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
   { WorldCurve.setting,
@@ -748,7 +799,14 @@ local SETTINGS = {
     when = function() return VR.enabled() end, full = true },
 }
 
-local schema = {}
+local voxelChoices = {}
+for level, label in ipairs(Voxel.ANGLE_LABELS) do
+  voxelChoices[#voxelChoices + 1] = { label, level - 1 }
+end
+local schema = {
+  { key = VOXEL_OPTION_KEY, type = "choice", label = "VOXEL",
+    choices = voxelChoices, default = GEN2_DEFAULT_VOXEL, help = VOXEL_HELP },
+}
 for _, entry in ipairs(SETTINGS) do
   -- the VR rows are absent from the mod manager's page too where the
   -- platform cannot do VR at all -- the OPTIONS menu's `when` gates are
@@ -822,9 +880,8 @@ local function cycleVoxel(game)
     world = game.overworld or game.world
   end
   if not Pipelines.canToggle("voxel", top, world) then return false end
-  Pipelines.setLevel("voxel", Voxel.nextHotkeyLevel(Pipelines.level("voxel")))
+  setVoxelOption(game, Voxel.nextHotkeyLevel(Pipelines.level("voxel")))
   local options = game.options or (game.save and game.save.options) or {}
-  Pipelines.syncOptions(options)
   -- 3 is the key that used to turn TILT on and sits next to the one that
   -- used to turn GBC FX on, and this mod has taken both away. A player who
   -- left either running before enabling the mod would otherwise have no
@@ -842,7 +899,6 @@ local function cycleVoxel(game)
   if okTilt and Tilt and Tilt.setLevel then
     pcall(Tilt.setLevel, options.tilt or 0)
   end
-  game:writeOptions()
   return true
 end
 
@@ -950,8 +1006,23 @@ local function insertGrouped(out, extra)
     local id = type(row) == "table" and row.id
     if id == "pipeline:voxel" or id == "pipeline:tiltshift" then anchor = i end
   end
+  -- Gold/Silver has no native pipeline rows. Put the block at its display
+  -- controls instead of appending it after CANCEL, where the preceding row
+  -- exits the screen and makes every appended mod setting look absent.
   if not anchor then
-    for _, row in ipairs(extra) do out[#out + 1] = row end
+    for i, row in ipairs(out) do
+      if type(row) == "table" and row.id == "zoom" then anchor = i end
+    end
+  end
+  if not anchor then
+    local at = #out + 1
+    for i, row in ipairs(out) do
+      if type(row) == "table" and (row.cancel or row.id == "cancel") then
+        at = i
+        break
+      end
+    end
+    for i, row in ipairs(extra) do table.insert(out, at + i - 1, row) end
     return out
   end
   for i, row in ipairs(extra) do table.insert(out, anchor + i, row) end
@@ -1099,15 +1170,19 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     if row.id == "pipeline:voxel" then hasVoxelRow = true break end
   end
   if not hasVoxelRow then
-    extra[#extra + 1] = {
+    -- The keyboard shortcut deliberately skips FULL and only advances. An
+    -- options row must expose the complete ladder and honor left and right.
+    table.insert(extra, 1, {
       id = "pipeline:voxel",
       label = "VOXEL",
       value = function() return Pipelines.levelLabel("voxel") end,
       step = function(g, dir)
-        cycleVoxel(g)
+        local span = Pipelines.maxLevel("voxel") + 1
+        local target = (Pipelines.level("voxel") + (dir or 1)) % span
+        setVoxelOption(g, target)
         return true
       end,
-    }
+    })
   end
   return insertGrouped(out, extra)
 end)
@@ -1128,9 +1203,8 @@ mod.events:on("game.ready", function(payload)
   local opts = gen2PipelineOptions(game)
   local stored = type(opts) == "table" and type(opts.pipelines) == "table"
     and tonumber(opts.pipelines.voxel) or nil
-  if not stored then return end
   local Pipelines = require("src.render.Pipelines")
-  if Pipelines.level("voxel") <= 0 and math.floor(stored) > 0 then
+  if stored and Pipelines.level("voxel") <= 0 and math.floor(stored) > 0 then
     Pipelines.setLevel("voxel", math.min(math.floor(stored),
                                          Pipelines.maxLevel("voxel")))
     Voxel.setLevel(Pipelines.level("voxel"))
@@ -1139,12 +1213,20 @@ mod.events:on("game.ready", function(payload)
       "restored voxel level " .. tostring(Pipelines.level("voxel"))
       .. " from saved options at game.ready")
   end
+  if mirrorVoxelOption(game, Pipelines.level("voxel"))
+      and game and game.writeOptions then
+    pcall(game.writeOptions, game)
+  end
 end)
 
 -- The mod manager writes and persists on its own, so the only thing left
 -- to do is move our cached index and pick the new value up.
 mod.events:on("mod.options_changed", function(payload)
   if not (payload and payload.mod == mod.id) then return end
+  if payload.key == VOXEL_OPTION_KEY then
+    setVoxelOption(V.game(), payload.value)
+    return
+  end
   for _, entry in ipairs(SETTINGS) do
     if payload.key == entry[1].key then entry[1]:sync(payload.value) end
   end
@@ -1539,7 +1621,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.0"
+mod.exports.version = "2.0.1"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,

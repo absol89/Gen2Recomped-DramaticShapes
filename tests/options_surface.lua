@@ -41,6 +41,14 @@ assert(main:sub(worldFill, nextSetting - 1):find("managerOnly = true", 1, true),
   "WORLD FILL is not restricted to the mod-specific options page")
 assert(main:find("local offered = not entry.managerOnly", 1, true),
   "the in-game options menu does not honor manager-only settings")
+assert(main:find('key = VOXEL_OPTION_KEY, type = "choice", label = "VOXEL"',
+  1, true), "the mod manager has no VOXEL quality selector")
+assert(main:find('table.insert(extra, 1, {', 1, true),
+  "the Gen 2 VOXEL row is not placed ahead of secondary mod settings")
+assert(main:find('row.id == "zoom"', 1, true),
+  "Gen 2 mod rows are not anchored before the options screen's CANCEL row")
+assert(main:find('setVoxelOption(g, target)', 1, true),
+  "the touch VOXEL row does not step the complete bidirectional ladder")
 
 local presentation = assert(main:find(
   "local function applyPresentationDefaults", 1, true))
