@@ -340,10 +340,6 @@ local function freeTick(world)
   local mx, mz = world._battleArtFreeX - ox, world._battleArtFreeZ - oz
   local moved = math.sqrt(mx * mx + mz * mz)
   world._battleArtVisualMoving = moved > 0.01
-  -- walkPhase gates on Player.moving; without it the billboard glides with
-  -- a frozen frame. Mirror the visual movement into the player's own
-  -- walking state so the sprite steps while the free walk covers ground.
-  p.moving = world._battleArtVisualMoving
   world._battleArtAnimDistance = (world._battleArtAnimDistance or 0) + moved
   while world._battleArtAnimDistance >= 16 do
     world._battleArtAnimDistance = world._battleArtAnimDistance - 16
