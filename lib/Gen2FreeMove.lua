@@ -147,6 +147,21 @@ local function adopt(world)
   world._battleArtFreeMap = world.map and world.map.id
   world._battleArtFreeMove = true
   world._battleArtVisualMoving = false
+  -- The free walk moves px/py directly: Player.moving never sets, so
+  -- the class walkPhase answers 0 forever and the billboard glides
+  -- frozen. Give this player INSTANCE a phase reading the free walk's
+  -- own movement flag; the engine's grid walk is untouched (setting
+  -- .moving here crashes Player:update, whose interpolation needs
+  -- target cells free move does not keep).
+  if not p._battleArtWalkPhase then
+    p._battleArtWalkPhase = true
+    p.walkPhase = function(self)
+      if world._battleArtVisualMoving then
+        return ((self.animClock or 0) % 8 >= 4) and 1 or 0
+      end
+      return 0
+    end
+  end
 end
 
 local function entityBlocked(world, p, cx, cy)
