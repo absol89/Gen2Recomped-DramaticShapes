@@ -43,6 +43,18 @@ assert(snappedHud:find("for _, rect in pairs(panels) do BattleHud.panel", 1, tru
 assert(overworld:find("if shot.animInWorld then return end", 1, true),
   "the duplicate UI animation layer is not suppressed")
 
+local gen2Install = assert(overworld:find(
+  'V.require("Gen2BattleAdapter").install', 1, true))
+local gen2AnimCapture = assert(overworld:find(
+  "innerAnim = drawGen2AnimObjects", 1, true))
+assert(gen2AnimCapture < gen2Install,
+  "Gen 2 returns from installation before enabling attack-object capture")
+local objectDraw = assert(overworld:find(
+  "view:drawObjects(battle.anim, battle.battle)", 1, true))
+local backgroundDraw = overworld:find("view:present", objectDraw, true)
+assert(not backgroundDraw or backgroundDraw > gen2Install,
+  "Gen 2 world attack capture includes the opaque animation background")
+
 local gen2 = source("lib/Gen2BattleAdapter.lua")
 assert(gen2:find("withoutOpaqueBattlePaper", 1, true),
   "Gen 2 staged battles no longer suppress the opaque native backdrop")

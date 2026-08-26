@@ -802,6 +802,17 @@ local animLayer = nil
 -- this comment is the tombstone of).
 local innerAnim = nil
 
+-- Gold/Silver does not expose Gen 1's drawAnimLayer seam. Its attack sprites
+-- are the OBJ half of BattleAnimView, drawn after the opaque/background half
+-- in drawSceneBody. Capture only those objects: the resulting canvas starts
+-- transparent, so standing it in the arena carries the attack pixels without
+-- carrying BattleAnimView's white 160x144 panel with them.
+local function drawGen2AnimObjects(battle)
+  local view = battle and battle.animView
+  if not (view and battle.anim) then return end
+  view:drawObjects(battle.anim, battle.battle)
+end
+
 function OverworldBattle.animTexture(battle)
   if not (innerAnim and battle) then return nil end
   if not BattleVisibility.animationLayerVisible(battle) then return nil end
@@ -1222,6 +1233,11 @@ function OverworldBattle.install()
   -- split world/UI canvases.  Its dedicated adapter replaces only that
   -- opaque backdrop; the staging and art code below stays generation-neutral.
   if isGen2BattleState(BattleState) and not BattleState.drawPicsLayer then
+    -- This branch returns before the Gen 1 class wrappers below are installed,
+    -- so initialize the animation capture seam here. Leaving innerAnim nil
+    -- makes animTexture() return nil every frame: the adapter then suppresses
+    -- the native panel animation, but there is no world copy to replace it.
+    innerAnim = drawGen2AnimObjects
     V.require("Gen2BattleAdapter").install(OverworldBattle)
     BattleState.dramaticShapeBattleHook = true
     return
@@ -1449,11 +1465,7 @@ function OverworldBattle.install()
   -- pass -- OAM sprites over the baked panel. Capture exactly that pass:
   -- objects only, so the canvas holds move sprites on transparency and the
   -- fxCard can stand them in the world over the mons.
-  innerAnim = function(battle)
-    local view = battle and battle.animView
-    if not (view and battle.anim) then return end
-    view:drawObjects(battle.anim, battle.battle)
-  end
+  innerAnim = drawGen2AnimObjects
   function BattleState:drawAnimLayer(colorized)
     local shot = self.dramaticShapeShot
     if not shot then return innerAnim(self, colorized) end

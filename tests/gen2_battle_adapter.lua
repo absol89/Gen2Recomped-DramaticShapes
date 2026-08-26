@@ -35,10 +35,14 @@ package.preload["src.battle.BattleState"] = function() return BattleState end
 local BattleArt = {
   isExternal = function(value) return value == "external-image" end,
 }
+local BattlePics = {
+  shade0Transparent = function(image) return image end,
+}
 local V = {
   require = function(name)
-    assert(name == "BattleArt")
-    return BattleArt
+    if name == "BattleArt" then return BattleArt end
+    if name == "BattlePics" then return BattlePics end
+    error("unexpected module " .. tostring(name))
   end,
 }
 
