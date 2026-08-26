@@ -1045,7 +1045,14 @@ function OverworldBattle.sideTexture(battle, side)
   if not battle then return nil end
   local gen2 = isGen2BattleState(battle)
   if not gen2 and not innerPics then return nil end
-  if gen2 and battle.picHidden and battle.picHidden[side] then return nil end
+  -- picHidden alone hides the pic outright, but a fainted mon first plays
+  -- its faint slide (faintSlide/faintSink): the billboard should sink
+  -- through the ground rather than pop off. Only hide outright when there
+  -- is no slide riding this frame.
+  if gen2 and battle.picHidden and battle.picHidden[side]
+     and not (battle.faintSlide and battle.faintSlide.side == side) then
+    return nil
+  end
   -- Battle Art installs its selected species/trainer/player art onto the
   -- battlers before the engine's own pics layer is captured, so the billboard
   -- wears the replacement exactly as the flat battle would draw it. MODDED

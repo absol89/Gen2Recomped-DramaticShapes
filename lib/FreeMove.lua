@@ -296,7 +296,13 @@ function FreeMove.tick(state)
     end
   end
 
-  if not moving then return end
+  if not moving then
+    if p.moving then
+      p.moving = false
+      p.animClock = 0
+    end
+    return
+  end
 
   -- and once there IS a direction of travel, the body may point along it
   -- rather than along the head: on the boom (3RD) you can see yourself, so
@@ -317,9 +323,13 @@ function FreeMove.tick(state)
   local hitX = slideX(state, p, dx)
   local hitZ = slideZ(state, p, dz)
 
-  -- the walk cycle: the wall-bonk clock animates the legs of a player the
-  -- grid thinks is standing still, refreshed while the free walk covers
-  -- ground (Player:update ticks animClock off it; walkPhase reads it)
+  -- the walk cycle: the grid thinks this player is standing still, so its
+  -- own update never ticks animClock and walkPhase reads 0 forever -- the
+  -- sprite glided without stepping. Drive the walking state by hand while
+  -- the free walk covers ground: moving=true lets walkPhase leave its idle
+  -- frame, and animClock advances at the engine's step cadence.
+  p.moving = true
+  p.animClock = (p.animClock or 0) + 1
   p.bumpFrames = 2
 
   p.px, p.py = pos.x - 8, pos.z - 8

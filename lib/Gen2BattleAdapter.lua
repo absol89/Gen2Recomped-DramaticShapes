@@ -84,6 +84,13 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
         and h < 64 and (y + h) <= 96 then
       return
     end
+    -- The command menu's cursor cell paints the same paper beside the
+    -- arrow; over the arena it reads as a floating white square. Drop it
+    -- with the rest of the upper-frame whites.
+    if mode == "fill" and isWhite(r, gr, b, a)
+        and y >= 96 and x >= 88 and w <= 48 and h <= 48 then
+      return
+    end
     return nativeRectangle(mode, x, y, w, h, ...)
   end
 
