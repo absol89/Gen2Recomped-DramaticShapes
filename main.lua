@@ -98,6 +98,7 @@ local DayNight = V.require("DayNight")
 local DayTint = V.require("DayTint")
 local Water = V.require("Water")
 local AntiAlias = V.require("AntiAlias")
+local WorldCanvasOrientation = V.require("WorldCanvasOrientation")
 local FirstPerson = V.require("FirstPerson")
 local FreeMove = V.require("FreeMove")
 local CamControl = V.require("CamControl")
@@ -288,13 +289,15 @@ mod.content.render_pipelines:register("voxel", {
     end
     -- and back to the window's own size, which is what the engine composites
     -- one canvas pixel to one display pixel.  A pass-through when AA is off.
-    return AntiAlias.resolve(canvas, sw, sh, "world")
+    canvas = AntiAlias.resolve(canvas, sw, sh, "world")
+    return WorldCanvasOrientation.present(canvas, "overworld")
   end,
 
   invalidate = function()
     Voxel3D.invalidate()
     OverworldBattle.invalidate()
     AntiAlias.invalidate()
+    WorldCanvasOrientation.invalidate()
     ChunkMesher.invalidate()   -- no map id = every cached mesh
     VR.invalidate()            -- the mirror, and FBO ids of dead canvases
   end,
@@ -1294,7 +1297,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.0"
+mod.exports.version = "2.0.2"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,

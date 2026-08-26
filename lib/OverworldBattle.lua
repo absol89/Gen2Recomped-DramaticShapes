@@ -43,6 +43,7 @@ local BattleArena = V.require("BattleArena")
 local BattleCam = V.require("BattleCam")
 local BattleScene = V.require("BattleScene")
 local BattleDOF = V.require("BattleDOF")
+local WorldCanvasOrientation = V.require("WorldCanvasOrientation")
 local BattleHud = V.require("BattleHud")
 local BattlePics = V.require("BattlePics")
 local BattlePresentation = V.require("BattlePresentation")
@@ -1181,7 +1182,8 @@ function OverworldBattle.install()
     -- as crisp as the free-roam diorama while the pics and text stay GB art.
     local renderer = game().renderer
     if renderer and renderer.setWorldOverride then
-      renderer:setWorldOverride(shot.canvas)
+      renderer:setWorldOverride(
+        WorldCanvasOrientation.present(shot.canvas, "battle"))
     end
     -- beginFrame clears the UI canvas white for an opaque state; the world is
     -- under it now, so clear it back to nothing and let it through. Safe to
