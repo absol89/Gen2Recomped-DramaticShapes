@@ -76,6 +76,14 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
       if isWhite(r, gr, b, a) or flashActive then return end
     end
     if isScreenFlash(mode, x, y, w, h, r, gr, b, a) then return end
+    -- HUD panel paper: Font.drawBox paints the HP/EXP panels' white
+    -- interior before its border glyphs. Over the arena those slabs are
+    -- exactly the white the user wants gone; the text box lower on the
+    -- screen keeps its paper. HUD panels live above GB row 12.
+    if mode == "fill" and isWhite(r, gr, b, a)
+        and h < 64 and (y + h) <= 96 then
+      return
+    end
     return nativeRectangle(mode, x, y, w, h, ...)
   end
 
