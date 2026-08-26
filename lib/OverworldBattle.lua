@@ -1103,9 +1103,22 @@ function OverworldBattle.sideTexture(battle, side)
   g.getScissor = function() return nil end
 
   local saved = {}
+  local trainerImageField, savedTrainerImage
   if not gen2 then
     for k, v in pairs(OFF[side]) do saved[k] = battle[k]; battle[k] = v end
     texturing = side
+  elseif side == "enemy" and battle.showEnemyTrainer
+      and not battle.enemyTrainerTrueColor
+      and battle.enemyTrainerImage then
+    trainerImageField = "enemyTrainerImage"
+  elseif side == "player" and battle.showPlayerTrainer
+      and not battle.playerBackTrueColor
+      and battle.playerBackImage then
+    trainerImageField = "playerBackImage"
+  end
+  if trainerImageField then
+    savedTrainerImage = battle[trainerImageField]
+    battle[trainerImageField] = BattlePics.outsideTransparent(savedTrainerImage)
   end
 
   local ok, err = pcall(function()
@@ -1121,6 +1134,7 @@ function OverworldBattle.sideTexture(battle, side)
   end)
 
   texturing = nil
+  if trainerImageField then battle[trainerImageField] = savedTrainerImage end
   if savedFaintSlide then battle.faintSlide = savedFaintSlide end
   if not gen2 then
     for k in pairs(OFF[side]) do battle[k] = saved[k] end

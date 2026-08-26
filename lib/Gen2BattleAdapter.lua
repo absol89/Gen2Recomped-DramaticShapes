@@ -6,6 +6,7 @@
 
 local V = ...
 local BattleArt = V.require("BattleArt")
+local BattlePics = V.require("BattlePics")
 
 local Adapter = {}
 local MARKER = "battleArtGen2WidescreenAdapter"
@@ -40,6 +41,7 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   local nativeClear = Chrome.clear
   local nativeRectangle = g.rectangle
   local instancePic = rawget(state, "drawPic")
+  local hudImages = {}
 
   -- A palette flash (BATTLE_BG_EFFECT_FLASH_*) makes the engine re-bake the
   -- panel under a remapped BGP and blit it back as one opaque near-white
@@ -60,11 +62,28 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   end
 
   Chrome.clear = function() end
-  -- Once the outcome is decided the engine re-shows the trainer (or
-  -- the standing mon) while the defeat text runs: those pics are
-  -- content now, so only suppress them mid-fight.
-  if not (state.battle and state.battle.over) then
-  	state.drawPic = function() end
+  -- Every live picture is already captured onto a world billboard, including
+  -- the beaten trainer that returns for the victory text. Keep the native
+  -- panel's picture calls suppressed for the entire staged presentation or
+  -- both that trainer and the player's standing mon are drawn a second time
+  -- in screen space as soon as battle.over is latched.
+  state.drawPic = function() end
+
+  -- BattleHud's four indexed sheets carry opaque shade-0 paper inside every
+  -- HP/EXP cell and frame tile. Swap in cached keyed copies for this staged
+  -- draw only. The ball sprites themselves already have OBJ transparency; the
+  -- party-counter's white trailing square is its $5c corner from expBar, so it
+  -- is covered here without touching the ball art.
+  local hud = state.hud
+  if hud and type(hud.image) == "function" and type(hud.images) == "table" then
+    for _, key in ipairs({ "hpBar", "expBar", "enemyBorder", "playerBorder" }) do
+      local path = hud.gfx and hud.gfx[key]
+      local image = path and hud:image(key) or nil
+      if path and image then
+        hudImages[path] = hud.images[path]
+        hud.images[path] = BattlePics.shade0Transparent(image)
+      end
+    end
   end
   -- BattleAnimView's fillBackground() paints its white sheet in GB space
   -- (160x144) under the panel transform, so it never matches a window-size
@@ -102,6 +121,9 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   local results = pack(pcall(body))
   g.rectangle = nativeRectangle
   state.drawPic = instancePic
+  if hud and hud.images then
+    for path, image in pairs(hudImages) do hud.images[path] = image end
+  end
   Chrome.clear = nativeClear
 
   if not results[1] then error(results[2], 0) end

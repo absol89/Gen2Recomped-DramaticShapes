@@ -11,6 +11,7 @@ local V = {
   end,
   data = function() return {} end,
 }
+local unpackValues = table.unpack or unpack
 
 local function imageData()
   local pixels = {}
@@ -26,7 +27,7 @@ local function imageData()
   return {
     getDimensions = function() return 5, 5 end,
     getPixel = function(_, x, y)
-      return table.unpack(pixels[y * 5 + x])
+      return unpackValues(pixels[y * 5 + x])
     end,
     setPixel = function(_, x, y, r, g, b, a)
       pixels[y * 5 + x] = { r, g, b, a }

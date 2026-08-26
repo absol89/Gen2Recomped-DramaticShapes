@@ -48,8 +48,18 @@ assert(gen2:find("withoutOpaqueBattlePaper", 1, true),
   "Gen 2 staged battles no longer suppress the opaque native backdrop")
 assert(gen2:find("state.drawPic = function() end", 1, true),
   "Gen 2 staged battles no longer suppress duplicate native pictures")
+assert(not gen2:find("state.battle and state.battle.over", 1, true),
+  "Gen 2 outcome frames revive native screen-space battle pictures")
+assert(overworld:find("not battle.enemyTrainerTrueColor", sideTexture, true)
+    and overworld:find("not battle.playerBackTrueColor", sideTexture, true),
+  "authored true-colour trainers are routed through inferred matte keying")
 assert(gen2:find("isScreenFlash", 1, true),
   "Gen 2 staged battles no longer remove the opaque-paper flash")
+local keyedHud = assert(gen2:find("BattlePics.shade0Transparent", 1, true))
+assert(gen2:find('"hpBar", "expBar", "enemyBorder", "playerBorder"', 1, true),
+  "Gen 2 staged HUD sheets are not all routed through paper keying")
+assert(gen2:find("hud.images[path] = image", keyedHud, true),
+  "Gen 2 staged HUD image swaps are not restored after the draw")
 assert(overworld:find("battle.picHidden[side]", sideTexture, true),
   "Gen 2 fainted pictures remain eligible for a world billboard")
 assert(overworld:find("battle.faintSlide = nil", sideTexture, true),

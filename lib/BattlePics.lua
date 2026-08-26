@@ -103,6 +103,8 @@ local function newCache()
   }
 end
 local cache = newCache()
+local outsideCache = setmetatable({}, { __mode = "k" })
+local shade0Cache = setmetatable({}, { __mode = "k" })
 
 -- What an enclosed hole is filled with when the pic itself offers nothing
 -- better. White, because white is what the battle field was: this restores the
@@ -158,6 +160,118 @@ local function readBack(img)
   love.graphics.setBlendMode(prevBlend or "alpha", prevAlpha)
   love.graphics.setColor(prevR or 1, prevG or 1, prevB or 1, prevA or 1)
   return ok and data or nil
+end
+
+-- Gen 2's extracted trainer pictures are ordinary opaque PNGs because their
+-- native destination is a white battle field. On a world billboard that field
+-- becomes a visible rectangle. Remove only the corner-colour matte the image
+-- border can reach: painted whites enclosed by the trainer's outline remain
+-- opaque, while the paper outside the figure becomes transparent.
+--
+-- The extractor can leave a mixture of transparent pixels and opaque shade-0
+-- paper around one portrait, so "the whole image is opaque" is not a valid
+-- gate. Pick the dominant OPAQUE colour on the complete border instead. The
+-- caller limits this reconstruction to indexed, non-true-colour trainer art;
+-- authored RGBA portraits never enter it.
+local function borderKey(data, w, h)
+  local counts, values, order = {}, {}, {}
+  local function count(x, y)
+    local r, g, b, a = data:getPixel(x, y)
+    if a <= CUT then return end
+    local key = math.floor(r * 255 + 0.5) * 65536
+              + math.floor(g * 255 + 0.5) * 256
+              + math.floor(b * 255 + 0.5)
+    counts[key] = (counts[key] or 0) + 1
+    values[key] = { r, g, b }
+    if counts[key] == 1 then order[#order + 1] = key end
+  end
+  for x = 0, w - 1 do count(x, 0); count(x, h - 1) end
+  for y = 1, h - 2 do count(0, y); count(w - 1, y) end
+  local best, count = order[1], -1
+  for _, key in ipairs(order) do
+    if counts[key] > count then best, count = key, counts[key] end
+  end
+  return values[best]
+end
+
+function BattlePics.outsideTransparent(img)
+  if not img then return img end
+  local hit = outsideCache[img]
+  if hit ~= nil then return hit or img end
+
+  local made = nil
+  local ok = pcall(function()
+    local data = readBack(img)
+    if not data then return end
+    local w, h = data:getDimensions()
+    local key = borderKey(data, w, h)
+    if not key then return end
+    local seen, stack, top = {}, {}, 0
+    local function push(x, y)
+      if x < 0 or y < 0 or x >= w or y >= h then return end
+      local index = y * w + x
+      if seen[index] then return end
+      local r, g, b, a = data:getPixel(x, y)
+      if a <= CUT or math.abs(r - key[1]) > 0.5 / 255
+         or math.abs(g - key[2]) > 0.5 / 255
+         or math.abs(b - key[3]) > 0.5 / 255 then return end
+      seen[index], top = true, top + 1
+      stack[top] = index
+    end
+    for x = 0, w - 1 do push(x, 0); push(x, h - 1) end
+    for y = 0, h - 1 do push(0, y); push(w - 1, y) end
+    local changed = false
+    while top > 0 do
+      local index = stack[top]
+      stack[top], top = nil, top - 1
+      local x, y = index % w, math.floor(index / w)
+      local r, g, b = data:getPixel(x, y)
+      data:setPixel(x, y, r, g, b, 0)
+      changed = true
+      push(x - 1, y); push(x + 1, y); push(x, y - 1); push(x, y + 1)
+    end
+    if not changed then return end
+    made = love.graphics.newImage(data)
+    made:setFilter("nearest", "nearest")
+  end)
+
+  outsideCache[img] = (ok and made) or false
+  return made or img
+end
+
+-- Gen 2 battle HUD sheets are indexed 2bpp art. Shade 0 is their paper, not
+-- white ink: HP/EXP cells and border/corner tiles were authored for the native
+-- white battle field, where an opaque shade-0 background was invisible. Key
+-- every such pixel for the staged copy so the arena reaches the bar and frame
+-- directly. Unlike outsideTransparent this is deliberately not a flood -- an
+-- empty bar cell is paper even when black rules enclose it on every side.
+function BattlePics.shade0Transparent(img)
+  if not img then return img end
+  local hit = shade0Cache[img]
+  if hit ~= nil then return hit or img end
+
+  local made = nil
+  local ok = pcall(function()
+    local data = readBack(img)
+    if not data then return end
+    local w, h = data:getDimensions()
+    local changed = false
+    for y = 0, h - 1 do
+      for x = 0, w - 1 do
+        local r, g, b, a = data:getPixel(x, y)
+        if a > CUT and r >= 0.999 and g >= 0.999 and b >= 0.999 then
+          data:setPixel(x, y, r, g, b, 0)
+          changed = true
+        end
+      end
+    end
+    if not changed then return end
+    made = love.graphics.newImage(data)
+    made:setFilter("nearest", "nearest")
+  end)
+
+  shade0Cache[img] = (ok and made) or false
+  return made or img
 end
 
 -- The box the artwork actually occupies, or nil for a pic with no ink in it.
@@ -342,6 +456,8 @@ end
 
 function BattlePics.invalidate()
   cache = newCache()
+  outsideCache = setmetatable({}, { __mode = "k" })
+  shade0Cache = setmetatable({}, { __mode = "k" })
 end
 
 return BattlePics
