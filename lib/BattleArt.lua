@@ -505,6 +505,20 @@ function BattleArt.playerTrainerImage()
   return playerImageFromSetting(BattleArt.playerArtSetting)
 end
 
+-- The path the engine should draw for the player's back in a battle, given
+-- the current PLAYER ART / PLAYER ANIM options. Returns nil to leave the
+-- engine's own (ROM) back alone, or an asset path when a flat replacement
+-- applies. A PNG from EITHER player row wins, in any master mode; a ROM from
+-- either restores the engine portrait.
+function BattleArt.playerBackPathForOptions()
+  local art = BattleArt.playerArtSetting:get()
+  local anim = BattleArt.playerAnimationSetting:get()
+  if art == "png" or anim == "png" then
+    return V.mod.assets:path("assets/battle/back-static/player.png")
+  end
+  return nil
+end
+
 local function trainerKey(battle)
   local id = battle and battle.oppClass
   if type(id) ~= "string" then return nil end

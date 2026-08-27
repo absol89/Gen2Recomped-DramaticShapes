@@ -1794,6 +1794,26 @@ mod.exports.battleArt = BattleArt
 -- Hook-aware screens (title, summary, dex entry) pick up BATTLE ART fronts
 -- outside battle; every hook pcalls its screen module and skips on mismatch.
 InterfaceSprites.install()
+
+-- Player back pic in a normal (non-staged) gen2 battle. The engine resolves
+-- the player's back through Sprites.playerPic -> the "player.sprite" hook, and
+-- BATTLE ART's override otherwise only runs inside the staged voxel renderer.
+-- Wrap that seam so a flat PNG choice replaces the back for ANY player (boy or
+-- girl, Gold or Kris) without touching fronts, intros or the engine's own
+-- generation/ROM backs when the option is not PNG.
+mod.hooks:wrap("player.sprite", function(next, path, ctx)
+  local out = next(path, ctx)
+  if out == nil then return nil end
+  -- Only the in-battle BACK slot is ours; fronts/intros stay engine-owned.
+  if not ctx or ctx.side ~= "back"
+     or (ctx.kind and ctx.kind ~= "battle") then
+    return out
+  end
+  local png = BattleArt.playerBackPathForOptions()
+  if png then return png end
+  return out
+end)
+
 -- exposed so a companion mod can pin its own tiles' shapes or read the
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V
