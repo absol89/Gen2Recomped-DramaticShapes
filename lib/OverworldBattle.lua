@@ -1078,6 +1078,12 @@ function OverworldBattle.sideTexture(battle, side)
   -- (DUPLICATE FIX) makes apply() a no-op for species and leaves the
   -- underlying sprite provider's answer in place.
   pcall(BattleArt.apply, gen2 and gen2ArtBattle(battle) or battle)
+  -- Gen2's art battle is stripped to its active mons and carries none of the
+  -- player-back fields, so applyTrainers' player branch is a no-op on it and
+  -- the engine's ROM Kris portrait would stay. Resolve the player back on the
+  -- real state (applyTrainers only touches playerBackPic/trainerPic fields,
+  -- never the mons, so this is safe alongside the species apply above).
+  if gen2 then pcall(BattleArt.applyTrainers, battle) end
   if not gen2 and not OverworldBattle.sideVisible(battle, side) then return nil end
   -- apply() can release a stale static replacement back to the engine's ROM
   -- sprite after AnimatedBattleArt.update() already chose this frame. Reclaim
