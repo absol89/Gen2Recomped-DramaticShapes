@@ -1251,12 +1251,24 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
       end
       if continue then item.onSelect = function(_, menu)
         VoxelMeshDisk.beginSession()
-        local names = select(1, VoxelMeshDisk.ramPlan())
-        local resume = function() continue(game, menu) end
-        if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
-          resume()
+        -- Desktop-class builds may hold the whole compressed cache resident
+        -- (eager preload). Consoles, mobiles and handhelds stream per-map from
+        -- disk under a RAM budget and evict the oldest, so a long session
+        -- cannot OOM the way a 4 GiB Switch did loading the full world.
+        if VoxelMeshDisk.eagerLoadAllowed() then
+          local names = select(1, VoxelMeshDisk.ramPlan())
+          local resume = function() continue(game, menu) end
+          if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
+            resume()
+          else
+            game.stack:push(VoxelCacheRamScreen.new(game, resume))
+          end
         else
-          game.stack:push(VoxelCacheRamScreen.new(game, resume))
+          -- Streaming platform: bound the resident compressed cache (256 MiB)
+          -- so nearby maps load on demand and the oldest are freed under
+          -- pressure during long sessions.
+          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
+          continue(game, menu)
         end
       end end
     elseif tostring(item and item.label or "") == "NEW GAME" then

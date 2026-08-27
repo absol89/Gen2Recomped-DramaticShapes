@@ -28,6 +28,36 @@ local Disk = {}
 local ramFiles, sessionActive = {}, false
 local ramDirty, ramRejected = {}, {}
 local ramBytes = 0
+-- LRU order of compressed container names held in RAM (ramFiles). Newest at
+-- the tail; eviction drops from the head so long sessions free the oldest
+-- nearby map first instead of crashing when memory fills.
+local ramOrder = {}
+-- Soft RAM budget for the compressed-container cache, in bytes. 0 means
+-- unbounded (desktop, where eager whole-world load is also allowed). On
+-- memory-constrained devices a non-zero budget caps how much stays resident
+-- between disk streaming reads.
+local ramBudget = 0
+
+local function ramNote(name)
+  for i = #ramOrder, 1, -1 do
+    if ramOrder[i] == name then table.remove(ramOrder, i) break end
+  end
+  ramOrder[#ramOrder + 1] = name
+end
+
+-- Drop the oldest compressed containers until ramBytes is at or below the
+-- budget (or the table is empty). Disk streaming re-reads any evicted map on
+-- the next demand, so this never loses persistent data.
+local function evictOldest()
+  if ramBudget <= 0 then return end
+  while ramBytes > ramBudget and #ramOrder > 0 do
+    local name = table.remove(ramOrder, 1)
+    local held = ramFiles[name]
+    if held then ramBytes = math.max(0, ramBytes - #held) end
+    ramFiles[name] = nil
+    ramDirty[name] = nil
+  end
+end
 local storage
 local knownSizes = {}
 local writeFailures = {}
@@ -616,6 +646,8 @@ function Disk.loadIntoRam(name)
   ramFiles[path] = blob
   ramBytes = ramBytes + #blob
   knownSizes[path] = #blob
+  ramNote(path)
+  evictOldest()
   return true, #blob
 end
 
@@ -637,6 +669,29 @@ function Disk.ramStats()
   return { enabled = sessionActive, files = files, bytes = ramBytes,
            dirty = dirty, dirtyBytes = dirtyBytes }
 end
+
+-- Whether the platform may hold the WHOLE compressed cache resident. Only
+-- desktop-class builds get the eager whole-world preload (VoxelCacheRamScreen);
+-- consoles (Switch/Xbox), mobiles and handhelds stream per-map from disk and
+-- evict the oldest under a RAM budget, so a long session cannot OOM the way a
+-- 4 GiB Switch did loading ~2.7 GiB of decompressed vertices.
+function Disk.eagerLoadAllowed()
+  local ok, d = pcall(function() return Platform and Platform.detect() end)
+  if not ok or type(d) ~= "table" then return true end
+  if d.console or d.mobile then return false end
+  return true
+end
+
+-- Cap the compressed-container RAM cache for streaming platforms. 0 (the
+-- default) means unbounded, used on desktop where eager load is also allowed.
+-- Pass a byte budget to bound resident containers on memory-tight devices;
+-- evictOldest() honors it after every loadIntoRam.
+function Disk.setRamBudget(bytes)
+  ramBudget = tonumber(bytes) or 0
+  evictOldest()
+end
+
+function Disk.ramBudgetBytes() return ramBudget end
 
 -- DROP abandons both the whole-world preload and any unsaved generated
 -- containers. Already-uploaded current/neighbor meshes remain alive; future
