@@ -155,10 +155,19 @@ local function adopt(world)
   -- target cells free move does not keep).
   if not p._battleArtWalkPhase then
     p._battleArtWalkPhase = true
+    -- Keep the engine's native walkPhase so the grid (2D / voxel-off /
+    -- partial-voxel) overworld still animates its steps. The free walk never
+    -- sets Player.moving, so the engine's own phase reads 0 while free-move
+    -- is active -- in that case drive the step from the free walk's own
+    -- animClock + visual-moving flag instead. Without this fallback the
+    -- override would hard-return 0 forever once installed, freezing the
+    -- player's walk animation in every non-free-move mode.
+    local engineWalkPhase = p.walkPhase
     p.walkPhase = function(self)
-      if world._battleArtVisualMoving then
+      if world._battleArtFreeMove and world._battleArtVisualMoving then
         return ((self.animClock or 0) % 8 >= 4) and 1 or 0
       end
+      if engineWalkPhase then return engineWalkPhase(self) end
       return 0
     end
   end
