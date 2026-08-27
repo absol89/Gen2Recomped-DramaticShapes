@@ -1166,7 +1166,8 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     -- FULL owns the rows that PARAMETERISE the diorama -- the wireframe, the
     -- horizon bend, the blur. DAYTIME is no longer among them: FULL sets it
     -- to SYNC on arrival and then lets go, like the battle rows.
-    dropRow(out, "pipeline:tiltshift")
+    -- TILT-SHIFT is intentionally KEPT on the menu at FULL: the player may
+    -- want to tune the blur even on the preset look, so do not drop it here.
   end
   local extra = {}
   for _, entry in ipairs(SETTINGS) do
