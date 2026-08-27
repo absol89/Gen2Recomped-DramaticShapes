@@ -481,23 +481,24 @@ function BattleArt.trainerImage(name)
   return prepare(path, displayMode())
 end
 
--- The normal player trainer intro has its own collection, independent of
--- Pokemon BATTLE ART. This is why ROM is an explicit choice here: users can
--- keep custom species and opponent trainers while retaining the original
--- player portrait. Oak and Old Man remain separately named scripted roles.
-function BattleArt.playerTrainerImage()
-  local set = BattleArt.playerArtSetting:get()
-  if set == "rom" then return nil end
+-- Resolve the player back from a specific PLAYER ART/ANIM setting. A flat PNG
+-- or a named folder resolves to assets/battle/back-static/<name>.png, with
+-- player.png as the collection-independent BYO fallback; ROM yields nil so the
+-- engine portrait shows. Used by both the static path and the animated path
+-- (which defers to the anim manager only for genuinely animated sets).
+local function playerImageFromSetting(setting)
+  if setting:get() == "rom" then return nil end
   local function load(name)
     local rel = "assets/battle/back-static/" .. name
     local path = V.mod.assets:path(rel)
     return prepare(path, displayMode())
   end
-  if set == "png" then return load("player.png") end
-  -- A named collection may be incomplete without making every battle fall
-  -- all the way back to ROM. player.png is the collection-independent BYO
-  -- fallback; only its own absence reaches the engine portrait.
-  return load(set .. "player.png") or load("player.png")
+  if setting:get() == "png" then return load("player.png") end
+  return load(setting:get() .. "player.png") or load("player.png")
+end
+
+function BattleArt.playerTrainerImage()
+  return playerImageFromSetting(BattleArt.playerArtSetting)
 end
 
 local function trainerKey(battle)
@@ -544,12 +545,15 @@ function BattleArt.applyTrainers(battle)
                and "oak" or "old-man"
       playerImage = BattleArt.namedImage(player, "back")
     elseif artMode == "animated" then
-      -- AnimatedBattleArt owns this field in animated mode. Passing nil here
-      -- first restores any static PLAYER ART image from a live mode switch;
-      -- on subsequent frames it leaves the animation manager's image alone.
-      playerImage = nil
+      -- The animated manager owns genuinely animated player sets. A flat PNG
+      -- or ROM choice is placed here directly: the staged overworld renderer
+      -- calls BattleArt.apply without the anim manager, so deferring would
+      -- leave the engine's ROM back (the transparent Kris portrait) in place.
+      local sel = BattleArt.playerAnimationSetting:get()
+      playerImage = (sel == "png" or sel == "rom")
+        and playerImageFromSetting(BattleArt.playerAnimationSetting) or nil
     else
-      playerImage = BattleArt.playerTrainerImage()
+      playerImage = playerImageFromSetting(BattleArt.playerArtSetting)
     end
   end
   replaceTrainerField(battle, "playerBackPic",
