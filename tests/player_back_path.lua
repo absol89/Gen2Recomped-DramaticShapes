@@ -6,10 +6,9 @@
 -- back through the engine's Sprites.playerPic -> "player.sprite" runtime hook,
 -- which the mod did not wrap, so the replacement never fired for ordinary
 -- gen2 battles. The fix wraps "player.sprite" and, for the in-battle back
--- slot, returns assets/battle/back-static/player.png when EITHER player row is
--- PNG. This test pins the option->path decision (playerBackPathForOptions),
--- which the wrap and the staged renderer both consult, so a future port keeps
--- the same gender-neutral, master-mode-independent contract.
+-- slot, returns assets/battle/back-static/player.png when the active mode's
+-- player row is PNG. This test pins that mode-specific ownership so Kris's
+-- default PLAYER ART cannot mask a selected PLAYER ANIM atlas.
 local stored = {}
 local V = {
   require = function(name)
@@ -50,36 +49,50 @@ local PNG_PATH = "RESOLVED/assets/battle/back-static/player.png"
 assert(BattleArt.playerBackPathForOptions() == nil,
   "fresh install should leave the engine player back alone (got a path)")
 
--- PLAYER ART: PNG wins, independent of PLAYER ANIM.
+-- STATIC reads PLAYER ART, independent of PLAYER ANIM.
+stored.battleArt = "static"
 stored.playerArtSet = "png"
 assert(BattleArt.playerBackPathForOptions() == PNG_PATH,
   "PLAYER ART: PNG did not resolve to player.png")
 stored.playerArtSet = nil
 
--- PLAYER ANIM: PNG wins, independent of PLAYER ART.
+-- ANIMATED reads PLAYER ANIM, independent of PLAYER ART.
+stored.battleArt = "animated"
+stored.playerArtSet = "png"
+stored.playerAnimatedSet = "gen4"
+assert(BattleArt.playerBackPathForOptions() == nil,
+  "Kris's default PLAYER ART suppressed the selected animation atlas")
 stored.playerAnimatedSet = "png"
 assert(BattleArt.playerBackPathForOptions() == PNG_PATH,
   "PLAYER ANIM: PNG did not resolve to player.png")
+stored.playerArtSet = nil
 stored.playerAnimatedSet = nil
 
 -- A named generation (gen2) on either row -> engine back, not player.png.
 stored.playerArtSet = "gen2"
+stored.battleArt = "static"
 assert(BattleArt.playerBackPathForOptions() == nil,
   "gen2 player art should not be rewritten to player.png")
 stored.playerArtSet = nil
 
 -- ROM on either row restores the engine portrait.
 stored.playerAnimatedSet = "rom"
+stored.battleArt = "animated"
 assert(BattleArt.playerBackPathForOptions() == nil,
   "ROM player anim should restore the engine portrait")
 stored.playerAnimatedSet = nil
 
--- Either row PNG -> PNG, even if the other is a generation (boy+png mix).
+-- Only the active row owns the path.
 stored.playerArtSet = "gen2"
 stored.playerAnimatedSet = "png"
+stored.battleArt = "animated"
 assert(BattleArt.playerBackPathForOptions() == PNG_PATH,
-  "PNG on one row must win even when the other is a generation")
+  "ANIMATED did not honor PLAYER ANIM PNG")
+stored.battleArt = "static"
+assert(BattleArt.playerBackPathForOptions() == nil,
+  "inactive PLAYER ANIM PNG leaked into STATIC mode")
 stored.playerArtSet = nil
 stored.playerAnimatedSet = nil
+stored.battleArt = nil
 
 print("player-back path regression: ok")

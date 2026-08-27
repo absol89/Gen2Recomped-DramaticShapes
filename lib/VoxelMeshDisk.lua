@@ -45,17 +45,23 @@ local function ramNote(name)
   ramOrder[#ramOrder + 1] = name
 end
 
--- Drop the oldest compressed containers until ramBytes is at or below the
--- budget (or the table is empty). Disk streaming re-reads any evicted map on
--- the next demand, so this never loses persistent data.
+-- Drop the oldest clean compressed containers until ramBytes is at or below
+-- the budget. Dirty containers are runtime cache misses which have not reached
+-- CACHE -> SAVE yet; they must remain resident even if that temporarily puts
+-- the session above its soft budget.
 local function evictOldest()
   if ramBudget <= 0 then return end
-  while ramBytes > ramBudget and #ramOrder > 0 do
-    local name = table.remove(ramOrder, 1)
-    local held = ramFiles[name]
-    if held then ramBytes = math.max(0, ramBytes - #held) end
-    ramFiles[name] = nil
-    ramDirty[name] = nil
+  local i = 1
+  while ramBytes > ramBudget and i <= #ramOrder do
+    local name = ramOrder[i]
+    if ramDirty[name] then
+      i = i + 1
+    else
+      table.remove(ramOrder, i)
+      local held = ramFiles[name]
+      if held then ramBytes = math.max(0, ramBytes - #held) end
+      ramFiles[name] = nil
+    end
   end
 end
 local storage
@@ -347,6 +353,7 @@ local function bindVersion(game)
   local segment = version:lower():gsub("[^%w_-]", "_")
   if boundVersion and boundVersion ~= segment then
     ramFiles, ramDirty, ramRejected = {}, {}, {}
+    ramOrder = {}
     ramBytes, sessionActive = 0, false
     diskGc()
   end
@@ -596,6 +603,9 @@ local function discard(path, rejected)
   if held then ramBytes = math.max(0, ramBytes - #held) end
   ramFiles[path] = nil
   ramDirty[path] = nil
+  for i = #ramOrder, 1, -1 do
+    if ramOrder[i] == path then table.remove(ramOrder, i) end
+  end
   if rejected then ramRejected[path] = true end
 end
 
@@ -628,6 +638,7 @@ end
 
 function Disk.beginPrecache()
   ramFiles, ramDirty, ramRejected = {}, {}, {}
+  ramOrder = {}
   ramBytes = 0
   sessionActive = false
   diskGc()
@@ -640,7 +651,10 @@ function Disk.loadIntoRam(name)
   end
   local path = name
   local prior = ramFiles[path]
-  if prior then return true, #prior end
+  if prior then
+    ramNote(path)
+    return true, #prior
+  end
   local ok, blob = pcall(storage.readBytes, storage, path)
   if not ok or type(blob) ~= "string" then return false, 0 end
   ramFiles[path] = blob
@@ -699,6 +713,7 @@ function Disk.ramBudgetBytes() return ramBudget end
 function Disk.dropRam()
   local stats = Disk.ramStats()
   ramFiles, ramDirty, ramRejected = {}, {}, {}
+  ramOrder = {}
   ramBytes = 0
   sessionActive = true
   diskGc()
@@ -890,7 +905,9 @@ end
 local function readValidated(path, fp, map)
   if not available() then return nil end
   local blob = ramFiles[path]
-  if not blob then
+  if blob then
+    ramNote(path)
+  else
     if sessionActive and ramRejected[path] then return nil end
     local ok, loaded = pcall(storage.readBytes, storage, path)
     if not ok or not loaded then return nil end
@@ -899,6 +916,8 @@ local function readValidated(path, fp, map)
     if sessionActive then
       ramFiles[path] = blob
       ramBytes = ramBytes + #blob
+      ramNote(path)
+      evictOldest()
     end
   end
   local pos, actual = parseHeader(blob, fp)
@@ -1030,6 +1049,8 @@ local function remember(path, blob, dirty)
   knownSizes[path] = #blob
   ramDirty[path] = dirty and true or nil
   ramRejected[path] = nil
+  ramNote(path)
+  evictOldest()
 end
 
 local function encoded(fp, writer)
@@ -1198,6 +1219,7 @@ function Disk.purge()
     end
   end
   ramFiles, ramDirty, ramBytes, ramRejected = {}, {}, 0, {}
+  ramOrder = {}
   return removed
 end
 

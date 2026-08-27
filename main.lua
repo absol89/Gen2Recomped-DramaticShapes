@@ -1272,6 +1272,7 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         -- disk under a RAM budget and evict the oldest, so a long session
         -- cannot OOM the way a 4 GiB Switch did loading the full world.
         if VoxelMeshDisk.eagerLoadAllowed() then
+          VoxelMeshDisk.setRamBudget(0)
           local names = select(1, VoxelMeshDisk.ramPlan())
           local resume = function() continue(game, menu) end
           if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
@@ -1299,6 +1300,11 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         newGame(game, menu)
         VoxelMeshDisk.bind(game, false)
         VoxelMeshDisk.beginSession()
+        if VoxelMeshDisk.eagerLoadAllowed() then
+          VoxelMeshDisk.setRamBudget(0)
+        else
+          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
+        end
       end end
     end
   end

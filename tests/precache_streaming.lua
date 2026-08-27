@@ -86,22 +86,50 @@ DETECT = { os = "Windows", console = false, mobile = false }
 
 -- 2) LRU eviction under a RAM budget on streaming platforms.
 Disk.beginSession()
-Disk.setRamBudget(0)            -- reset
--- Load both containers, then impose a tiny budget and confirm the oldest is
--- dropped first and ramBytes stays within budget after a fresh load.
-Disk.setRamBudget(#names * 64)  -- smaller than two typical blobs
+Disk.setRamBudget(0)
+Disk.loadIntoRam(names[1])
+local firstBytes = Disk.ramStats().bytes
+Disk.dropRam()
+Disk.loadIntoRam(names[2])
+local secondBytes = Disk.ramStats().bytes
+Disk.dropRam()
+local oneContainerBudget = math.max(firstBytes, secondBytes)
+Disk.setRamBudget(oneContainerBudget)
+-- Both products fit individually but not together. The LRU must retain the
+-- newest one rather than emptying the cache because of an arbitrary budget.
 for _, name in ipairs(names) do
   local ok = Disk.loadIntoRam(name)
   assert(ok, "loadIntoRam failed for " .. tostring(name))
 end
 assert(Disk.ramStats().bytes <= Disk.ramBudgetBytes() or Disk.ramBudgetBytes() == 0,
   "ramBytes exceeded the streaming budget")
--- Force one more load beyond budget: oldest must be evicted to stay in budget.
-local before = Disk.ramStats().files
-Disk.loadIntoRam(names[1])  -- re-touch; eviction targets the LRU head
-assert(Disk.ramStats().bytes <= Disk.ramBudgetBytes(),
-  "evictOldest did not keep ramBytes within budget")
-assert(before >= 1, "eviction removed all resident containers unexpectedly")
+assert(Disk.ramStats().files == 1,
+  "LRU did not retain exactly the newest one-container working set")
+
+-- Normal gameplay uses loadTerrain/loadAux, not loadIntoRam. Those reads must
+-- participate in the same bounded LRU or Switch memory would still grow for
+-- every map visited even though the title-screen eager load was removed.
+Disk.dropRam()
+assert(Disk.loadTerrain(map, "full", {}), "runtime terrain stream failed")
+assert(Disk.loadAux(map), "runtime aux stream failed")
+assert(Disk.ramStats().bytes <= oneContainerBudget,
+  "runtime disk reads bypassed the streaming RAM budget")
+assert(Disk.ramStats().files == 1,
+  "runtime LRU did not evict the older clean container")
+
+-- Runtime-generated misses are deliberately dirty until CACHE -> SAVE. A soft
+-- memory cap may evict clean disk-backed blobs, but never silently lose these
+-- unsaved records.
+Disk.dropRam()
+Disk.setRamBudget(1)
+assert(Disk.saveTerrain(map, "full", {}, record(), { n = 0 }))
+local dirtyStats = Disk.ramStats()
+assert(dirtyStats.dirty == 1 and dirtyStats.files == 1,
+  "streaming eviction discarded an unsaved runtime cache miss")
+assert(dirtyStats.bytes > Disk.ramBudgetBytes(),
+  "dirty cache unexpectedly obeyed the soft budget by losing data")
+assert(Disk.saveRamToDisk(), "CACHE -> SAVE could not persist protected dirty data")
+assert(Disk.ramStats().dirty == 0, "saved runtime cache remained dirty")
 
 -- 3) The CONTINUE decision mirrors eagerLoadAllowed: streaming platforms must
 -- NOT drive the whole-world preload screen; they resume straight to disk.

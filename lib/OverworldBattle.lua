@@ -574,7 +574,7 @@ function OverworldBattle.finish()
   end
   restoreCast()
   local artBattle = gen2ArtBattle(session.battle)
-  pcall(AnimatedBattleArt.finish, artBattle)
+  pcall(AnimatedBattleArt.finish, artBattle, session.battle)
   pcall(BattleArt.releaseSpeciesOverrides, artBattle)
   for mon in pairs(session.gen2Mons or {}) do
     mon.sprite, mon.picAnim = nil, nil
@@ -622,11 +622,21 @@ function OverworldBattle.update(dt)
     return
   end
 
+  -- Capture the Gen 2 state before art playback. Its intro begins on the
+  -- first frame the battle reaches the stack; assigning it afterward left
+  -- the ROM trainer in control for that frame.
+  if isGen2BattleState(top) then
+    session.battle = top
+  elseif not session.battle and top ~= ow and top
+      and type(top.drawPicsLayer) == "function" then
+    session.battle = top
+  end
+
   -- ANIMATED mode: advance atlas playback for both battlers and the player
   -- trainer intro before this frame's textures are captured. Other modes
   -- release any managed frames and fall back to STATIC/ROM ownership.
   local artBattle = gen2ArtBattle(session.battle)
-  pcall(AnimatedBattleArt.update, artBattle, dt)
+  pcall(AnimatedBattleArt.update, artBattle, dt, session.battle)
 
   -- Whether the shot is the player's to steer at all. BACK SPRITES pins
   -- their own mon to the GB's slot on the menu while the foe stands out on
@@ -642,14 +652,6 @@ function OverworldBattle.update(dt)
   -- turn it into travel (CamControl, which owns every one of those inputs)
   pcall(V.require("CamControl").tick, dt)
   BattleCam.update(dt)
-  -- the battle only exists once it has been pushed; a session opened at
-  -- pushBattle time has it, one opened from battle.started was handed it
-  if isGen2BattleState(top) then
-    session.battle = top
-  elseif not session.battle and top ~= ow and top
-      and type(top.drawPicsLayer) == "function" then
-    session.battle = top
-  end
   -- the world pass is hidden behind the battle, so mesh builds get the wide
   -- slice: nothing visible can hitch on them
   ChunkMesher.pump(true)
@@ -1120,6 +1122,16 @@ function OverworldBattle.sideTexture(battle, side)
   g.getScissor = function() return nil end
 
   local saved = {}
+  local animatedTrainer, trainerOffset = nil, 0
+  local forcedPlayerTrainer = false
+  if gen2 and side == "player" then
+    animatedTrainer, trainerOffset =
+      AnimatedBattleArt.playerTrainerFrame(battle)
+    if animatedTrainer and not battle.showPlayerTrainer then
+      battle.showPlayerTrainer = true
+      forcedPlayerTrainer = true
+    end
+  end
   local trainerImageField, savedTrainerImage
   if not gen2 then
     for k, v in pairs(OFF[side]) do saved[k] = battle[k]; battle[k] = v end
@@ -1151,6 +1163,7 @@ function OverworldBattle.sideTexture(battle, side)
   end)
 
   texturing = nil
+  if forcedPlayerTrainer then battle.showPlayerTrainer = false end
   if trainerImageField then battle[trainerImageField] = savedTrainerImage end
   if savedFaintSlide then battle.faintSlide = savedFaintSlide end
   if not gen2 then
@@ -1164,12 +1177,18 @@ function OverworldBattle.sideTexture(battle, side)
 
   local ax, ay = gen2 and (side == "player" and 40 or 124) or TEX_AX,
                  gen2 and (side == "player" and 96 or 56) or TEX_AY
+  if gen2 and side == "player" and animatedTrainer then
+    -- Increasing the canvas anchor moves its painted contents left of the
+    -- fixed world cell, matching Gen 1's negative back-pic screen offset.
+    ax = ax - trainerOffset
+  end
   local trainer = false
   -- The intro trainer pic draws itself straight into its own 7x7 slot rather
   -- than through the placement helpers, so it is hung from that slot instead.
   if gen2 then
     trainer = (side == "enemy" and battle.showEnemyTrainer)
-      or (side == "player" and battle.showPlayerTrainer) or false
+      or (side == "player"
+          and (battle.showPlayerTrainer or animatedTrainer ~= nil)) or false
   elseif side == "enemy" and battle.showEnemyTrainer and battle.trainerPic then
     ax, ay, trainer = TRAINER_AX, TRAINER_AY, true
   elseif side == "player" and battle.showPlayerBack and battle.playerBackPic then

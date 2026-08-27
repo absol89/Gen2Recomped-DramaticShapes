@@ -505,15 +505,15 @@ function BattleArt.playerTrainerImage()
   return playerImageFromSetting(BattleArt.playerArtSetting)
 end
 
--- The path the engine should draw for the player's back in a battle, given
--- the current PLAYER ART / PLAYER ANIM options. Returns nil to leave the
--- engine's own (ROM) back alone, or an asset path when a flat replacement
--- applies. A PNG from EITHER player row wins, in any master mode; a ROM from
--- either restores the engine portrait.
+-- The path the engine should draw for the player's back in a battle. The
+-- master mode selects the owning row: ANIMATED uses PLAYER ANIM and STATIC
+-- uses PLAYER ART. This matters for Crystal because Kris defaults PLAYER ART
+-- to PNG, which must not suppress a named animation atlas the user selects.
 function BattleArt.playerBackPathForOptions()
-  local art = BattleArt.playerArtSetting:get()
-  local anim = BattleArt.playerAnimationSetting:get()
-  if art == "png" or anim == "png" then
+  local selected = BattleArt.setting:get() == "animated"
+    and BattleArt.playerAnimationSetting:get()
+    or BattleArt.playerArtSetting:get()
+  if selected == "png" then
     return V.mod.assets:path("assets/battle/back-static/player.png")
   end
   return nil
@@ -563,23 +563,11 @@ function BattleArt.applyTrainers(battle)
                and "oak" or "old-man"
       playerImage = BattleArt.namedImage(player, "back")
     else
-      -- A flat PNG (or ROM) player back is usable in any master mode, so it
-      -- must not be gated on the ANIMATED/STATIC split: if EITHER player row
-      -- is PNG the BYO player.png wins, and if EITHER is ROM the engine
-      -- portrait is restored. Only when both rows are a named generation does
-      -- the master mode pick which one governs the back.
+      -- The active master mode owns one player row. In particular, Kris's
+      -- default static PNG must not mask a named PLAYER ANIM selection.
       local art = BattleArt.playerArtSetting:get()
       local anim = BattleArt.playerAnimationSetting:get()
-      local chosen
-      if art == "png" or anim == "png" then
-        chosen = "png"
-      elseif art == "rom" or anim == "rom" then
-        chosen = "rom"
-      elseif artMode == "animated" then
-        chosen = anim
-      else
-        chosen = art
-      end
+      local chosen = artMode == "animated" and anim or art
       -- In ANIMATED mode a named generation is a multi-frame player-back atlas
       -- owned by the animated manager (updatePlayerTrainer). Writing a static
       -- prepared frame here every frame would clobber that animation and pin
