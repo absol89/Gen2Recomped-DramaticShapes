@@ -556,6 +556,33 @@ function BattleArt.applyTrainers(battle)
     playerImage)
 end
 
+-- Crystal's Kris has no art in the named generation sets, so a girl's player
+-- rows open on the BYO player.png instead of gen2 (Chris). A boy opens on gen2
+-- as before. Seed each row only when the save has no explicit stored choice;
+-- an explicit pick always wins.
+function BattleArt.seedPlayerDefaults(game)
+  game = game or V.game()
+  local ok, Gen2Save = pcall(require, "src.core.gen2.Save")
+  if not ok or not Gen2Save or type(Gen2Save.isFemale) ~= "function" then
+    return
+  end
+  local save = game and game.save
+  if not save then return end
+  local girl = Gen2Save.isFemale(save) == true
+  local want = girl and "png" or "gen2"
+  local id = (V.mod and V.mod.id) or "BATTLE_ART_VOXEL_GEN2"
+  for _, setting in ipairs({ BattleArt.playerArtSetting,
+                             BattleArt.playerAnimationSetting }) do
+    local stored = type(save.options) == "table"
+      and type(save.options.modOptions) == "table"
+      and save.options.modOptions[id]
+      and save.options.modOptions[id][setting.key]
+    if stored == nil then
+      setting:setIndex(setting:indexForValue(want), game)
+    end
+  end
+end
+
 function BattleArt.apply(battle)
   if not battle then return end
   local function releaseIfOwned(battler)

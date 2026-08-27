@@ -1360,6 +1360,10 @@ mod.events:on("game.ready", function(payload)
   voxelRestoreDone = true
   local game = payload and payload.game or V.game()
   StaticGeometry.configure(game)
+  -- Seed the player art/anim rows from the save's gender when the player has
+  -- made no explicit choice: a girl opens on the BYO player.png, a boy on
+  -- gen2. An explicit pick (or a stored value) always wins.
+  pcall(BattleArt.seedPlayerDefaults, game)
   local opts = gen2PipelineOptions(game)
   local stored = type(opts) == "table" and type(opts.pipelines) == "table"
     and tonumber(opts.pipelines.voxel) or nil
