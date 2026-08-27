@@ -66,7 +66,13 @@ end
 local crashReported = nil
 local worldProbe = { updates = 0, draws = 0, wrote = {} } -- plus voxelStuck below
 local voxelStuck = 0
-local GEN2_DEFAULT_VOXEL = 3
+-- Fresh-install Gen2 default for the VOXEL pipeline. Levels follow
+-- Voxel.ANGLE_LABELS = { OFF, FULL, 15, 35, 50, 75, 1ST(EXP), 3RD(EXP) },
+-- so 1 = FULL (the diorama preset). 1ST/3RD are OFF by default: a free-cam
+-- rung is a deliberate player choice, not something a fresh save should
+-- boot into. (Literal 1: VoxelState loads below, so Voxel.FULL_LEVEL is not
+-- in scope yet here.)
+local GEN2_DEFAULT_VOXEL = 1
 
 -- Gold/Silver loads display settings from options.lua's nested `gold` block.
 -- Older Battle Art builds wrote the ladder at the file root, which Gen2
@@ -524,8 +530,14 @@ applyFull = function(level)
   if not opts then return end
 
   -- the miniature blur at its strongest: FULL is the diorama look, and the
-  -- tilt-shift is most of what makes it read as a model
-  Pipelines.setLevel("tiltshift", Pipelines.maxLevel("tiltshift"))
+  -- tilt-shift is most of what makes it read as a model. A fresh Gen2 install
+  -- arrives at FULL through GEN2_DEFAULT_VOXEL (which wants the diorama with
+  -- T-SHIFT off), so only a player who steps onto FULL by hand gets the blur;
+  -- the default boot keeps the preset's other rows but not the tilt-shift.
+  local freshDefault = level == GEN2_DEFAULT_VOXEL
+  if not freshDefault then
+    Pipelines.setLevel("tiltshift", Pipelines.maxLevel("tiltshift"))
+  end
   Pipelines.syncOptions(opts)
   -- the horizon flat. The curve bends the world away from a walking player,
   -- which fights a fixed diorama framing
