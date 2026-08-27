@@ -253,91 +253,6 @@ local function updatePlayerTrainer(battle, mode)
   battle.playerBackPic = state.frames[state.frame]
 end
 
--- The player's persistent in-battle BACK battler (battle.player), as opposed
--- to the intro trainer portrait (battle.playerBackPic handled above). PLAYER
--- ANIM selects this, including the _front atlases (ASH FRONT / MISTY FRONT /
--- BULMA FRONT / ...), so it must read PLAYER_SETS off playerAnimationSetting --
--- not backAnimationSetting, which the engine-side definition() would consult
--- and which knows nothing of the player trainer atlases. Drives the same
--- frame loop updateBattler uses, writing battle.player.sprite each frame.
-local function updatePlayerBackBattler(battle, mode, dt)
-  local p = battle and battle.player
-  if not (p and p.sprite) then return end
-  local chosen = BattleArt.playerAnimationSetting:get()
-  if chosen == "png" or chosen == "rom" then
-    -- Static fallback / engine portrait: leave the battler to its provider.
-    local st = states[p]
-    if st then restore(p) end
-    return
-  end
-  local def = PLAYER_SETS[chosen]
-  if not def then return end
-  local state = states[p]
-  if state and (state.kind ~= "animated" or state.def ~= def
-                or state.mode ~= mode or state.side ~= "back") then
-    if state then restore(p) end
-    state = nil
-  end
-  if not state then
-    local frames = loadFrames(def, mode)
-    if not frames then return end -- absent/malformed atlas: keep ROM art
-    state = { kind = "animated", side = "back", def = def, mode = mode,
-              original = p.sprite, originalPicAnim = p.picAnim,
-              frames = frames, frame = 1, elapsed = 0 }
-    states[p] = state
-  end
-  state.elapsed = state.elapsed + (tonumber(dt) or 0)
-  local durations = def.durations or {}
-  local duration = math.max(1, tonumber(durations[state.frame]) or 100) / 1000
-  while state.elapsed >= duration do
-    state.elapsed = state.elapsed - duration
-    state.frame = state.frame % #state.frames + 1
-    duration = math.max(1, tonumber(durations[state.frame]) or 100) / 1000
-  end
-  p.sprite = state.frames[state.frame]
-  p.picAnim = nil
-end
-
--- The player's persistent in-battle FRONT battler (FRONT SPRITES view). The
--- _front atlases are front poses, so they belong here; read PLAYER_SETS off
--- playerAnimationSetting so PLAYER ANIM follows the player on either side.
-local function updatePlayerFrontBattler(battle, mode, dt)
-  local p = battle and battle.player
-  if not (p and p.sprite) then return end
-  local chosen = BattleArt.playerAnimationSetting:get()
-  if chosen == "png" or chosen == "rom" then
-    local st = states[p]
-    if st then restore(p) end
-    return
-  end
-  local def = PLAYER_SETS[chosen]
-  if not def then return end
-  local state = states[p]
-  if state and (state.kind ~= "animated" or state.def ~= def
-                or state.mode ~= mode or state.side ~= "front") then
-    if state then restore(p) end
-    state = nil
-  end
-  if not state then
-    local frames = loadFrames(def, mode)
-    if not frames then return end
-    state = { kind = "animated", side = "front", def = def, mode = mode,
-              original = p.sprite, originalPicAnim = p.picAnim,
-              frames = frames, frame = 1, elapsed = 0 }
-    states[p] = state
-  end
-  state.elapsed = state.elapsed + (tonumber(dt) or 0)
-  local durations = def.durations or {}
-  local duration = math.max(1, tonumber(durations[state.frame]) or 100) / 1000
-  while state.elapsed >= duration do
-    state.elapsed = state.elapsed - duration
-    state.frame = state.frame % #state.frames + 1
-    duration = math.max(1, tonumber(durations[state.frame]) or 100) / 1000
-  end
-  p.sprite = state.frames[state.frame]
-  p.picAnim = nil
-end
-
 local function restore(battler)
   local state = battler and states[battler]
   if not state then return end
@@ -509,14 +424,18 @@ function AnimatedBattleArt.update(battle, dt)
   updateFront(battle.enemy, frontGeneration, dt, mode)
   local playerSide = BattleArt.playerSide()
   if playerSide == "back" then
-    -- The player's persistent back follows PLAYER ANIM (playerAnimationSetting),
-    -- which owns the player trainer atlases (gen1..gen5, ash/gary/red and the
-    -- _front poses). backAnimationSetting governs only the species-style back
-    -- collection, not the player, so routing the player here keeps every PLAYER
-    -- ANIM option -- including BULMA FRONT -- animating instead of showing ROM.
-    updatePlayerBackBattler(battle, mode, dt)
+    -- battle.player is the player's POKEMON, not the trainer: its back is a
+    -- species battler owned by backAnimationSetting/BACK_SETS. The trainer
+    -- intro portrait (battle.playerBackPic) is the player-art surface and is
+    -- driven separately by updatePlayerTrainer from playerAnimationSetting.
+    local generation = BattleArt.backAnimationSetting:get()
+    if BACK_SOURCE_KIND[generation] == "animated" then
+      updateBattler(battle.player, "back", dt, mode)
+    else
+      updateStaticBack(battle.player, generation, mode)
+    end
   else
-    updatePlayerFrontBattler(battle, mode, dt)
+    updateFront(battle.player, frontGeneration, dt, mode)
   end
 end
 

@@ -1210,6 +1210,21 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
       end,
     })
   end
+  -- Tilt-shift is a render pipeline (the diorama blur) that Gen2's OPTIONS
+  -- menu never splices in on its own (only Gen 1's menu does), the same gap
+  -- the VOXEL row above works around. Inject it unconditionally so the blur
+  -- is tunable from the in-game OPTIONS menu at any voxel level.
+  table.insert(extra, {
+    id = "pipeline:tiltshift",
+    label = "T-SHIFT",
+    value = function() return Pipelines.levelLabel("tiltshift") end,
+    step = function(g, dir)
+      local span = Pipelines.maxLevel("tiltshift") + 1
+      local target = (Pipelines.level("tiltshift") + (dir or 1)) % span
+      Pipelines.setLevel("tiltshift", target)
+      return true
+    end,
+  })
   return insertGrouped(out, extra)
 end)
 
