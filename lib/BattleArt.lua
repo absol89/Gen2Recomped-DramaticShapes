@@ -580,8 +580,18 @@ function BattleArt.applyTrainers(battle)
       else
         chosen = art
       end
-      playerImage = (chosen == "rom") and nil
-        or playerImageFromSettingValue(chosen)
+      -- In ANIMATED mode a named generation is a multi-frame player-back atlas
+      -- owned by the animated manager (updatePlayerTrainer). Writing a static
+      -- prepared frame here every frame would clobber that animation and pin
+      -- the engine's ROM gender sprite, so leave playerBackPic to the manager.
+      -- Only PNG (static fallback) and ROM (engine portrait) resolve to a value
+      -- in animated mode; the flat STATIC/ROM modes keep the prepared still.
+      if artMode == "animated" and chosen ~= "png" and chosen ~= "rom" then
+        playerImage = nil
+      else
+        playerImage = (chosen == "rom") and nil
+          or playerImageFromSettingValue(chosen)
+      end
     end
   end
   replaceTrainerField(battle, "playerBackPic",
