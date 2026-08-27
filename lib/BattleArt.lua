@@ -486,15 +486,19 @@ end
 -- player.png as the collection-independent BYO fallback; ROM yields nil so the
 -- engine portrait shows. Used by both the static path and the animated path
 -- (which defers to the anim manager only for genuinely animated sets).
-local function playerImageFromSetting(setting)
-  if setting:get() == "rom" then return nil end
+local function playerImageFromSettingValue(value)
+  if value == "rom" then return nil end
   local function load(name)
     local rel = "assets/battle/back-static/" .. name
     local path = V.mod.assets:path(rel)
     return prepare(path, displayMode())
   end
-  if setting:get() == "png" then return load("player.png") end
-  return load(setting:get() .. "player.png") or load("player.png")
+  if value == "png" then return load("player.png") end
+  return load(value .. "player.png") or load("player.png")
+end
+
+local function playerImageFromSetting(setting)
+  return playerImageFromSettingValue(setting:get())
 end
 
 function BattleArt.playerTrainerImage()
@@ -544,16 +548,26 @@ function BattleArt.applyTrainers(battle)
       player = tostring(battle.demoName or ""):find("OAK", 1, true)
                and "oak" or "old-man"
       playerImage = BattleArt.namedImage(player, "back")
-    elseif artMode == "animated" then
-      -- The animated manager owns genuinely animated player sets. A flat PNG
-      -- or ROM choice is placed here directly: the staged overworld renderer
-      -- calls BattleArt.apply without the anim manager, so deferring would
-      -- leave the engine's ROM back (the transparent Kris portrait) in place.
-      local sel = BattleArt.playerAnimationSetting:get()
-      playerImage = (sel == "png" or sel == "rom")
-        and playerImageFromSetting(BattleArt.playerAnimationSetting) or nil
     else
-      playerImage = playerImageFromSetting(BattleArt.playerArtSetting)
+      -- A flat PNG (or ROM) player back is usable in any master mode, so it
+      -- must not be gated on the ANIMATED/STATIC split: if EITHER player row
+      -- is PNG the BYO player.png wins, and if EITHER is ROM the engine
+      -- portrait is restored. Only when both rows are a named generation does
+      -- the master mode pick which one governs the back.
+      local art = BattleArt.playerArtSetting:get()
+      local anim = BattleArt.playerAnimationSetting:get()
+      local chosen
+      if art == "png" or anim == "png" then
+        chosen = "png"
+      elseif art == "rom" or anim == "rom" then
+        chosen = "rom"
+      elseif artMode == "animated" then
+        chosen = anim
+      else
+        chosen = art
+      end
+      playerImage = (chosen == "rom") and nil
+        or playerImageFromSettingValue(chosen)
     end
   end
   replaceTrainerField(battle, "playerBackPic",
