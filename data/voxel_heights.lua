@@ -193,15 +193,35 @@ local profile = {
   -- classes whose meaning is only guessable from their distribution are left
   -- to the detector, which is what rule 1 means by hand-authored.
   collision = {
-    -- $15 is a tree standing alone on grass (Johto blocks $3C-$3F, $5B-$67),
-    -- $12 the berry tree in the same drawings' corners, $7B the low round
-    -- bush tucked against a cliff base (Johto block $73).  All three are
-    -- drawn ROUND, so all three take the voxel-hull archetype; the tree
-    -- WALL, class $07, is rounded by tile instead -- see TilesetJohto's
-    -- `planter`, which is the only reading that gets its two-cell height
+    -- $15 is a tree standing alone on grass (Johto blocks $3C-$3F, $5B-$67)
+    -- and $12 the cuttable tree in the same drawings' corners.  Both are
+    -- drawn ROUND, so both take the voxel-hull archetype; the tree WALL,
+    -- class $07, is rounded by tile instead -- see TilesetJohto's `planter`,
+    -- which is the only reading that gets its two-cell height.
+    --
+    -- $7B WAS HERE AND IT IS NOT A BUSH.  It is COLL_CAVE -- the cave mouth
+    -- (pokecrystal constants/collision_constants.asm: `DEF COLL_CAVE EQU
+    -- $7b`), and this engine already says so in its own voice:
+    -- Map.gen2IsDoorway tests `coll == 0x71 or coll == 0x7B` and calls them
+    -- "the outdoor building door and the cave mouth".  The old note here read
+    -- "Johto block $73" -- a METATILE index, not a collision class -- and the
+    -- two numberings are unrelated; COLL_STAIRCASE_73 is the class at $73 and
+    -- the cartridge marks it unused.
+    --
+    -- A coll pin is AUTHORED (shapeFor(..., true)), and rule 1 of the
+    -- resolution order is that an authored tile bypasses detection -- so the
+    -- pin also took the cell out of Structures' door fold, which is the one
+    -- pass that knows a doorway answers to the cliff it is cut into.  Every
+    -- cave entrance in the game therefore stood up as a round hull at the
+    -- cylinder height, proud of the ground in front of it: the reported
+    -- "cave entrances are one block too high".
+    --
+    -- `wall` for the same reason $71 below is `wall`: the cell is WALKABLE
+    -- (you step onto it to warp), so the cell rules resolve it to ground and
+    -- punch a hole through the rock face it is drawn in.
     [0x12] = "cylinder",
     [0x15] = "cylinder",
-    [0x7B] = "cylinder",
+    [0x7B] = "wall",
     -- CheckGrassCollision's own list, minus the classes the permission table
     -- calls water: standing tufts the player walks between, not flat ground
     [0x18] = "grass",

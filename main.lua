@@ -83,6 +83,10 @@ local Voxel3D = V.require("Voxel3D")
 local VoxelScene = V.require("VoxelScene")
 local TiltShift = V.require("TiltShift")
 local ChunkMesher = V.require("ChunkMesher")
+-- Forward declaration: the prebake pass is set up far below (it needs the
+-- options schema first) but the update hook that drives it is written above
+-- that, and a closure cannot capture a local that does not exist yet.
+local pumpPrebake
 local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
@@ -231,6 +235,7 @@ mod.content.render_pipelines:register("voxel", {
     end
     ChunkMesher.pump(Game and Game.stack
                      and Game.stack:top() ~= ow)
+    pumpPrebake()
   end,
 
   drawWorld = function(ctx)
@@ -496,7 +501,179 @@ for _, entry in ipairs(SETTINGS) do
     schema[#schema + 1] = entry[1]:schema(entry[2])
   end
 end
+-- ------- the persistent voxel cache, and the pass that fills it
+--
+-- These two rows are written out longhand rather than through ModSetting: the
+-- first is a plain engine toggle the cache module reads for itself, and the
+-- second is an `action` -- a row that stores nothing and exists to be pressed.
+schema[#schema + 1] = {
+  key = "voxelDiskCache",
+  type = "toggle",
+  label = "VOXEL DISK CACHE",
+  default = true,
+  description = "Keep terrain meshes on disk between sessions, so a map you "
+    .. "have already visited appears the moment you walk into it instead of "
+    .. "being rebuilt from scratch. The cache key covers the map, its "
+    .. "tileset, the editor's per-tile voxel pins and the ceiling mod's live "
+    .. "settings, so anything that changes what the world SHOULD look like "
+    .. "rebuilds it rather than serving the old shape. OFF meshes everything "
+    .. "fresh every session.",
+}
+schema[#schema + 1] = {
+  key = "prebakeVoxels",
+  type = "action",
+  label = "PREBAKE VOXELS",
+  action = "START",
+  description = "Build every map's terrain into the cache now, a few "
+    .. "milliseconds a frame, so no area has to be meshed while you are "
+    .. "walking into it. It runs in the background while you play and counts "
+    .. "up on this row; press again to cancel. Needs VOXEL DISK CACHE ON. "
+    .. "Editing a map, re-pinning a tile's voxel shape or changing the "
+    .. "ceiling mod's settings invalidates what was baked, so run it again "
+    .. "after a session in the map editor.",
+}
+
 mod.options:define(schema)
+
+-- ------- prebake
+--
+-- The whole feature is a queue of map ids drained a slice at a time. It never
+-- competes with the live mesher (it only advances on a frame with nothing
+-- queued to draw) and it builds nothing on the GPU, so running it over two
+-- hundred maps costs disk and CPU rather than VRAM.
+local Prebake = nil
+do
+  local okPre, preMod = pcall(V.require, "VoxelPrebake")
+  Prebake = (okPre and type(preMod) == "table" and preMod) or nil
+  if not okPre then
+    print("[warn] DRAMATIC_SHAPE voxel prebake unavailable: " .. tostring(preMod))
+  end
+end
+
+-- A one-off message from the last press, shown until a real figure replaces it.
+local prebakeMessage = nil
+
+-- Every map the game knows about, in a stable order so two runs bake the same
+-- world in the same sequence.
+local function allMapIds()
+  local okGame, Game = pcall(require, "src.core.Game")
+  local maps = okGame and Game and Game.data and Game.data.maps
+  if type(maps) ~= "table" then return {} end
+  local ids = {}
+  for id, def in pairs(maps) do
+    if type(def) == "table" then ids[#ids + 1] = id end
+  end
+  table.sort(ids, function(a, b) return tostring(a) < tostring(b) end)
+  return ids
+end
+
+-- A THROWAWAY Map per id, never the engine's resident one: MapLoader attaches
+-- a TileRenderer and keeps what it builds, which is right for the handful of
+-- maps around the player and ruinous across all of them. Geometry reads the
+-- def, the tileset and the tile pins and nothing else -- no pass in
+-- runGeometry touches map.renderer -- so a bare Map is the same input the
+-- real build sees, and the collector takes it back once its mesh is on disk.
+-- A map that IS already resident is reused as is: that is the very object the
+-- live build would mesh.
+local function bakeMapFor(id)
+  local okGame, Game = pcall(require, "src.core.Game")
+  local okMap, Map = pcall(require, "src.world.Map")
+  if not (okGame and okMap and Game and Game.data) then
+    return nil, "engine map data unavailable"
+  end
+  local okLoader, MapLoader = pcall(require, "src.world.MapLoader")
+  if not okLoader then MapLoader = nil end
+  if MapLoader and type(MapLoader.cached) == "function" then
+    local okHit, hit = pcall(MapLoader.cached, id)
+    if okHit and type(hit) == "table" then return hit end
+  end
+  local def = Game.data.maps and Game.data.maps[id]
+  if not def then return nil, "no map def" end
+  -- The engine's own tileset fallback chain, so a map whose tileset is only
+  -- reachable through it bakes under the tileset the game will actually load.
+  local ts
+  if MapLoader and type(MapLoader.tilesetFor) == "function" then
+    ts = MapLoader.tilesetFor(Game.data, def)
+  else
+    ts = Game.data.tilesets and Game.data.tilesets[def.tileset]
+  end
+  if not ts then return nil, "no tileset for " .. tostring(def.tileset) end
+  local built, mapOrErr = pcall(Map.new, def, ts)
+  if not built or type(mapOrErr) ~= "table" then
+    return nil, "Map.new failed: " .. tostring(mapOrErr)
+  end
+  return mapOrErr
+end
+
+local function prebakeStatusText()
+  if not Prebake then return prebakeMessage end
+  local okP, p = pcall(Prebake.progress)
+  if not (okP and type(p) == "table") then return prebakeMessage end
+  if p.running then
+    prebakeMessage = nil
+    return string.format("%d/%d", p.done or 0, p.total or 0)
+  end
+  if prebakeMessage then return prebakeMessage end
+  if (p.total or 0) > 0 then
+    if (p.failed or 0) > 0 then
+      return string.format("DONE %d/%d (%d FAILED)", p.done or 0, p.total or 0,
+                           p.failed or 0)
+    end
+    return string.format("DONE %d/%d", p.done or 0, p.total or 0)
+  end
+  return nil
+end
+
+mod.events:on("mod.option_action", function(ev)
+  if not (type(ev) == "table" and ev.mod == mod.id
+          and ev.key == "prebakeVoxels") then return end
+  if not Prebake then
+    prebakeMessage = "UNAVAILABLE"
+    return
+  end
+  if Prebake.running() then
+    Prebake.cancel()
+    prebakeMessage = "CANCELLED"
+    return
+  end
+  local status = type(ChunkMesher.cacheStatus) == "function"
+    and ChunkMesher.cacheStatus() or nil
+  if not (status and status.enabled) then
+    prebakeMessage = "CACHE OFF"
+    return
+  end
+  local ids = allMapIds()
+  if #ids == 0 then
+    prebakeMessage = "NO MAPS"
+    return
+  end
+  local started, why = Prebake.begin(ids, bakeMapFor)
+  prebakeMessage = started and nil or tostring(why or "UNAVAILABLE"):upper()
+end)
+
+-- The manager calls this as it redraws the row, so the count moves while the
+-- settings screen is open and the world behind it is not ticking.
+pcall(function()
+  mod.options:status("prebakeVoxels", function()
+    return prebakeStatusText() or "START"
+  end)
+end)
+
+-- Advance the pass, after the live mesher has had its slice and only when it
+-- has nothing left queued.
+function pumpPrebake()
+  if not (Prebake and Prebake.running()) then return end
+  if type(ChunkMesher.pending) == "function" and ChunkMesher.pending() > 0 then
+    return
+  end
+  local spent = (type(ChunkMesher.lastSlice) == "function")
+    and ChunkMesher.lastSlice() or 0
+  local dt = (love and love.timer and love.timer.getDelta
+              and love.timer.getDelta()) or (1 / 60)
+  local headroom = (1 / 60) - math.max(0, dt - spent)
+  if headroom <= 0 then headroom = 0.0015 end
+  pcall(Prebake.pump, math.min(0.006, headroom * 0.5))
+end
 
 -- ------- this mod's hotkeys
 --
