@@ -39,6 +39,8 @@ local TerrainAtlas = {}
 local cache = {}
 local cacheData = {}    -- the pixels behind the atlases we baked ourselves
 local borderColorCache = {} -- atlas -> { blockId -> dominant border color }
+-- one line per (map, atlas), so the branch is stated without a log flood
+local reported = {}
 local animated = {}     -- key -> one map's private, mutable animated atlas
                         -- false = given up on; nil = not built (or retrying)
 local attempts = {}     -- key -> consecutive failures, for the retry budget
@@ -92,6 +94,43 @@ local function staticAtlas(map, colors)
   -- greyscale art in one four-shade world palette: seven palettes thrown
   -- away, and a route rendered in blue and white while the flat view beside
   -- it was correct.
+  -- WHICH BRANCH THIS TOOK, once per map, because it decides the whole
+  -- picture and nothing said so.
+  --
+  -- The editor can copy art between tilesets now, and a borrowed tile lands
+  -- past the end of the original atlas. Its palette travels with it -- the
+  -- engine's own log confirms the bake gives tile 192 a green row -- and the
+  -- tile still drew in raw greys. Every branch below hands back a DIFFERENT
+  -- image, and until this line there was no way to tell from outside which
+  -- one the world was actually textured from.
+  do
+    local key = tostring(map.id) .. "|" .. tostring(map.tileset.image)
+    if reported[key] == nil then
+      reported[key] = true
+      -- EVERY FLAG, NOT THE FIRST ONE THAT MATCHED.
+      --
+      -- The first cut of this reported whichever condition short-circuited --
+      -- and `not colors` is tested first, so it printed "no palette" and hid
+      -- the one thing the question actually turned on: whether the engine's
+      -- Gen 2 bake had run and set `trueColor`. A diagnostic that answers a
+      -- different question than the one asked is worse than none, because it
+      -- reads like an answer.
+      local why = string.format(
+        "colors=%s gbcAtlas=%s trueColor=%s tileset.trueColor=%s -> %s",
+        colors and "yes" or "NIL",
+        renderer.gbcAtlas and "yes" or "no",
+        renderer.trueColor and "yes" or "no",
+        map.tileset.trueColor and "yes" or "no",
+        (not colors or renderer.gbcAtlas or renderer.trueColor
+         or map.tileset.trueColor) and "base (the engine's image)"
+          or "SGB rebake from the RAW sheet")
+      pcall(function()
+        require("src.core.Logger").warn(
+          "terrain atlas for %s: %s; tileset %s, atlas %s", tostring(map.id),
+          why, tostring(map.tileset.id), tostring(map.tileset.image))
+      end)
+    end
+  end
   if not colors or renderer.gbcAtlas or renderer.trueColor
      or map.tileset.trueColor then
     return base, false

@@ -1350,7 +1350,20 @@ function Buildings.stamp(S, map, quads, tx, ty, bw, bh, t)
   for r = 0, bh - 1 do
     for c = 0, bw - 1 do
       local k = keyOf(tx + c, ty + r)
-      if keep and keep[S.tileAt[k]] then
+      -- A COORDINATE OVERRIDE IS NEVER CLAIMED.
+      --
+      -- The stamp replaces a footprint tile's shape outright, so a height set
+      -- on one square of a modelled building was resolved by TileShape and
+      -- then overwritten here -- the edit existed everywhere except in the
+      -- world.  A profile pin is still claimed (`authored` alone is not
+      -- enough): a pinned facade tile inside a house is a statement about the
+      -- DRAWING, and the house is the more specific answer.  A coordinate
+      -- override is a statement about that square of that map, made by
+      -- somebody looking at the thing they are overruling.
+      local cur = S.shapeAt[k]
+      if cur and cur.override then
+        S.ground[k] = best or false
+      elseif keep and keep[S.tileAt[k]] then
         -- unclaimed by request: the tile keeps its pin (the plant's
         -- cutout pool) and the standee scan finds it there. Only the
         -- ground is set now, so the scan's own claim of these tiles has

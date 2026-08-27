@@ -243,6 +243,27 @@ local ART = {
   stair_down_w = "stair",
 }
 
+--- The class vocabulary, published: every class this file resolves against,
+--- with the height it stands at and the fold it takes.
+---
+--- The map editor needs the same list to offer a class picker, and building
+--- its own copy is how it came to offer 28 of these forty -- `post` (every
+--- fence in Johto), `cylinder`, `canopy`, `flower`, `billboard` and nine more
+--- simply were not there. Published rather than duplicated so a class added
+--- above appears there with nothing to update.
+---
+--- Built from BOTH tables: a class may declare only a height (it folds upright
+--- by default) or only a fold (it stands at 0).
+TileShape.CLASS_INFO = {}
+for class, h in pairs(FALLBACK_HEIGHTS) do
+  TileShape.CLASS_INFO[class] = { h = h, art = ART[class] or "upright" }
+end
+for class, art in pairs(ART) do
+  if not TileShape.CLASS_INFO[class] then
+    TileShape.CLASS_INFO[class] = { h = FALLBACK_HEIGHTS[class] or 0, art = art }
+  end
+end
+
 local spec = nil          -- the loaded data file, or false when absent
 local cache = {}          -- tileset id -> resolved shape list
 local figCache = {}       -- tileset id -> parsed figure masks, or false
@@ -693,6 +714,106 @@ end
 -- `shapes` is the table forMap returned for this map; `tile` is
 -- map:tileAt(tx, ty), passed in because every caller already has it.
 function TileShape.at(map, shapes, tile, tx, ty)
+  -- A PLAYER'S OWN OVERRIDE OUTRANKS EVERYTHING, including the authored
+  -- conditional pins below. Those are this mod's opinion about what a drawing
+  -- means; an override is someone pointing at one tile and saying what it is.
+  -- Without this read the map editor's voxel tab wrote to a file nothing
+  -- consumed: every height set there was stored, saved, reloaded -- and had no
+  -- effect on the world or on the editor's own 3D preview, which resolves
+  -- through this same function.
+  --
+  -- PER-TILE FIRST, then per-cell. `at` is called per 8px tile and the cell
+  -- override answers for all four of a cell's tiles at once, so a tile
+  -- override has to be read ahead of it or it could never win. Both are laid
+  -- on by tools/map-editor (via Data:load) and both are nil on an unedited
+  -- map, so this is two field reads per tile for anyone who has never opened
+  -- the editor.
+  --
+  -- Marked `authored = true` deliberately: authored shapes skip the cell rules
+  -- further down, which is exactly right here -- an explicit override must not
+  -- then be flattened by the walkability pass that exists to guess at
+  -- unauthored tiles.
+  local edef = map and map.def
+  local tileEdits = edef and edef.voxelTileEdits
+  local o = tileEdits and tileEdits[tx .. "," .. ty]
+  local cellEdits = edef and edef.voxelEdits
+  if not o and cellEdits then
+    o = cellEdits[math.floor(tx / 2) .. "," .. math.floor(ty / 2)]
+  end
+  if o then
+    local base = (o.art and shapes.classes and shapes.classes[o.art])
+      or (o.art and shapes.condShape and shapes.condShape[o.art])
+    -- Height alone is a valid edit ("this tile, but taller"), so a missing art
+    -- class falls back to whatever the tile already resolved to rather than
+    -- refusing the override outright.
+    local fallback = base or shapes[tile]
+    return {
+      class = o.art or (fallback and fallback.class) or "wall",
+      h = o.h or (fallback and fallback.h) or 0,
+      -- `o.fold` OVERRIDES HOW THE ART IS WORN, without changing what the
+      -- square IS. The class decides height, detection and what the walkability
+      -- pass makes of it; the fold decides whether the drawing stands up, lies
+      -- flat, sits on the box's top face, or is read per pixel so its gaps stay
+      -- gaps. Structures dispatches the form off exactly this string.
+      art = o.fold or (base and base.art) or (fallback and fallback.art)
+            or "upright",
+      -- and `flat` follows the fold when one was stated: a shape claiming to
+      -- be flat while folding upright is two answers to one question, and the
+      -- passes downstream read whichever they happen to ask for first.
+      flat = (o.fold ~= nil) and (o.fold == "flat")
+             or ((o.fold == nil)
+                 and ((base and base.flat) or (fallback and fallback.flat)
+                      or false)),
+      authored = true,
+      -- AND MARKED AS A COORDINATE OVERRIDE, distinctly from `authored`.
+      --
+      -- `authored` is "somebody stated this", and a profile pin is authored
+      -- too -- a wall pinned inside a house should still take the HOUSE's
+      -- measured height, or every pinned facade tile would stand at its own
+      -- 16px while the building around it is 48.  A coordinate override is a
+      -- different statement: it names one square and says how tall THAT is,
+      -- and the reader making it is looking straight at the thing they are
+      -- overruling.  Without this distinction a height set on a tile the
+      -- detector had folded into a building was written, stored, read here,
+      -- resolved -- and then thrown away by the run, which is exactly what
+      -- "I changed its height and nothing happened" looks like from outside.
+      -- Structures drops the run over a marked tile; see `forMap`.
+      override = true,
+      -- SUB-TILE HEIGHTS ride through untouched. The shape contract's `h` is
+      -- one number for the whole 8px tile; this is the finer grid under it,
+      -- and ChunkMesher's box branch emits a little box per sub-square when a
+      -- shape carries it. Passed rather than interpreted here: TileShape's job
+      -- is to say what a square IS, and how finely it is sculpted is not that.
+      sub = (type(o.sub) == "table" and o.sub.res and o.sub.h) and o.sub or nil,
+    }
+  end
+
+  -- AND THE EDITOR'S TILE-ID PINS, which say what a DRAWING is rather than
+  -- what one place on the map is: "these six tiles are a tree canopy", for
+  -- every cell of every map that uses the tileset. That is the same statement
+  -- the profile's own tileset lists make, and it is the biggest lever there
+  -- is -- it is what turns a box into a round hull, a slab into a staircase,
+  -- a wall into a shelf.
+  --
+  -- BELOW the coordinate overrides above, because a coordinate is more
+  -- specific than a drawing, and ABOVE the conditional pins below, because
+  -- both are someone stating an answer and the reader's is the later one.
+  --
+  -- No cache is involved: `forMap` bakes the profile's pins into `shapes`, and
+  -- reading these here instead means an edit shows on the next frame rather
+  -- than the next time the tileset is rebuilt.
+  local idPins = edef and edef.voxelClassPins
+  if idPins then
+    local pinned = idPins[tile]
+    local base = pinned and ((shapes.classes and shapes.classes[pinned])
+                             or (shapes.condShape and shapes.condShape[pinned]))
+    -- A pin naming a class this mod has never heard of does not resolve and
+    -- falls through, exactly as one of the profile's own would. A mod's class
+    -- list is its own vocabulary; a pin written against another mod's is not
+    -- an error, it is simply not a sentence this one can read.
+    if base then return base end
+  end
+
   local s = shapes[tile]
   -- conditional pins first: they are authored answers that need the
   -- POSITION to resolve, so they outrank both the flat pin on the same
@@ -741,20 +862,58 @@ function TileShape.at(map, shapes, tile, tx, ty)
     end
   end
   if s.authored then return s end
-  -- the inside of a mountain: solid, whatever the cell claims (see above)
-  local sealed = sealedCells(map)
-  if sealed and sealed[cy * map.widthCells + cx] then
-    return shapes.classes.wall
-  end
-  -- a Gen 2 collision-class pin (see forMap) outranks the cell rules below
-  -- for the same reason an authored tile does: it is a stated answer, and
-  -- tall grass would otherwise flatten to the walkable ground it is
+  -- A STATED ANSWER BEATS A GUESS -- so the class pin and the water rule now
+  -- run BEFORE the sealed-pocket fill, not after it.
+  --
+  -- `sealed` is an inference: "nothing walkable reaches this cell, so it must
+  -- be the inside of a mountain, so it is solid." That is a good guess about
+  -- cells nobody can stand in, and it was overruling two things that are not
+  -- guesses at all:
+  --
+  --   * A Gen 2 COLLISION CLASS. Nothing inside a mountain carries a grass or
+  --     water class, so the pin can only ever lose where the guess was wrong.
+  --     The flood is 4-connected over walkable cells and does not model LEDGE
+  --     HOPS, so a terrace reachable only by hopping down into it is
+  --     "unreachable" -- Route 45 is a stack of exactly those, and every cell
+  --     of it came back solid. Where the art is tall grass that is a field of
+  --     grass-textured 16px cubes, which is the reported artifact.
+  --   * WATER. An enclosed pond is water, not rock. Filled as `wall` it
+  --     stands up as a slab wearing the water texture -- "the water is
+  --     raised" -- instead of lying at the water class's -2.
   if shapes.coll then
     local cs = shapes.coll[map:cellTile(cx, cy)]
     if cs then return cs end
   end
   if map:isWaterCell(cx, cy) then return shapes.classes.water end
+  -- the inside of a mountain: solid, whatever the cell claims (see above)
+  local sealed = sealedCells(map)
+  if sealed and sealed[cy * map.widthCells + cx] then
+    return shapes.classes.wall
+  end
   if map:isWalkableCell(cx, cy) then return shapes.classes.ground end
+  -- A CELL DRAWN AS A THIN OBSTACLE IS NOT A SOLID BLOCK.
+  --
+  -- A fence, sign or post occupies part of its 16x16 cell and the rest of
+  -- that cell is the ground it stands in. The cell is not walkable, so the
+  -- rules above pass it by, and on Gen 2 an unpinned tile defaults to `wall`
+  -- -- which stood the turf beside every picket up one full course. That is
+  -- the raised ground along the fences in Celadon and Cerulean.
+  -- OUTDOOR ONLY. Indoors, `wall` is the correct answer for a non-walkable
+  -- cell and Structures.indoorShell depends on it -- it picks the room's
+  -- shell quad by looking for upright cells, so turning any of them into
+  -- ground would take the room's walls with it.
+  local THIN = { fence = true, sign = true, post = true, billboard = true }
+  local okOut, outdoor = pcall(function()
+    return map.def ~= nil and require("src.world.Map").isOutdoor(map.def)
+  end)
+  for dy = 0, (okOut and outdoor) and 1 or -1 do
+    for dx = 0, 1 do
+      local n = shapes[map:tileAt(cx * 2 + dx, cy * 2 + dy)]
+      if n and n.authored and THIN[n.class] then
+        return shapes.classes.ground
+      end
+    end
+  end
   return s
 end
 

@@ -664,6 +664,25 @@ function Structures.forMap(map)
     if g == false then S.ground[k] = best end
   end
 
+  -- ---- a coordinate override outranks a measured run ----
+  --
+  -- A run is what a drawn building IS: Structures measured its height off the
+  -- artwork, and it rightly beats a class default, a profile pin and every
+  -- other guess -- ChunkMesher takes `run.h` ahead of the tile's own shape.
+  -- But it was also beating the one thing that is not a guess.  A coordinate
+  -- override is a reader pointing at one square of one map and saying how tall
+  -- it is; on a tile the detector had folded into a house or a cliff the
+  -- override was resolved correctly by TileShape and then discarded here, so
+  -- the map editor's voxel tool did nothing at all on exactly the tiles people
+  -- most want to adjust.
+  --
+  -- Dropped rather than clamped, and only for the tiles that carry the mark:
+  -- the rest of the run stands, so raising one tile of a roof leaves the roof
+  -- a roof with one tile raised, which is what was asked for.
+  for k, s in pairs(shapeAt) do
+    if s and s.override and S.runs[k] then S.runs[k] = nil end
+  end
+
   cache[map.id] = S
   return S
 end
