@@ -308,7 +308,29 @@ local FLIP = [[
   }
 ]]
 
+-- One logical Game Boy pixel, applied before the detached HUD is scaled to
+-- the window. Neutral dark ink contributes to the shadow; saturated HP/EXP
+-- fills do not, so their color and silhouette remain clean.
+local SHADOW_ALPHA = 0.72
+local COLOR_SHADOW_ALPHA = 0.38
+local SHADOW = [[
+  uniform float ink;
+  uniform float chroma;
+  uniform float opacity;
+  uniform float shade;
+  vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+    vec4 p = Texel(tex, tc);
+    float luma = dot(p.rgb, vec3(0.299, 0.587, 0.114));
+    float sat = max(max(p.r, p.g), p.b) - min(min(p.r, p.g), p.b);
+    float a = (p.a > 0.0 && luma <= ink * p.a
+               && sat <= chroma * p.a) ? p.a * opacity : 0.0;
+    return vec4(vec3(shade), a) * color;
+  }
+]]
+BattleHud._shadowSource = SHADOW
+
 local flipShader = nil
+local shadowShader = nil
 local layer = nil
 
 local function getFlip()
@@ -319,17 +341,25 @@ local function getFlip()
   return flipShader or nil
 end
 
+local function getShadow()
+  if shadowShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, SHADOW)
+    shadowShader = (ok and sh) or false
+  end
+  return shadowShader or nil
+end
+
 -- Whether the flip pass can run at all, for the shot driver's log.
 function BattleHud.flipReady()
   return getFlip() ~= nil
 end
 
--- Run `fn` with its ink whitened. Falls back to running it plainly when the
--- scratch layer or the shader is unavailable, so a driver that cannot do
--- either gets the vanilla black HUD rather than no HUD.
-function BattleHud.flipGlyphs(w, h, fn)
+-- Run `fn` through the battle contrast treatment. In inverted mode the ink is
+-- white with a black shadow; preserveOriginal keeps the engine's black glyphs
+-- and colored bars and gives their neutral ink a lighter white shadow.
+function BattleHud.flipGlyphs(w, h, fn, preserveOriginal, dropShadow)
   local sh = getFlip()
-  if not sh then return fn() end
+  if not sh and not preserveOriginal then return fn() end
   if not layer or layer:getWidth() ~= w or layer:getHeight() ~= h then
     layer = canvasOf(w, h, "nearest")
     if not layer then return fn() end
@@ -351,9 +381,22 @@ function BattleHud.flipGlyphs(w, h, fn)
   love.graphics.setBlendMode(prevBlend or "alpha", prevAlpha)
   if not ok then error(err, 0) end
 
-  love.graphics.setShader(sh)
-  pcall(sh.send, sh, "ink", INK)
-  pcall(sh.send, sh, "chroma", CHROMA)
+  local shadow = dropShadow and getShadow() or nil
+  if shadow then
+    love.graphics.setShader(shadow)
+    pcall(shadow.send, shadow, "ink", INK)
+    pcall(shadow.send, shadow, "chroma", CHROMA)
+    pcall(shadow.send, shadow, "opacity",
+      preserveOriginal and COLOR_SHADOW_ALPHA or SHADOW_ALPHA)
+    pcall(shadow.send, shadow, "shade", preserveOriginal and 1 or 0)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(layer, 1, 1)
+  end
+  love.graphics.setShader(preserveOriginal and nil or sh)
+  if sh and not preserveOriginal then
+    pcall(sh.send, sh, "ink", INK)
+    pcall(sh.send, sh, "chroma", CHROMA)
+  end
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(layer, 0, 0)
   love.graphics.setShader()
@@ -420,7 +463,7 @@ function BattleHud.layerTexture(w, h, dark, fn)
     g.setColor(1, 1, 1, 1)
     -- flipGlyphs renders fn into its own scratch layer and composites the
     -- whitened result into whatever is bound, which is this canvas
-    if dark then BattleHud.flipGlyphs(w, h, fn) else fn() end
+    BattleHud.flipGlyphs(w, h, fn, not dark, true)
     local sh = getBrightBarShader()
     if sh then
       if not brightBarLayer or brightBarLayer:getWidth() ~= w

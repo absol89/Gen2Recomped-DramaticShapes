@@ -205,6 +205,12 @@ end
 local function pushSpecials(state, dir, why)
   local p = state.player
   p.facing = dir      -- the handlers read the push off the facing
+  -- Gen2 directional carpets are checked before ordinary collision by the
+  -- grid walker. Route-gate side doors and cave/house exit mats therefore
+  -- warp while the player is standing on the carpet and pushing through its
+  -- blocked face; treating them as an ordinary wall strands free movement.
+  if state.checkGen2Whirlpool and state:checkGen2Whirlpool(dir) then return true end
+  if state.checkGen2CarpetExit and state:checkGen2CarpetExit(dir) then return true end
   if why == "bounds" and state:checkEdgeExit(dir) then return true end
   if state:checkLedgeHop(dir) then return true end
   if state:checkBoulderPush(dir) then return true end
@@ -228,6 +234,8 @@ local function pushSpecials(state, dir, why)
   -- second whether or not anything had changed.
   return false
 end
+
+FreeMove._pushSpecials = pushSpecials -- focused regression seam
 
 -- ------- the tick
 --

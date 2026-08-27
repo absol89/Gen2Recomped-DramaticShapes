@@ -83,6 +83,11 @@ local Voxel3D = V.require("Voxel3D")
 local VoxelScene = V.require("VoxelScene")
 local TiltShift = V.require("TiltShift")
 local ChunkMesher = V.require("ChunkMesher")
+local VoxelPrecache = V.require("VoxelPrecache")
+local VoxelPrecacheScreen = V.require("VoxelPrecacheScreen")
+local VoxelCacheRamScreen = V.require("VoxelCacheRamScreen")
+local VoxelMeshDisk = V.require("VoxelMeshDisk")
+local StaticGeometry = V.require("StaticGeometry")
 local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
@@ -110,6 +115,12 @@ local Horde = V.require("Horde")
 local HordeGun = V.require("HordeGun")
 local HordeHud = V.require("HordeHud")
 local HordeSfx = V.require("HordeSfx")
+
+-- Snapshot the final modded registries before a save can mutate live blocks.
+-- Persistent records are generated only from this immutable geometry source.
+mod.events:on("mods.loaded", function(payload)
+  StaticGeometry.capture(payload and payload.data)
+end)
 
 -- Forward declaration: the voxel pipeline's update hook (registered below)
 -- calls this, and it is defined further down with the settings it drives.
@@ -236,6 +247,10 @@ mod.content.render_pipelines:register("voxel", {
     local ow = Game and Game.overworld
     if ow and ow.map and ow.camera then
       pcall(VoxelScene.prefetch, ow)
+      -- Warm only direct warp/connection destinations during play. Any cache
+      -- miss is encoded into dirty RAM; disk writes remain an explicit
+      -- CACHE / SAVE action.
+      pcall(VoxelPrecache.update, Game)
     end
     ChunkMesher.pump(Game and Game.stack
                      and Game.stack:top() ~= ow)
@@ -912,6 +927,110 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     if offered then extra[#extra + 1] = entry[1]:row() end
   end
   return insertGrouped(out, extra)
+end)
+
+-- Whole-version generation belongs on the title screen. CONTINUE never runs
+-- the mesher: it only copies the already-compressed records into RAM, then
+-- resumes the engine's original continue flow. Missing records remain misses
+-- and are complemented lazily during play.
+mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
+  local out = next(game, items)
+  if type(out) ~= "table" then return out end
+  VoxelMeshDisk.bind(game, true)
+  local cacheAvailable = VoxelMeshDisk.available()
+  for _, item in ipairs(out) do
+    if tostring(item and item.label or "") == "CONTINUE"
+        and type(item.onSelect) == "function" and cacheAvailable then
+      local continue = item.onSelect
+      item.onSelect = function()
+        VoxelMeshDisk.beginSession()
+        local names = select(1, VoxelMeshDisk.ramPlan())
+        if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
+          continue()
+        else
+          game.stack:push(VoxelCacheRamScreen.new(game, continue))
+        end
+      end
+    elseif tostring(item and item.label or "") == "NEW GAME"
+        and type(item.onSelect) == "function" then
+      local newGame = item.onSelect
+      item.onSelect = function()
+        newGame()
+        VoxelMeshDisk.bind(game, false)
+        VoxelMeshDisk.beginSession()
+      end
+    end
+  end
+  if not VoxelMeshDisk.precacheAvailable() then return out end
+  local entry = {
+    label = "PRECACHE",
+    onSelect = function()
+      VoxelMeshDisk.beginPrecache()
+      game.stack:push(VoxelPrecacheScreen.new(game))
+    end,
+  }
+  local at = #out + 1
+  for i, item in ipairs(out) do
+    if tostring(item and item.label or "") == "EXIT GAME" then at = i break end
+  end
+  table.insert(out, at, entry)
+  return out
+end)
+
+-- Runtime generation is RAM-only. SAVE commits only dirty records; DROP
+-- deletes this Gold/Silver version's disk namespace and all runtime meshes.
+mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
+  local out = next(game, items)
+  if type(out) ~= "table" then return out end
+  VoxelMeshDisk.bind(game, false)
+  for _, item in ipairs(out) do
+    if tostring(item and item.label or "") == "CACHE" then return out end
+  end
+  local entry = {
+    label = "CACHE",
+    onSelect = function()
+      if VoxelMeshDisk.cacheReadOnly() then
+        game.stack:push(VoxelPrecacheScreen.new(game))
+        return
+      end
+      local Menu = require("src.ui.Menu")
+      local Screens = require("src.ui.Screens")
+      local TextBox = require("src.render.TextBox")
+      local function reopen() Screens.push(game, "StartMenu") end
+      game.stack:push(Menu.new(game, {
+        { label = "SAVE", onSelect = function()
+          local before = VoxelMeshDisk.ramStats()
+          local ok, saved, failed, errors = VoxelMeshDisk.saveRamToDisk()
+          if not ok then
+            local Logger = require("src.core.Logger")
+            for _, err in ipairs(errors or {}) do
+              Logger.error("voxel cache save: %s", tostring(err))
+            end
+            game.stack:push(TextBox.new(game,
+              ("CACHE SAVE FAILED\n%d FILE%s NOT WRITTEN\fTRY SAVE AGAIN")
+                :format(failed, failed == 1 and "" or "S")))
+          elseif saved == 0 then
+            game.stack:push(TextBox.new(game, "CACHE ALREADY SAVED"))
+          else
+            game.stack:push(TextBox.new(game,
+              ("CACHE SAVED\n%d FILE%s\n%d IN RAM")
+                :format(saved, saved == 1 and "" or "S", before.files)))
+          end
+        end },
+        { label = "DROP", onSelect = function()
+          ChunkMesher.purgeCache()
+          game.stack:push(TextBox.new(game,
+            "MESH CACHE DROPPED\nAREAS REBUILD CLEAN"))
+        end },
+      }, { tx = 10, ty = 0, tw = 10, onCancel = reopen }))
+    end,
+  }
+  local at = #out + 1
+  for i, item in ipairs(out) do
+    if tostring(item and item.label or "") == "SAVE" then at = i break end
+  end
+  table.insert(out, at, entry)
+  return out
 end)
 
 -- The mod manager writes and persists on its own, so the only thing left

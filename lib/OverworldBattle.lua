@@ -1278,9 +1278,10 @@ function OverworldBattle.install()
       end
       g.setColor(old[1], old[2], old[3], old[4])
     end
+    local dropShadow = mode == "OFF" or mode == "HALF"
     BattleHud.flipGlyphs(BattleScene.GB_W, BattleScene.GB_H, function()
       withoutBoxFill(battle, innerText)
-    end)
+    end, false, dropShadow)
   end
 
   -- Move animations are authored against the pics' fixed slots, and a single
@@ -1392,13 +1393,16 @@ function OverworldBattle.install()
     -- window's edges and composited into the world image (snapHUDs). Drawing
     -- them here as well would show each block twice, once in each place.
     if self.dramaticShapeShot and snapped() then return end
-    if not (self.dramaticShapeShot and self.dramaticShapeDark) then
+    local color = UiBackplates.hudUsesColor()
+    if not (self.dramaticShapeShot
+            and (self.dramaticShapeDark or color
+                 or (isIOS() and not color))) then
       return innerHUDs(self, slide)
     end
     local battle = self
     BattleHud.flipGlyphs(BattleScene.GB_W, BattleScene.GB_H, function()
       innerHUDs(battle, slide)
-    end)
+    end, color, true)
   end
 
   BattleState.dramaticShapeBattleHook = true

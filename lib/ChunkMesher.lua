@@ -55,6 +55,7 @@ local Structures = V.require("Structures")
 local TileShape = V.require("TileShape")
 local Voxel3D = V.require("Voxel3D")
 local Budget = V.require("BuildBudget")
+local MeshDisk = V.require("VoxelMeshDisk")
 
 local ffi = nil
 do
@@ -140,6 +141,66 @@ end
 
 local TRI_ORDER = { 1, 2, 3, 1, 3, 4 }
 
+-- Sandboxed Gen2Recomp builds do not expose FFI to mods. LOVE's binary packer
+-- produces the same tightly packed six-float stream without allocating a Lua
+-- table for every vertex, and the chunks are also the persistent-cache source.
+local PACKED_VERTEX = "<" .. string.rep("f", 6 * 6)
+local PACKED_VERTEX_BYTES = 6 * 4
+local PACKED_QUADS_PER_CHUNK = 4096
+
+local function newPackedSink()
+  local chunks, parts, values = {}, {}, {}
+  local quads, n = 0, 0
+
+  local function flush()
+    if #parts == 0 then return end
+    chunks[#chunks + 1] = table.concat(parts)
+    parts = {}
+  end
+
+  return {
+    push = function(c, uv, shade)
+      local flat = type(shade) ~= "table"
+      local at = 1
+      for k = 1, 6 do
+        local i = TRI_ORDER[k]
+        local cc, t = c[i], uv[i]
+        values[at], values[at + 1], values[at + 2] = cc[1], cc[2], cc[3]
+        values[at + 3], values[at + 4] = t[1], t[2]
+        values[at + 5] = flat and shade or shade[i]
+        at = at + 6
+      end
+      parts[#parts + 1] = love.data.pack(
+        "string", PACKED_VERTEX, unpack(values, 1, 36))
+      quads, n = quads + 1, n + 6
+      if quads % PACKED_QUADS_PER_CHUNK == 0 then flush() end
+    end,
+    finish = function()
+      if n == 0 then return nil end
+      flush()
+      local ok, mesh = pcall(function()
+        local result = love.graphics.newMesh(Voxel3D.FORMAT, n,
+                                             "triangles", "static")
+        local first = 1
+        for _, chunk in ipairs(chunks) do
+          local data = love.data.newByteData(chunk)
+          result:setVertices(data, first)
+          first = first + math.floor(#chunk / PACKED_VERTEX_BYTES)
+          data:release()
+          Budget.check()
+        end
+        return result
+      end)
+      chunks, parts = {}, {}
+      return ok and mesh or nil
+    end,
+    raw = function()
+      flush()
+      return { chunks = chunks, n = n }
+    end,
+  }
+end
+
 local function newFfiSink()
   local cap = 4096 * 6
   local buf = ffi.new("float[?]", cap * 6)
@@ -192,16 +253,84 @@ local function newFfiSink()
       end)
       return ok and mesh or nil
     end,
+    raw = function()
+      return { ptr = buf, n = n }
+    end,
   }
   return sink
 end
 
 local function newSink()
+  if MeshDisk.available() and MeshDisk.legacy() and ffi
+     and love and love.data and love.data.newByteData
+     and love.graphics and love.graphics.newMesh then
+    return newFfiSink()
+  end
+  if MeshDisk.available() and love and love.data and love.data.pack
+     and love.data.newByteData and love.graphics and love.graphics.newMesh then
+    return newPackedSink()
+  end
   if ffi and love and love.data and love.data.newByteData
      and love.graphics and love.graphics.newMesh then
     return newFfiSink()
   end
+  if love and love.data and love.data.pack and love.data.newByteData
+     and love.graphics and love.graphics.newMesh then
+    return newPackedSink()
+  end
   return newTableSink()
+end
+
+-- Reconstruct one cached CPU stream into a session-local GPU Mesh. Decoded
+-- strings are released as soon as LOVE has copied them into the mesh.
+local function meshFromRaw(record)
+  if not (record and record.n and record.n > 0) then return nil end
+  if record.ptr and ffi then
+    local ok, mesh = pcall(function()
+      local result = love.graphics.newMesh(Voxel3D.FORMAT, record.n,
+                                           "triangles", "static")
+      local first = 0
+      while first < record.n do
+        local count = math.min(65536, record.n - first)
+        local byteCount = count * PACKED_VERTEX_BYTES
+        local data = love.data.newByteData(byteCount)
+        ffi.copy(data:getFFIPointer(),
+          ffi.cast("const uint8_t*", record.ptr)
+            + first * PACKED_VERTEX_BYTES, byteCount)
+        result:setVertices(data, first + 1)
+        data:release()
+        first = first + count
+        Budget.check()
+      end
+      return result
+    end)
+    return ok and mesh or nil
+  end
+  if not record.chunks then return nil end
+  local ok, mesh = pcall(function()
+    local result = love.graphics.newMesh(Voxel3D.FORMAT, record.n,
+                                         "triangles", "static")
+    local first, carry = 1, ""
+    for _, chunk in ipairs(record.chunks) do
+      local bytes = carry .. chunk
+      local usable = math.floor(#bytes / PACKED_VERTEX_BYTES)
+                     * PACKED_VERTEX_BYTES
+      carry = bytes:sub(usable + 1)
+      if usable > 0 then
+        local data = love.data.newByteData(bytes:sub(1, usable))
+        result:setVertices(data, first)
+        first = first + usable / PACKED_VERTEX_BYTES
+        data:release()
+      end
+      Budget.check()
+    end
+    if #carry ~= 0 or first ~= record.n + 1 then
+      error("invalid packed voxel vertex stream", 0)
+    end
+    return result
+  end)
+  record.chunks = nil
+  return ok and mesh or nil
 end
 
 -- -------------------------------------------------------------- geometry
@@ -884,6 +1013,85 @@ local function quadsMesh(quads)
   return Voxel3D.newMesh(verts, indices)
 end
 
+-- Flatten auxiliary quads into the same unindexed CPU stream as terrain so
+-- grass, flowers and authored figures participate in the persistent record.
+local function rawQuads(quads)
+  local n = #(quads or {}) * 6
+  if n == 0 then return { n = 0 } end
+  if MeshDisk.legacy() and ffi then
+    local buf, at = ffi.new("float[?]", n * 6), 0
+    for _, q in ipairs(quads) do
+      for k = 1, 6 do
+        local i = TRI_ORDER[k]
+        local c = q[i]
+        local uv = q.uv and q.uv[i] or { q.u, q.v }
+        buf[at], buf[at + 1], buf[at + 2] = c[1], c[2], c[3]
+        buf[at + 3], buf[at + 4], buf[at + 5] = uv[1], uv[2], q.shade
+        at = at + 6
+      end
+      Budget.tick()
+    end
+    return { ptr = buf, n = n }
+  end
+  local chunks, parts, values = {}, {}, {}
+  for _, q in ipairs(quads) do
+    local at = 1
+    for k = 1, 6 do
+      local i = TRI_ORDER[k]
+      local c = q[i]
+      local uv = q.uv and q.uv[i] or { q.u, q.v }
+      values[at], values[at + 1], values[at + 2] = c[1], c[2], c[3]
+      values[at + 3], values[at + 4], values[at + 5] = uv[1], uv[2], q.shade
+      at = at + 6
+    end
+    parts[#parts + 1] = love.data.pack(
+      "string", PACKED_VERTEX, unpack(values, 1, 36))
+    if #parts == PACKED_QUADS_PER_CHUNK then
+      chunks[#chunks + 1], parts = table.concat(parts), {}
+    end
+    Budget.tick()
+  end
+  if #parts > 0 then chunks[#chunks + 1] = table.concat(parts) end
+  return { chunks = chunks, n = n }
+end
+
+local function buildRawAux(map)
+  local structures = Structures.forMap(map)
+  local aux = {
+    grass = rawQuads(structures.grassQuads),
+    flowers = rawQuads(structures.flowerQuads),
+    figures = {},
+  }
+  for _, figure in ipairs(structures.figures or {}) do
+    local raw = rawQuads(figure.quads)
+    if raw.n > 0 then
+      local width = 0
+      for _, q in ipairs(figure.quads) do
+        for i = 1, 4 do
+          local x = q[i] and q[i][1]
+          if x and x > width then width = x end
+        end
+      end
+      raw.wx, raw.wz, raw.y, raw.w = figure.wx, figure.wz, figure.y, width
+      aux.figures[#aux.figures + 1] = raw
+    end
+  end
+  return aux
+end
+
+local function meshesFromRawAux(aux)
+  local figures = {}
+  for _, raw in ipairs(aux.figures or {}) do
+    local mesh = meshFromRaw(raw)
+    if mesh then
+      figures[#figures + 1] = {
+        mesh = mesh, wx = raw.wx, wz = raw.wz, y = raw.y, w = raw.w,
+      }
+    end
+  end
+  return meshFromRaw(aux.grass), meshFromRaw(aux.flowers), figures
+end
+
 -- The tall-grass rows as their own mesh: VoxelScene draws it AFTER the
 -- characters so the southern row of a grass cell still overdraws a
 -- walker's feet (characters stamp over terrain, Gen 1 style, so ordinary
@@ -983,6 +1191,7 @@ end
 
 local jobs = {}       -- FIFO of pending jobs
 local jobIndex = {}   -- "id:slot" -> job
+local jobFailures = {} -- settled errors consumed by precache diagnostics
 
 local clock = (love and love.timer and love.timer.getTime) or os.clock
 
@@ -991,7 +1200,8 @@ local function jobKey(id, slot)
 end
 
 local function finishJob(job, ok, err)
-  jobIndex[jobKey(job.id, job.slot)] = nil
+  local key = jobKey(job.id, job.slot)
+  jobIndex[key] = nil
   for i, j in ipairs(jobs) do
     if j == job then
       table.remove(jobs, i)
@@ -1005,6 +1215,9 @@ local function finishJob(job, ok, err)
     if (gen[job.id] or 0) == job.gen then
       entry(job.id)[job.slot] = false
     end
+    jobFailures[key] = tostring(err or "unknown mesh build error")
+  else
+    jobFailures[key] = nil
   end
 end
 
@@ -1014,31 +1227,73 @@ end
 local function runJob(job)
   local map = job.map
   local c = entry(job.id)
+  local function current()
+    return (gen[job.id] or 0) == job.gen
+  end
   if c.grass == nil or c.flowers == nil or c.figures == nil
      or (c.stale and c.stale.aux) then
-    local okG, grass = pcall(buildGrassMesh, map)
-    local okF, flowers = pcall(buildFlowerMesh, map)
-    local okX, figures = pcall(buildFigureMeshes, map)
-    if (gen[job.id] or 0) ~= job.gen then
-      if okG and grass and grass.release then pcall(grass.release, grass) end
-      if okF and flowers and flowers.release then
-        pcall(flowers.release, flowers)
+    local grass, flowers, figures
+    if MeshDisk.available() then
+      local aux = MeshDisk.loadAux(map)
+      if not aux then
+        aux = buildRawAux(map)
+        if not current() then return end
+        local saved, saveErr = MeshDisk.saveAux(map, aux)
+        if not saved then
+          print("[warn] voxel aux cache write failed for " .. tostring(job.id)
+                .. ": " .. tostring(saveErr))
+        end
+        if not current() then return end
       end
-      if okX then releaseFigures(figures) end
+      grass, flowers, figures = meshesFromRawAux(aux)
+    else
+      local okG, builtGrass = pcall(buildGrassMesh, map)
+      local okF, builtFlowers = pcall(buildFlowerMesh, map)
+      local okX, builtFigures = pcall(buildFigureMeshes, map)
+      grass = (okG and builtGrass) or false
+      flowers = (okF and builtFlowers) or false
+      figures = (okX and builtFigures) or false
+    end
+    if not current() then
+      if grass and grass.release then pcall(grass.release, grass) end
+      if flowers and flowers.release then pcall(flowers.release, flowers) end
+      releaseFigures(figures)
       return
     end
-    swapSlot(c, "grass", (okG and grass) or false)
-    swapSlot(c, "flowers", (okF and flowers) or false)
+    swapSlot(c, "grass", grass or false)
+    swapSlot(c, "flowers", flowers or false)
     releaseFigures(c.figures)
-    c.figures = (okX and figures) or false
+    c.figures = figures or false
     if c.stale then c.stale.aux = nil end
   end
-  local sink = newSink()
-  local waterSink = newSink()
-  runGeometry(map, job.slot == "body", job.masks, sink, waterSink)
-  local mesh = sink.finish()
-  local water = waterSink.finish()
-  if (gen[job.id] or 0) ~= job.gen then
+
+  local mesh, water
+  local cached = MeshDisk.loadTerrain(map, job.slot, job.masks)
+  if cached then
+    mesh = meshFromRaw(cached.terrain)
+    water = meshFromRaw(cached.water)
+  else
+    local sink, waterSink = newSink(), newSink()
+    runGeometry(map, job.slot == "body", job.masks, sink, waterSink)
+    local terrainRaw = sink.raw and sink.raw() or nil
+    local waterRaw = waterSink.raw and waterSink.raw() or nil
+    mesh, water = sink.finish(), waterSink.finish()
+    if not current() then
+      if mesh and mesh.release then pcall(mesh.release, mesh) end
+      if water and water.release then pcall(water.release, water) end
+      return
+    end
+    if terrainRaw and waterRaw then
+      local saved, saveErr = MeshDisk.saveTerrain(
+        map, job.slot, job.masks, terrainRaw, waterRaw)
+      if not saved then
+        print("[warn] voxel terrain cache write failed for "
+              .. tostring(job.id) .. " " .. tostring(job.slot)
+              .. ": " .. tostring(saveErr))
+      end
+    end
+  end
+  if not current() then
     if mesh and mesh.release then pcall(mesh.release, mesh) end
     if water and water.release then pcall(water.release, water) end
     return
@@ -1055,25 +1310,36 @@ end
 
 -- Queue a build unless the slot is already cached or queued. Returns the
 -- cached mesh when there is one (false-cached misses return nil).
--- `urgent` marks the current map's meshes: pump() gives those a bigger
--- slice and runs them before neighbour jobs. A slot refresh() marked
+-- Current-map work has priority 2, visible neighbours priority 1, and
+-- speculative warp jobs priority 0. A slot refresh() marked
 -- stale queues its rebuild AND keeps handing back the old mesh, so a
 -- one-block edit never drops the scene to the flat 2D path while the
 -- replacement cooks.
-function ChunkMesher.request(map, bodyOnly, masks, urgent)
+local function priorityValue(priority)
+  if priority == true or priority == "current" then return 2 end
+  if priority == "visible" then return 1 end
+  if type(priority) == "number" then
+    return math.max(0, math.min(1.99, priority))
+  end
+  return 0
+end
+
+function ChunkMesher.request(map, bodyOnly, masks, priority)
   local slot = bodyOnly and "body" or "full"
   local c = cache[map.id]
   local stale = c and c.stale and (c.stale[slot] or c.stale.aux)
   if c and c[slot] ~= nil and not stale then return c[slot] or nil end
   local key = jobKey(map.id, slot)
   local job = jobIndex[key]
+  local requested = priorityValue(priority)
   if not job then
+    jobFailures[key] = nil
     job = { id = map.id, map = map, slot = slot, masks = masks,
-            urgent = urgent or false, gen = gen[map.id] or 0 }
+            priority = requested, gen = gen[map.id] or 0 }
     jobIndex[key] = job
     jobs[#jobs + 1] = job
-  elseif urgent then
-    job.urgent = true
+  elseif requested > (job.priority or 0) then
+    job.priority = requested
   end
   return (c and c[slot]) or nil
 end
@@ -1082,27 +1348,52 @@ function ChunkMesher.pending()
   return #jobs
 end
 
+function ChunkMesher.jobPending(mapId, bodyOnly)
+  return jobIndex[jobKey(mapId, bodyOnly and "body" or "full")] ~= nil
+end
+
+function ChunkMesher.takeJobFailure(mapId, bodyOnly)
+  local key = jobKey(mapId, bodyOnly and "body" or "full")
+  local err = jobFailures[key]
+  jobFailures[key] = nil
+  return err
+end
+
+function ChunkMesher.jobPriority(mapId, bodyOnly)
+  local job = jobIndex[jobKey(mapId, bodyOnly and "body" or "full")]
+  return job and (job.priority or 0) or nil
+end
+
+function ChunkMesher.slotKnown(map, bodyOnly)
+  local c = map and cache[map.id]
+  return c ~= nil and c[bodyOnly and "body" or "full"] ~= nil
+end
+
 -- Advance queued builds inside a per-frame time budget. Urgent jobs (the
 -- current map) come first and get the larger slice -- the first voxel
 -- frame after a toggle is worth more milliseconds than a neighbour
 -- popping in one frame later. `covered` says the world pass is hidden
 -- this frame (a warp's fade, a menu): nothing visible can hitch, so the
 -- slice opens up and a door fade swallows most of a destination build.
-local URGENT_SLICE = 0.012
+local FOREGROUND_SLICE = 0.012
 local IDLE_SLICE = 0.005
 local COVERED_SLICE = 0.030
 
+local function nextJob()
+  local pick = jobs[1]
+  for i = 2, #jobs do
+    local candidate = jobs[i]
+    if (candidate.priority or 0) > (pick.priority or 0) then pick = candidate end
+  end
+  return pick
+end
+
 function ChunkMesher.pump(covered)
   if #jobs == 0 then return end
-  local pick = jobs[1]
-  for _, j in ipairs(jobs) do
-    if j.urgent then
-      pick = j
-      break
-    end
-  end
+  local pick = nextJob()
   local slice = covered and COVERED_SLICE
-                or (pick.urgent and URGENT_SLICE or IDLE_SLICE)
+                or ((pick.priority or 0) > 0 and FOREGROUND_SLICE
+                    or IDLE_SLICE)
   local deadline = clock() + slice
   while pick do
     if not pick.co then
@@ -1119,13 +1410,7 @@ function ChunkMesher.pump(covered)
       return   -- slice spent mid-build; resume next frame
     end
     if clock() >= deadline or #jobs == 0 then return end
-    pick = jobs[1]
-    for _, j in ipairs(jobs) do
-      if j.urgent then
-        pick = j
-        break
-      end
-    end
+    pick = nextJob()
   end
 end
 
@@ -1267,6 +1552,34 @@ function ChunkMesher.setLive(live)
   prevLive = live
 end
 
+-- Release session GPU meshes and Structures analysis without touching the
+-- version-scoped disk records. Whole-world generation uses this between maps
+-- so precaching does not retain a GPU copy of the complete game.
+function ChunkMesher.evictRuntime(mapId)
+  local function evict(id)
+    local c = cache[id]
+    if c then releaseEntry(c) end
+    cache[id] = nil
+    gen[id] = (gen[id] or 0) + 1
+    Structures.invalidate(id)
+  end
+  if mapId then
+    evict(mapId)
+  else
+    local ids = {}
+    for id in pairs(cache) do ids[#ids + 1] = id end
+    for _, id in ipairs(ids) do evict(id) end
+    prevLive = {}
+  end
+  for i = #jobs, 1, -1 do
+    local job = jobs[i]
+    if mapId == nil or job.id == mapId then
+      jobIndex[jobKey(job.id, job.slot)] = nil
+      table.remove(jobs, i)
+    end
+  end
+end
+
 -- Drop one map's mesh (Cut swapped a block) or all of them (hot reload).
 -- Structures' analysis is derived from the same block layer, so it drops
 -- in the same breath; in-flight builds of the map are cancelled through
@@ -1293,5 +1606,12 @@ function ChunkMesher.invalidate(mapId)
 end
 
 Assets.register(function() ChunkMesher.invalidate() end)
+
+-- Explicit CACHE / DROP: discard runtime meshes and delete this game
+-- version's persistent CPU records. Missing/read-only storage fails open.
+function ChunkMesher.purgeCache()
+  ChunkMesher.invalidate()
+  if MeshDisk and MeshDisk.purge then pcall(MeshDisk.purge) end
+end
 
 return ChunkMesher
