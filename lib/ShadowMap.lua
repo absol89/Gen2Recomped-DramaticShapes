@@ -123,9 +123,9 @@ local SHADER = [[
   uniform mat4 model;
   vec4 position(mat4 transform_projection, vec4 vertex_position) {
     vec4 c = lightVP * (model * vertex_position);
-    // the projection is orthographic, so w is 1 and clip z IS the depth,
-    // linear in world units along the sun line
-    vDepth = c.z * 0.5 + 0.5;
+    // fit() normalizes orthographic clip z onto [0,1], so c.z is the
+    // stored linear depth under both LÖVE 11 and LÖVE 12 conventions.
+    vDepth = c.z;
     return c;
   }
 #endif
@@ -160,10 +160,20 @@ local IDENTITY = Mat4.identity()
 
 -- world -> [0,1] cube, applied on top of the clip matrix: the main pass
 -- samples the map with the xy and compares against the z
-local TO_UNIT = { 0.5, 0, 0, 0.5,
-                  0, 0.5, 0, 0.5,
-                  0, 0, 0.5, 0.5,
-                  0, 0, 0, 1 }
+local function toUnit(vSign)
+  return { 0.5, 0, 0, 0.5,
+           0, 0.5 * vSign, 0, 0.5,
+           0, 0, 1, 0,
+           0, 0, 0, 1 }
+end
+
+local Z01 = { 1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 0.5, 0.5,
+              0, 0, 0, 1 }
+
+-- +1 is LÖVE 11's storage orientation, -1 is LÖVE 12's.
+local vSign = nil
 
 -- world -> light clip space, for the pass that FILLS the map
 ShadowMap.clipVP = IDENTITY
@@ -217,13 +227,46 @@ local function getBlank()
   return blank or nil
 end
 
+-- Measure how this runtime stores a bypass-projection draw instead of
+-- maintaining an OS/backend list. A failed readback safely retains the
+-- long-standing LÖVE 11 convention.
+local function probeVSign()
+  local done, sign = pcall(function()
+    local sh = getShader()
+    local tex = getBlank()
+    if not (sh and tex) then return 1 end
+    local c = love.graphics.newCanvas(4, 4, { dpiscale = 1 })
+    local mesh = love.graphics.newMesh(
+      { { -1, 0, 0, 0 }, { 1, 0, 1, 0 },
+        { 1, 1, 1, 1 }, { -1, 1, 0, 1 } },
+      "fan", "static")
+    mesh:setTexture(tex)
+    love.graphics.setCanvas(c)
+    love.graphics.clear(1, 1, 0, 1)
+    love.graphics.setShader(sh)
+    love.graphics.setColor(1, 1, 1, 1)
+    pcall(sh.send, sh, "lightVP", "row",
+          Mat4.mul(Z01, Mat4.scale(1, -1, 1)))
+    pcall(sh.send, sh, "model", "row", IDENTITY)
+    pcall(sh.send, sh, "sprite", 0)
+    love.graphics.draw(mesh)
+    love.graphics.setShader()
+    love.graphics.setCanvas()
+    local data = c:newImageData()
+    local _, h = data:getDimensions()
+    local topR = data:getPixel(1, 0)
+    local botR = data:getPixel(1, h - 1)
+    if topR < 0.9 and botR > 0.9 then return 1 end
+    if botR < 0.9 and topR > 0.9 then return -1 end
+    return 1
+  end)
+  return (done and sign) or 1
+end
+
 -- Whether the sun pass can run at all. False headless, without shaders, or
 -- where the canvas cannot be made -- VoxelScene then keeps the flat decal
 -- shadows, which need nothing but a quad.
 function ShadowMap.available()
-  if love.system and love.system.getOS and love.system.getOS() == "iOS" then
-    return false
-  end
   if not (love.graphics and love.graphics.newCanvas
           and love.graphics.setDepthMode) then
     return false
@@ -356,9 +399,11 @@ local function fit(cx, cy, vw, vh)
   -- without this the map is stored upside down relative to the uv the
   -- main pass reads it with
   proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
+  -- normalize the orthographic depth range for LÖVE 11 and 12 alike
+  proj = Mat4.mul(Z01, proj)
 
   ShadowMap.clipVP = Mat4.mul(proj, view)
-  ShadowMap.uvVP = Mat4.mul(TO_UNIT, ShadowMap.clipVP)
+  ShadowMap.uvVP = Mat4.mul(toUnit(vSign or 1), ShadowMap.clipVP)
   -- what the frustum ended up covering, for probes: the lateral extent in
   -- world pixels divided by RES is how fine a shadow edge can land
   ShadowMap.extent = { r - l, t - b, far - near }
@@ -429,6 +474,10 @@ end
 function ShadowMap.begin(cx, cy, vw, vh)
   local sh = getShader()
   if not sh then return false end
+  if vSign == nil then
+    vSign = probeVSign()
+    ShadowMap.vSign = vSign
+  end
   -- fit first: it is what decides which resolution rung this view wants
   fit(cx, cy, vw, vh)
   local c = getCanvas(ShadowMap.res)

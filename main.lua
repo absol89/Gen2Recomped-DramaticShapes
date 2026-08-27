@@ -164,6 +164,13 @@ local Voxel3D = V.require("Voxel3D")
 local VoxelScene = V.require("VoxelScene")
 local TiltShift = V.require("TiltShift")
 local ChunkMesher = V.require("ChunkMesher")
+local VoxelPrecache = V.require("VoxelPrecache")
+local VoxelPrecacheScreen = V.require("VoxelPrecacheScreen")
+local VoxelCacheRamScreen = V.require("VoxelCacheRamScreen")
+local VoxelMeshDisk = V.require("VoxelMeshDisk")
+local StaticGeometry = V.require("StaticGeometry")
+local PipelineCanvas = V.require("PipelineCanvas")
+local WorldCanvasOrientation = V.require("WorldCanvasOrientation")
 local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
@@ -191,6 +198,12 @@ local HordeGun = V.require("HordeGun")
 local HordeHud = V.require("HordeHud")
 local HordeSfx = V.require("HordeSfx")
 
+-- Freeze the final modded registries before saves begin mutating live maps.
+-- Persistent geometry is always fingerprinted from this immutable source.
+mod.events:on("mods.loaded", function(payload)
+  StaticGeometry.capture(payload and payload.data)
+end)
+
 -- Forward declaration: the voxel pipeline's update hook (registered below)
 -- calls this, and it is defined further down with the settings it drives.
 -- Declared rather than left global -- a mod writing to _G would leak into
@@ -198,7 +211,7 @@ local HordeSfx = V.require("HordeSfx")
 local applyFull
 
 -- The last VOID FILL the terrain was meshed under; see the update hook.
--- The scene canvas's size, in FRAMEBUFFER PIXELS.
+-- The scene canvas size required by the active host compositor.
 --
 -- `ctx.width/height` are the window measured in LOVE UNITS
 -- (love.graphics.getDimensions), but the engine composites a pipeline's
@@ -211,18 +224,12 @@ local applyFull
 -- is the display density (2.625 on a 420dpi panel), and the world came out
 -- a third of the size in each direction.
 --
--- So ask for the pixel dimensions rather than trusting the ctx.  That is
--- the number a fixed engine would hand over, so this keeps working either
--- way instead of double-correcting.  It also squares the FX pass: ctx.scale
--- is ALREADY in pixels per world pixel (Zoom.scale over Renderer:fitScale,
--- which measures the drawable), so the closures ctx.drawFx runs were being
--- scaled for a canvas 2.6x bigger than the one they drew into.
+-- That contract applies to Gen 1. Gold/Silver/Crystal's Gen 2 World instead
+-- draws the returned canvas directly at scale 1, so framebuffer dimensions
+-- there create a DPI-factor crop. PipelineCanvas keeps the two contracts
+-- explicit instead of guessing from the dimensions themselves.
 local function sceneSize(ctx)
-  if love.graphics and love.graphics.getPixelDimensions then
-    local pw, ph = love.graphics.getPixelDimensions()
-    if pw and ph and pw > 0 and ph > 0 then return pw, ph end
-  end
-  return ctx.width, ctx.height
+  return PipelineCanvas.sceneSize(ctx, V.generation())
 end
 
 local voidFill = { last = nil }
@@ -357,6 +364,9 @@ mod.content.render_pipelines:register("voxel", {
     if not Voxel.active() then return end
     if ow and ow.map and ow.camera then
       pcall(VoxelScene.prefetch, ow)
+      -- Complement nearby cache misses in RAM. Persistence remains explicit
+      -- through CACHE / SAVE so ordinary play never performs surprise I/O.
+      pcall(VoxelPrecache.update, Game)
     end
     ChunkMesher.pump(Game and Game.stack
                      and Game.stack:top() ~= ow)
@@ -417,7 +427,8 @@ mod.content.render_pipelines:register("voxel", {
       -- Battle teardown can reveal the world before its streamed terrain is
       -- ready. Keep the clean arena backdrop for that short handoff instead
       -- of exposing Silver's flat world between the two composites.
-      return OverworldBattle.handoff()
+      return WorldCanvasOrientation.present(
+        OverworldBattle.handoff(), "overworld-handoff", V.generation())
     end
     writeWorldProbe("success", "draws=" .. tostring(worldProbe.draws)
       .. "\nmap=" .. tostring(ctx.state and ctx.state.map
@@ -442,7 +453,8 @@ mod.content.render_pipelines:register("voxel", {
     -- one canvas pixel to one display pixel.  A pass-through when AA is off.
       local resolved = AntiAlias.resolve(canvas, sw, sh, "world")
       if resolved then OverworldBattle.worldReady() end
-      return resolved
+      return WorldCanvasOrientation.present(
+        resolved, "overworld", V.generation())
     end)
   end,
 
@@ -450,6 +462,7 @@ mod.content.render_pipelines:register("voxel", {
     Voxel3D.invalidate()
     OverworldBattle.invalidate()
     AntiAlias.invalidate()
+    WorldCanvasOrientation.invalidate()
     ChunkMesher.invalidate()   -- no map id = every cached mesh
     VR.invalidate()            -- the mirror, and FBO ids of dead canvases
   end,
@@ -1187,6 +1200,140 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
   return insertGrouped(out, extra)
 end)
 
+-- Gen 1's title Menu executes an injected row's onSelect directly. The Gen 2
+-- Chrome list (used by this port for Gold/Silver) passes only `value` into a
+-- closed vanilla switch, so a label + onSelect row is visible but inert. Add
+-- the same callback seam Gen 2's StartMenu already provides.
+do
+  local ok, MainMenu = pcall(require, "src.ui.gen2.MainMenu")
+  if ok and MainMenu and not MainMenu.bavcInjectedRowHook then
+    local choose = MainMenu.choose
+    function MainMenu:choose(value)
+      local item = self.list and self.list.items
+        and self.list.items[self.list.index or 1] or nil
+      if value == nil and item and type(item.onSelect) == "function" then
+        return item.onSelect(self.game, self)
+      end
+      return choose(self, value)
+    end
+    MainMenu.bavcInjectedRowHook = true
+  end
+end
+
+-- Generate the whole selected version only when the player explicitly asks.
+-- CONTINUE merely inflates existing compressed records into RAM, then invokes
+-- the engine's original action; missing records remain lazy runtime misses.
+mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
+  local out = next(game, items)
+  if type(out) ~= "table" then return out end
+  VoxelMeshDisk.bind(game, true)
+  local cacheAvailable = VoxelMeshDisk.available()
+  for _, item in ipairs(out) do
+    if tostring(item and item.label or "") == "CONTINUE" and cacheAvailable then
+      local continue
+      if type(item.onSelect) == "function" then
+        continue = item.onSelect
+      elseif item.value == "continue" then
+        item.value = nil
+        continue = function(_, menu) menu:choose("continue") end
+      end
+      if continue then item.onSelect = function(_, menu)
+        VoxelMeshDisk.beginSession()
+        local names = select(1, VoxelMeshDisk.ramPlan())
+        local resume = function() continue(game, menu) end
+        if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
+          resume()
+        else
+          game.stack:push(VoxelCacheRamScreen.new(game, resume))
+        end
+      end end
+    elseif tostring(item and item.label or "") == "NEW GAME" then
+      local newGame
+      if type(item.onSelect) == "function" then
+        newGame = item.onSelect
+      elseif item.value == "new" then
+        item.value = nil
+        newGame = function(_, menu) menu:choose("new") end
+      end
+      if newGame then item.onSelect = function(_, menu)
+        newGame(game, menu)
+        VoxelMeshDisk.bind(game, false)
+        VoxelMeshDisk.beginSession()
+      end end
+    end
+  end
+  if not VoxelMeshDisk.precacheAvailable() then return out end
+  local entry = {
+    label = "PRECACHE",
+    onSelect = function()
+      VoxelMeshDisk.beginPrecache()
+      game.stack:push(VoxelPrecacheScreen.new(game))
+    end,
+  }
+  local at = #out + 1
+  for i, item in ipairs(out) do
+    if tostring(item and item.label or "") == "EXIT GAME" then at = i break end
+  end
+  table.insert(out, at, entry)
+  return out
+end)
+
+-- Runtime misses stay in RAM until the pause-menu CACHE action. SAVE writes
+-- only dirty records; DROP clears this Gold/Silver namespace and GPU meshes.
+mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
+  local out = next(game, items)
+  if type(out) ~= "table" then return out end
+  VoxelMeshDisk.bind(game, false)
+  for _, item in ipairs(out) do
+    if tostring(item and item.label or "") == "CACHE" then return out end
+  end
+  local entry = {
+    label = "CACHE",
+    onSelect = function()
+      if VoxelMeshDisk.cacheReadOnly() then
+        game.stack:push(VoxelPrecacheScreen.new(game))
+        return
+      end
+      local Menu = require("src.ui.Menu")
+      local Screens = require("src.ui.Screens")
+      local TextBox = require("src.render.TextBox")
+      local function reopen() Screens.push(game, "StartMenu") end
+      game.stack:push(Menu.new(game, {
+        { label = "SAVE", onSelect = function()
+          local before = VoxelMeshDisk.ramStats()
+          local ok, saved, failed, errors = VoxelMeshDisk.saveRamToDisk()
+          if not ok then
+            local Logger = require("src.core.Logger")
+            for _, err in ipairs(errors or {}) do
+              Logger.error("voxel cache save: %s", tostring(err))
+            end
+            game.stack:push(TextBox.new(game,
+              ("CACHE SAVE FAILED\n%d FILE%s NOT WRITTEN\fTRY SAVE AGAIN")
+                :format(failed, failed == 1 and "" or "S")))
+          elseif saved == 0 then
+            game.stack:push(TextBox.new(game, "CACHE ALREADY SAVED"))
+          else
+            game.stack:push(TextBox.new(game,
+              ("CACHE SAVED\n%d FILE%s\n%d IN RAM")
+                :format(saved, saved == 1 and "" or "S", before.files)))
+          end
+        end },
+        { label = "DROP", onSelect = function()
+          ChunkMesher.purgeCache()
+          game.stack:push(TextBox.new(game,
+            "MESH CACHE DROPPED\nAREAS REBUILD CLEAN"))
+        end },
+      }, { tx = 10, ty = 0, tw = 10, onCancel = reopen }))
+    end,
+  }
+  local at = #out + 1
+  for i, item in ipairs(out) do
+    if tostring(item and item.label or "") == "SAVE" then at = i break end
+  end
+  table.insert(out, at, entry)
+  return out
+end)
+
 
 -- Game2 applies saved pipeline levels (Pipelines.applyOptions, Game2.lua:1984)
 -- while its options load -- which can run BEFORE this mod's entry chunk
@@ -1200,6 +1347,7 @@ mod.events:on("game.ready", function(payload)
   if voxelRestoreDone then return end
   voxelRestoreDone = true
   local game = payload and payload.game or V.game()
+  StaticGeometry.configure(game)
   local opts = gen2PipelineOptions(game)
   local stored = type(opts) == "table" and type(opts.pipelines) == "table"
     and tonumber(opts.pipelines.voxel) or nil

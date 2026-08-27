@@ -80,6 +80,29 @@ on the menu while the foe stands out on the map, and no angle holds a
 composition that is half frame and half world — so with it on, the shot holds
 the one the rig was solved for.
 
+## Persistent voxel cache (experimental)
+
+The title menu has a **PRECACHE** entry which generates static voxel geometry
+once for the selected game version. Gold and Silver use separate namespaces,
+and an interrupted run resumes by skipping records whose exact geometry
+fingerprint is already complete.
+
+**CONTINUE** loads existing compressed records from disk into RAM; it does not
+regenerate the world. GPU meshes are uploaded only when an area is needed.
+Missing, stale, or corrupt records rebuild lazily during play and remain dirty
+in RAM until the pause menu's **CACHE** entry is used:
+
+| action | does |
+| --- | --- |
+| **SAVE** | writes only dirty RAM records to persistent storage |
+| **DROP** | removes the active Gold/Silver cache, dirty RAM records, and current runtime meshes |
+
+The cache is derived data, not save data. Gen1Recomp 0.1.83 and older use its
+legacy filesystem/FFI cache path; 0.1.84 and newer use scoped `mod.storage`
+bytes. If a map fails, the result screen and engine log identify its map, slot,
+stage, and error; writable desktop legacy builds also create diagnostics under
+`mod-derived/BATTLE_ART_VOXEL_GEN2`.
+
 ## VR
 
 The **VR** options row (OFF / ON, off by default) drives a PCVR headset

@@ -24,16 +24,19 @@ local function isBigDef(def)
     or id == "SPRITE_BIG_DOLL"
 end
 
--- Standard 16x16 walker frame (Gen1 / normal Gen2 NPCs).
-local function buildCard16(img, frame)
+-- Registered objects may use frames larger than vanilla's 16x16 walkers.
+-- This branch's matrices receive halfWidth explicitly, so keep vertices in
+-- 0..width space and let the shared placement path centre every size.
+local function buildCardSized(img, frame, fw, fh)
   local iw, ih = img:getDimensions()
-  local fy = frame * 16
-  if fy + 16 > ih then fy = 0 end
-  local u0, u1 = 0.02 / iw, (16 - 0.02) / iw
-  local v0, v1 = (fy + 0.05) / ih, (fy + 15.95) / ih
+  local fy = (frame or 0) * fh
+  if fy + fh > ih then fy = 0 end
+  local u0, u1 = 0.02 / iw, (math.min(fw, iw) - 0.02) / iw
+  local v0, v1 = (fy + 0.05) / ih,
+                  (fy + math.min(fh, ih) - 0.05) / ih
   local verts = {
-    { 0, 0, 0, u0, v1, 1 }, { 16, 0, 0, u1, v1, 1 },
-    { 16, 16, 0, u1, v0, 1 }, { 0, 16, 0, u0, v0, 1 },
+    { 0, 0, 0, u0, v1, 1 }, { fw, 0, 0, u1, v1, 1 },
+    { fw, fh, 0, u1, v0, 1 }, { 0, fh, 0, u0, v0, 1 },
   }
   local indices = {}
   Voxel3D.pushQuad(indices, 0)
@@ -79,7 +82,7 @@ local function buildCard(def, frame)
   if not (ok and img) then return nil end
   local iw, ih = img:getDimensions()
 
-  if isBigDef(def) or iw >= 32 then
+  if isBigDef(def) then
     if iw >= 32 and ih >= 32 then
       return buildCard32(img)
     end
@@ -87,12 +90,20 @@ local function buildCard(def, frame)
     return buildCardMirrored16x32(img)
   end
 
-  return buildCard16(img, frame or 0)
+  -- PR #23: use the dimensions the 2D renderer already honours. Explicit
+  -- registration wins over the legacy wide-image heuristic.
+  if def.frameWidth or def.frameHeight then
+    return buildCardSized(img, frame, def.frameWidth or 16,
+                          def.frameHeight or 16)
+  end
+  return buildCardSized(img, frame, 16, 16)
 end
 
 function SpriteBillboards.mesh(def, frame)
   local big = isBigDef(def)
   local key = def.image .. "#" .. (big and "big" or tostring(frame))
+              .. "#" .. tostring(def.frameWidth or (big and 32 or 16))
+              .. "x" .. tostring(def.frameHeight or (big and 32 or 16))
   if meshes[key] == nil then
     local ok, m = pcall(buildCard, def, frame)
     meshes[key] = (ok and m) or false
@@ -110,6 +121,7 @@ end
 -- footprint (8 for 16px walkers, 16 for 32px big dolls).
 function SpriteBillboards.halfWidth(def)
   if isBigDef(def) then return 16 end
+  if def and def.frameWidth then return def.frameWidth / 2 end
   return 8
 end
 

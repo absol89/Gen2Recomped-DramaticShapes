@@ -40,6 +40,50 @@ local function paletteSet(world, map)
   return colors
 end
 
+-- World:atlasFor keys its composed image by the engine tileset and, for the
+-- two Johto outdoor sheets, the map group's roof.  Keep the same identity in
+-- plain data: userdata tostring values change every process and therefore
+-- cannot participate in a persistent-cache contract.
+local ROOF_TILESETS = {
+  TILESET_JOHTO = true,
+  TILESET_JOHTO_MODERN = true,
+}
+
+local function atlasProfile(world, map)
+  local def = map and map.def or {}
+  local engineId = def.tileset
+  local roofName
+  if ROOF_TILESETS[engineId] then
+    roofName = world and world.roofs and world.roofs.mapGroupRoofs
+      and world.roofs.mapGroupRoofs[def.group]
+  end
+  return tostring(engineId or "-") .. (roofName and ("|" .. roofName) or "")
+end
+
+Adapter.atlasProfile = atlasProfile
+
+-- The title menu has no live overworld yet, but whole-game precaching must use
+-- exactly the same atlas composer as gameplay.  This deliberately constructs
+-- only the fields World:atlasFor reads; World:load would start gameplay and
+-- mutate considerably more engine state.
+function Adapter.staticWorld(game, data)
+  if not (active() and type(data) == "table") then return nil end
+  local ok, World = pcall(require, "src.world.gen2.World")
+  if not (ok and World and type(World.atlasFor) == "function") then return nil end
+  local tilesets = data.gen2Tilesets or data.tilesets
+  if type(tilesets) ~= "table" then return nil end
+  return {
+    game = game,
+    tilesets = tilesets,
+    roofs = data.gen2Roofs or data.roofs,
+    palettes = data.gen2Palettes or data.palettes,
+    daytime = "DAY",
+    flickerPhase = 1,
+    atlasCache = {},
+    atlasFor = World.atlasFor,
+  }
+end
+
 function Adapter.prepareMap(world, map)
   if not (active() and world and map and map.def
       and type(world.atlasFor) == "function") then return map end
@@ -60,6 +104,7 @@ function Adapter.prepareMap(world, map)
   map.renderer.image = atlas
   map._battleArtGen2BgSet = paletteSet(world, map)
   map._battleArtGen2AtlasKey = tostring(atlas)
+  map._battleArtGen2AtlasProfile = atlasProfile(world, map)
   return map
 end
 

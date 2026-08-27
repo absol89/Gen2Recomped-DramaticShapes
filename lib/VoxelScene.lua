@@ -275,8 +275,9 @@ local function drawShadow(sprite, px, py, facing, phase, flip, gh, lift)
   local frame, mirror = frameFor(def, facing, phase, flip)
   local mesh = SpriteBillboards.shadowQuad(def, frame)
   if not mesh then return end
+  local half = (SpriteBillboards.halfWidth and SpriteBillboards.halfWidth(def)) or 8
   Voxel3D.draw(mesh, sprite:resolveImage(),
-               Voxel3D.shadowMatrix(px, py, gh, lift, mirror))
+               Voxel3D.shadowMatrix(px, py, gh, lift, mirror, half))
 end
 
 -- Where a billboard character's card stands: on the middle of its cell at
@@ -407,7 +408,7 @@ local function drawEntity(sprite, px, py, facing, phase, flip, gh, colors,
   local half = (SpriteBillboards.halfWidth and SpriteBillboards.halfWidth(def)) or 8
   Voxel3D.draw(mesh, tex, billboardMatrix(px, py, y, mirror, half),
                billboardPull(),
-               ShadowMap.snug(Voxel3D.casterMatrix(px, py, y, mirror)))
+               ShadowMap.snug(Voxel3D.casterMatrix(px, py, y, mirror, half)))
   return true
 end
 
@@ -892,10 +893,12 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
     local frame, mirror = frameFor(def, viewFacing(p), p.phase, p.flip)
     local mesh = SpriteBillboards.shadowQuad(def, frame)
     if mesh then
+      local half = (SpriteBillboards.halfWidth
+                    and SpriteBillboards.halfWidth(def)) or 8
       ShadowMap.draw(mesh, p.sprite:resolveImage(),
                      ShadowMap.snug(
                        Voxel3D.casterMatrix(p.px, p.py, p.gh + (p.lift or 0),
-                                            mirror)))
+                                            mirror, half)))
     end
   end
   -- a staged fight's mons (VR frames only): the same cards the eye pass

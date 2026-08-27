@@ -19,8 +19,8 @@ import sys
 from collections import deque, Counter
 from PIL import Image, ImageDraw
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__)))))
+ROOT = os.getenv("POKEPORT_ASSET_ROOT") or os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 TILESETS = os.path.join(ROOT, "assets/generated/tilesets")
 PER_ROW = 16
 
@@ -1236,6 +1236,17 @@ def profile(sp, t):
         r = next((y for y in range(H) if inside(x, y)), t["roof_rows"])
         top.append(min(r, t["roof_rows"]))
 
+    # A tapered column's first drawn row is its black silhouette cap, not
+    # roof paint. Keep the surface on the first painted row (PR #28).
+    surface_top = []
+    for x in range(W):
+        y = top[x]
+        while (y < t["roof_rows"] and inside(x, y)
+               and sp["col"][y][x] == BLACK):
+            y += 1
+        surface_top.append(y if y < t["roof_rows"] and inside(x, y)
+                           else top[x])
+
     # The drawing's own ground line: the row after the last drawn one. A
     # building ends on the black threshold row it stands on (ground == H),
     # but furniture is drawn standing on open floor -- the lab table's
@@ -1287,7 +1298,8 @@ def profile(sp, t):
     # Depth is the PLOT. For a whole-drawing building that is the grid
     # itself; `depth` (in tile rows) names it when the grid runs past the
     # plot onto ground the drawing merely stands its legs on.
-    return dict(top=top, wall_h=wall_h, ytop=ytop, recess=recess,
+    return dict(top=top, surface_top=surface_top,
+                wall_h=wall_h, ytop=ytop, recess=recess,
                 inside=inside,
                 # `depth` names the plot in TILE ROWS, which is the right
                 # grain for a building. `depth_px` names it in voxels, for
@@ -1797,10 +1809,9 @@ def build(sp, pr, t):
         tt = T(x)
         for z in range(z0, z1 + 1):
             outer = x == x0d or x == x1d or z == z0 or z == z1
-            # the slope's texture is the drawing's own: clamping into the
-            # column's first drawn row keeps flank battens running down the
-            # slope instead of falling off the silhouette
-            sy = max(roof_sy(z), pr["top"][x])
+            # Stay inside the painted roof without wearing the tapered
+            # column's black silhouette cap.
+            sy = max(roof_sy(z), pr["surface_top"][x])
             for y in range(tt - slab + 1, tt + 1):
                 if y == tt and not outer:
                     put(x, y, z, x, sy)

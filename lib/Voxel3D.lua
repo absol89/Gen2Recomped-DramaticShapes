@@ -34,6 +34,7 @@ local Sky = V.require("Sky")
 local DayNight = V.require("DayNight")
 local GlassMask = V.require("GlassMask")
 local PixelCanvas = V.require("PixelCanvas")
+local RendererOrientation = V.require("RendererOrientation")
 
 local Voxel3D = {}
 
@@ -335,8 +336,9 @@ local function newDepth(w, h)
   if not (love.graphics and love.graphics.newCanvas) then return nil end
   local c = nil
   for _, format in ipairs(DEPTH_FORMATS) do
-    local ok, made = pcall(love.graphics.newCanvas, w, h,
-                           { format = format, readable = true })
+    -- Must have the same physical dimensions as the scene color attachment.
+    local ok, made = PixelCanvas.new(w, h,
+                                     { format = format, readable = true })
     if ok and made then c = made break end
   end
   if not c then return nil end
@@ -1067,6 +1069,18 @@ function Voxel3D.coverRect(iw, ih, cw, ch, topOffset)
   return (cw - iw * scale) / 2, -crop * scale, scale
 end
 
+-- Apple's Metal canvas path presents an Image sampled into another Canvas
+-- upside-down. Keep renderer discovery and the correction public because
+-- battle background providers use the same exact boundary.
+function Voxel3D.metalRenderer()
+  return RendererOrientation.metalRenderer()
+end
+
+function Voxel3D.backdropTransform(iw, ih, x, y, scale, metal)
+  return RendererOrientation.backdropTransform(
+    iw, ih, x, y, scale, metal)
+end
+
 function Voxel3D.backdrop(image, topOffset)
   if not (active and image and image.getDimensions) then return false end
   local ok, iw, ih = pcall(image.getDimensions, image)
@@ -1082,7 +1096,9 @@ function Voxel3D.backdrop(image, topOffset)
   end
   love.graphics.setDepthMode()
   love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(image, x, y, 0, scale, scale)
+  local dx, dy, sx, sy = Voxel3D.backdropTransform(
+    iw, ih, x, y, scale, Voxel3D.metalRenderer())
+  love.graphics.draw(image, dx, dy, 0, sx, sy)
   love.graphics.setDepthMode("lequal", true)
   love.graphics.setShader(activeShader)
   return true
@@ -1129,7 +1145,9 @@ end
 function Voxel3D.beginWater(paint)
   if not (active and canvas and held and held.depth) then return nil end
   if not held.mirror then
-    local ok, c = pcall(love.graphics.newCanvas, held.w, held.h)
+    -- The sampled copy, color attachment, and readable depth attachment are
+    -- one target family and must share the same DPI scale.
+    local ok, c = PixelCanvas.new(held.w, held.h)
     if not (ok and c) then return nil end
     pcall(c.setFilter, c, "nearest", "nearest")
     pcall(c.setWrap, c, "clamp", "clamp")
@@ -1274,10 +1292,11 @@ end
 -- every vertex asks about the exact surface the sun recorded rather than
 -- one a few pixels behind it, and a figure cannot fringe itself. On the
 -- caster itself it is a no-op -- that quad is already flat.
-function Voxel3D.casterMatrix(px, py, y, mirror)
-  local m = Mat4.translate(px + 8, y, py + 8)
+function Voxel3D.casterMatrix(px, py, y, mirror, half)
+  half = half or 8
+  local m = Mat4.translate(px + half, y, py + half)
   if mirror then m = Mat4.mul(m, Mat4.scale(-1, 1, 1)) end
-  return Mat4.mul(Mat4.mul(m, Mat4.translate(-8, 0, 0)),
+  return Mat4.mul(Mat4.mul(m, Mat4.translate(-half, 0, 0)),
                   Mat4.scale(1, 1, 0))
 end
 
@@ -1289,8 +1308,8 @@ end
 -- Flattening is measured from the ground plane, so a hop slides the whole
 -- shadow along the sun line while it stays glued to the ground -- the
 -- classic jump-shadow tell.
-function Voxel3D.shadowMatrix(px, py, gh, lift, mirror)
-  local card = Voxel3D.casterMatrix(px, py, gh + (lift or 0), mirror)
+function Voxel3D.shadowMatrix(px, py, gh, lift, mirror, half)
+  local card = Voxel3D.casterMatrix(px, py, gh + (lift or 0), mirror, half)
   -- flatten about the ground plane: y' = 0, x/z shear by height above it
   local squash = { 1, Voxel3D.SHADOW_KX, 0, 0,
                    0, 0,                 0, 0,

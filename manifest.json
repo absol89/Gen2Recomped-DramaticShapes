@@ -6,7 +6,7 @@
   "entry": "main.lua",
   "profile": "content",
   "category": "GRAPHICS",
-  "games": ["gold", "silver"],
+  "games": ["gold", "silver", "crystal"],
   "game_version": "0.0.0-dev || >=0.2.20 <3.0.0",
   "priority": 100,
   "dependencies": [],
@@ -22,7 +22,7 @@
     "engine_internals"
   ],
   "affects_link": false,
-  "description": "Gold/Silver port for Gen1Recomp: a full 3D diorama overworld with Battle Art sprites and staged battles. Crystal is not currently supported.",
+  "description": "Gold/Silver/Crystal port for Gen1Recomp: a full 3D diorama overworld with Battle Art sprites and staged battles.",
   "github": "DramaticShape/DramaticShapeVoxelMod",
   "update_check": false
 }
