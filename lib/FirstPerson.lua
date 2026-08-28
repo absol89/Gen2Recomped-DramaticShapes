@@ -689,9 +689,8 @@ end
 
 -- ------- input capture
 --
--- The seams: relative mouse motion has no Game handler at all (the
--- engine's love.mousemoved only feeds the mouse-as-touch debug path), the
--- right stick's axes are explicitly ignored by Input, and a touch
+-- The seams: relative mouse motion arrives through the engine's pointer
+-- hook, the right stick's axes are explicitly ignored by Input, and a touch
 -- anywhere off the overlay's controls dies in TouchControls. Each wrap
 -- forwards everything it does not claim, and claims only while first
 -- person is actually driving -- so with the rung off, every byte flows
@@ -755,21 +754,17 @@ function FirstPerson.install()
 
   -- ------- mouse
   --
-  -- love.mousemoved rather than a Game method, because the engine has no
-  -- Game:mousemoved to wrap -- the callback in the project's main.lua is
-  -- the one place relative counts arrive. Claimed only while captured;
-  -- pass-through otherwise, including the mouse-as-touch path.
-  do
-    local inner = love.mousemoved
-    love.mousemoved = function(x, y, dx, dy, istouch)
-      if captured and not istouch then
-        mouseDX = mouseDX + (dx or 0)
-        mouseDY = mouseDY + (dy or 0)
-        return
-      end
-      if inner then return inner(x, y, dx, dy, istouch) end
+  -- The sandbox owns love.mousemoved, so relative motion is read through
+  -- the public pointer seam. Claimed only while captured; every other mouse
+  -- event and every touch continues down the engine's pointer chain.
+  V.mod.hooks:wrap("input.pointer", function(next, game, ev)
+    if captured and ev.phase == "moved" and ev.source == "mouse" then
+      mouseDX = mouseDX + (ev.dx or 0)
+      mouseDY = mouseDY + (ev.dy or 0)
+      return true
     end
-  end
+    return next(game, ev)
+  end)
   -- While the mouse is captured there is no cursor to click UI with, so
   -- the buttons become GB buttons: left is A, right is B -- through the
   -- overlay's own press path, which a rebind can never detach. What WE
@@ -796,34 +791,39 @@ function FirstPerson.install()
     end
     return false
   end
-  do
-    local inner = love.mousepressed
-    love.mousepressed = function(x, y, button, istouch, presses)
-      if captured and not istouch and hordeMouse(button, true) then return end
-      if captured and not istouch and MOUSE_BTN[button] then
+  V.mod.hooks:wrap("input.pointer", function(next, game, ev)
+    if ev.source == "mouse" and ev.phase == "pressed" then
+      local button = ev.button
+      if captured and hordeMouse(button, true) then return true end
+      if captured and MOUSE_BTN[button] then
         local Input = require("src.core.Input")
         mouseHeld[button] = true
         Input:overlayPressed(MOUSE_BTN[button])
-        return
+        return true
       end
-      if inner then return inner(x, y, button, istouch, presses) end
-    end
-  end
-  do
-    local inner = love.mousereleased
-    love.mousereleased = function(x, y, button, istouch, presses)
+    elseif ev.source == "mouse" and ev.phase == "released" then
+      local button = ev.button
       -- a release always reaches whoever owns the press: the horde's
       -- aim-hold has to let go even if the mode ended mid-click
-      if not mouseHeld[button] and hordeMouse(button, false) then return end
+      if not mouseHeld[button] and hordeMouse(button, false) then return true end
       if mouseHeld[button] then
         local Input = require("src.core.Input")
         mouseHeld[button] = nil
         Input:overlayReleased(MOUSE_BTN[button])
-        return
+        return true
       end
-      if inner then return inner(x, y, button, istouch, presses) end
+    elseif ev.source == "mouse" and ev.phase == "cancelled" then
+      -- Focus loss can swallow physical releases. Release every virtual
+      -- button this hook owns so none remains held when input recovers.
+      local Input = require("src.core.Input")
+      for button in pairs(mouseHeld) do
+        Input:overlayReleased(MOUSE_BTN[button])
+        mouseHeld[button] = nil
+      end
+      hordeMouse(2, false)
     end
-  end
+    return next(game, ev)
+  end)
 
   -- ------- touch
   --

@@ -1,5 +1,6 @@
+local os = "iOS"
 local renderer = { "Metal", "3.1", "Apple", "Apple GPU" }
-love = { graphics = {
+love = { system = { getOS = function() return os end }, graphics = {
   getRendererInfo = function() return unpack(renderer) end,
 } }
 
@@ -17,6 +18,11 @@ assert(x == -20 and y == -30 and sx == 2 and sy == 2,
 
 renderer = { "OpenGL ES", "3.0", "Qualcomm", "Adreno" }
 assert(not Orientation.metalRenderer(), "Android GLES was mistaken for Metal")
+os = "Android"
+renderer = { "Metal", "3.1", "Apple", "compatibility renderer" }
+assert(not Orientation.metalRenderer(),
+  "Android was routed through the iOS correction by its renderer string")
+os = "iOS"
 renderer = { "OpenGL ES", "3.0", "Apple", "A-series" }
 assert(Orientation.metalRenderer(), "Apple GLES compatibility path was missed")
 

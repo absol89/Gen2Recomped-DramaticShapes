@@ -1604,9 +1604,8 @@ OverworldBattle.install()
 --
 -- FirstPerson.install claims the LOOK inputs the engine ignores: the right
 -- stick's axes (Game:gamepadaxis passes them to Input, which returns early
--- on anything but the left pair), relative mouse motion (love.mousemoved --
--- there is no Game handler to wrap; the engine's own callback only feeds
--- the mouse-as-touch debug path, which stays untouched), the mouse buttons
+-- on anything but the left pair), relative mouse motion (through the public
+-- input.pointer hook), the mouse buttons
 -- while the cursor is captured (A and B -- there is no cursor to click UI
 -- with), and any touch that lands off the overlay's controls (a drag on
 -- open screen is the look; the d-pad and buttons still go to
