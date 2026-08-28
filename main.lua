@@ -1092,6 +1092,10 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
   -- off the menu whatever else this mod is or is not doing
   pinEngineFx(game)
   dropRow(out, "tilt")
+  -- Some Gen2Recomp menu paths already include the registered pipeline row;
+  -- remove it before adding the mod-controlled copy below or T-SHIFT appears
+  -- twice with two independent-looking rows.
+  dropRow(out, "pipeline:tiltshift")
   dropRow(out, "gbcfx")
   -- and BATTLE BG with them: this mode fills the window with the map, so
   -- the row's whole question -- what to put in the voids around the battle
