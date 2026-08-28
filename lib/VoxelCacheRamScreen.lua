@@ -12,11 +12,7 @@ Screen.__index = Screen
 Screen.isOpaque = true
 
 local function sizeText(bytes)
-  bytes = tonumber(bytes) or 0
-  if bytes >= 1024 * 1024 * 1024 then
-    return ("%.2f GiB"):format(bytes / (1024 * 1024 * 1024))
-  end
-  return ("%.1f MiB"):format(bytes / (1024 * 1024))
+  return Disk.sizeText(bytes)
 end
 
 local function put(text, row)
@@ -46,7 +42,7 @@ function Screen:finish()
 end
 
 function Screen:update()
-  -- Read at least one file per frame, then small records up to an 8 MiB slice.
+  -- Read at least one file per frame, then small records up to an 8 MB slice.
   -- A large route is intentionally one loading-screen frame rather than a
   -- traversal hitch later.
   local slice, processed = 0, 0

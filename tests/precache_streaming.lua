@@ -56,7 +56,7 @@ for _, platform in ipairs({
   assert(not Disk.eagerLoadAllowed(), platform.os .. " attempted eager preload")
 end
 assert(Disk.recommendedRamBudget() == 1024 * 1024 * 1024,
-  "mobile cache budget did not expand to 1 GiB")
+  "mobile cache budget did not expand to 1 GB")
 
 Disk.beginSession()
 Disk.setRamBudget(0)

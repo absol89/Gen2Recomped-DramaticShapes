@@ -20,11 +20,7 @@ Screen.__index = Screen
 Screen.isOpaque = true
 
 local function sizeText(bytes)
-  bytes = tonumber(bytes) or 0
-  if bytes >= 1024 * 1024 * 1024 then
-    return ("%.2f GiB"):format(bytes / (1024 * 1024 * 1024))
-  end
-  return ("%.1f MiB"):format(bytes / (1024 * 1024))
+  return MeshDisk.sizeText(bytes)
 end
 
 local function put(text, row, col)

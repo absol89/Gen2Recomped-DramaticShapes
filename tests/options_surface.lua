@@ -6,6 +6,19 @@ local function source(path)
 end
 
 local main = source("main.lua")
+local ramSetting = assert(main:find('"ramPrecacheMb", "RAM PRECACHE MB"', 1, true))
+local ramSettingEnd = assert(main:find('local function applyRamPrecacheBudget',
+                                        ramSetting, true))
+local ramChoices = main:sub(ramSetting, ramSettingEnd - 1)
+for _, choice in ipairs({ "256", "512", "1024", "1536", "2048",
+                          "2560", "3172", "FULL" }) do
+  assert(ramChoices:find('"' .. choice .. '"', 1, true),
+    "RAM PRECACHE MB is missing " .. choice)
+end
+assert(ramChoices:find("},\n  3)", 1, true),
+  "RAM PRECACHE MB no longer defaults to 1024 MB")
+assert(main:find("VoxelMeshDisk.sizeText(after.bytes)", 1, true),
+  "CACHE SAVE does not report the selected RAM size in the shared formatter")
 local backSprites = assert(main:find("{ OverworldBattle.backSetting,", 1, true))
 local battleArt = assert(main:find("{ BattleArt.setting,", backSprites, true))
 assert(main:sub(backSprites, battleArt - 1):find("managerOnly = true", 1, true),

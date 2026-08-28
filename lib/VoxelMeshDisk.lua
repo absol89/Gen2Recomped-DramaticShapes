@@ -592,7 +592,7 @@ local function header(fp)
 end
 
 -- CONTINUE may preload the compressed BAVC containers. They remain compressed
--- here (~745 MiB for the current full world rather than ~2.7 GiB of vertices)
+-- here (~745 MB for the current full world rather than ~2.7 GB of vertices)
 -- and are decoded into temporary ByteData only when a map is uploaded.
 function Disk.ramPlan()
   if not available() then return {}, 0 end
@@ -694,8 +694,8 @@ function Disk.eagerLoadAllowed()
   return not (detected.console or detected.mobile or detected.handheld)
 end
 
--- Gen2's mobile cache is intentionally bounded, but 256 MiB retained too few
--- compressed area records for the precached world. One GiB is still only the
+-- Gen2's mobile cache is intentionally bounded, but 256 MB retained too few
+-- compressed area records for the precached world. One GB is still only the
 -- compressed container budget; decoded meshes remain limited to the current
 -- and previous live neighbourhood by ChunkMesher/VoxelScene.
 Disk.MOBILE_RAM_BUDGET = 1024 * 1024 * 1024
@@ -711,6 +711,17 @@ end
 
 function Disk.ramBudgetBytes()
   return ramBudget
+end
+
+-- UI-facing size labels use the vocabulary exposed by the RAM PRECACHE MB
+-- option. The byte arithmetic remains binary so the selected budget is exact;
+-- only the displayed unit wording is MB/GB as requested.
+function Disk.sizeText(bytes)
+  bytes = tonumber(bytes) or 0
+  if bytes >= 1024 * 1024 * 1024 then
+    return ("%.2f GB"):format(bytes / (1024 * 1024 * 1024))
+  end
+  return ("%.1f MB"):format(bytes / (1024 * 1024))
 end
 
 -- DROP abandons both the whole-world preload and any unsaved generated
@@ -768,7 +779,7 @@ local function parseHeader(blob, expected)
 end
 
 -- Cheap resume probe for the title-screen whole-game generator.  Reading and
--- decompressing a 20+ MiB route merely to learn that it is already cached
+-- decompressing a 20+ MB route merely to learn that it is already cached
 -- would make "resume" nearly as expensive as generating it, so inspect only
 -- the fixed header and exact fingerprint.  The ordinary load path still fully
 -- validates every stream before gameplay uses it.
@@ -882,7 +893,7 @@ local function streamRecord(blob, pos)
   if expected == 0 then return { n = n }, pos end
   -- Allocate the final stable buffer once. The old loader decompressed into a
   -- table of Lua strings and table.concat made a second full-size copy; a
-  -- Forest-sized mesh briefly occupied ~172 MiB before upload, and an FFI
+  -- Forest-sized mesh briefly occupied ~172 MB before upload, and an FFI
   -- pointer into that Lua string was then carried across cooperative yields.
   local rawChunks, total = {}, 0
   for _ = 1, chunks do

@@ -88,6 +88,12 @@ local VoxelPrecacheScreen = V.require("VoxelPrecacheScreen")
 local VoxelCacheRamScreen = V.require("VoxelCacheRamScreen")
 local VoxelMeshDisk = V.require("VoxelMeshDisk")
 local StaticGeometry = V.require("StaticGeometry")
+local ModSetting = V.require("ModSetting")
+local RamPrecacheSetting = ModSetting.new(
+  "ramPrecacheMb", "RAM PRECACHE MB",
+  { 256, 512, 1024, 1536, 2048, 2560, 3172, 0 },
+  { "256", "512", "1024", "1536", "2048", "2560", "3172", "FULL" },
+  3)
 -- Forward declaration: the prebake pass is set up far below (it needs the
 -- options schema first) but the update hook that drives it is written above
 -- that, and a closure cannot capture a local that does not exist yet.
@@ -436,7 +442,20 @@ local function stagedBattles()
   return OverworldBattle.enabled()
 end
 
+local function applyRamPrecacheBudget()
+  local megabytes = RamPrecacheSetting:get()
+  if megabytes == 0 then
+    VoxelMeshDisk.setRamBudget(0)
+  else
+    VoxelMeshDisk.setRamBudget(megabytes * 1024 * 1024)
+  end
+end
+
 local SETTINGS = {
+  { RamPrecacheSetting,
+    "Compressed voxel cache retained for CONTINUE and nearby-area loading. "
+    .. "Choose FULL to retain every precached record; larger values use more "
+    .. "system RAM but reduce first-entry disk reads on mobile." },
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
   { WorldCurve.setting,
     "Bend the world down over the horizon, Animal Crossing style." },
@@ -1164,7 +1183,18 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     local offered = not entry.managerOnly
                     and (entry.full or not full)
                     and (not entry.when or entry.when())
-    if offered then extra[#extra + 1] = entry[1]:row() end
+    if offered then
+      local row = entry[1]:row()
+      if entry[1] == RamPrecacheSetting then
+        local step = row.step
+        row.step = function(g, dir)
+          local changed = step(g, dir)
+          applyRamPrecacheBudget()
+          return changed
+        end
+      end
+      extra[#extra + 1] = row
+    end
   end
   return insertGrouped(out, extra)
 end)
@@ -1193,7 +1223,7 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
           end
           continue()
         else
-          VoxelMeshDisk.setRamBudget(VoxelMeshDisk.recommendedRamBudget())
+          applyRamPrecacheBudget()
           local names = select(1, VoxelMeshDisk.ramPlan())
           if names and #names > 0 and not VoxelMeshDisk.ramReady(names) then
             game.stack:push(VoxelCacheRamScreen.new(game, continue))
@@ -1212,7 +1242,7 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         if VoxelMeshDisk.eagerLoadAllowed() then
           VoxelMeshDisk.setRamBudget(0)
         else
-          VoxelMeshDisk.setRamBudget(VoxelMeshDisk.recommendedRamBudget())
+          applyRamPrecacheBudget()
         end
       end
     end
@@ -1266,11 +1296,15 @@ mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
               ("CACHE SAVE FAILED\n%d FILE%s NOT WRITTEN\fTRY SAVE AGAIN")
                 :format(failed, failed == 1 and "" or "S")))
           elseif saved == 0 then
-            game.stack:push(TextBox.new(game, "CACHE ALREADY SAVED"))
-          else
             game.stack:push(TextBox.new(game,
-              ("CACHE SAVED\n%d FILE%s\n%d IN RAM")
-                :format(saved, saved == 1 and "" or "S", before.files)))
+              ("CACHE ALREADY SAVED\nRAM %s")
+                :format(VoxelMeshDisk.sizeText(before.bytes))))
+          else
+            local after = VoxelMeshDisk.ramStats()
+            game.stack:push(TextBox.new(game,
+              ("CACHE SAVED\n%d FILE%s\nRAM %s\n%d IN RAM")
+                :format(saved, saved == 1 and "" or "S",
+                        VoxelMeshDisk.sizeText(after.bytes), before.files)))
           end
         end },
         { label = "DROP", onSelect = function()
@@ -1295,6 +1329,9 @@ mod.events:on("mod.options_changed", function(payload)
   if not (payload and payload.mod == mod.id) then return end
   for _, entry in ipairs(SETTINGS) do
     if payload.key == entry[1].key then entry[1]:sync(payload.value) end
+  end
+  if payload.key == RamPrecacheSetting.key then
+    applyRamPrecacheBudget()
   end
   -- 3D-BTL switched on from the manager's page pins BATTLE LAYOUT exactly as
   -- the OPTIONS row does. The manager persists its own value; this is the one
