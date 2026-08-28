@@ -373,10 +373,11 @@ applyFull = function(level)
   local opts = Game.save and Game.save.options
   if not opts then return end
 
-  -- the miniature blur at its strongest: FULL is the diorama look, and the
-  -- tilt-shift is most of what makes it read as a model
-  Pipelines.setLevel("tiltshift", Pipelines.maxLevel("tiltshift"))
-  Pipelines.syncOptions(opts)
+  -- Tilt-shift is deliberately LEFT OFF here. FULL is the diorama preset, but
+  -- the blur is opt-in: a player turns T-SHIFT on from the OPTIONS row if they
+  -- want it. Forcing it on (and persisting it) here is what made every FULL
+  -- arrival snap the blur to max and stick -- the opposite of "OFF by default".
+  -- The other FULL rows below still apply; only the blur is left to the player.
   -- the horizon flat. The curve bends the world away from a walking player,
   -- which fights a fixed diorama framing
   WorldCurve.setting:setIndex(1, Game)
@@ -871,6 +872,12 @@ local function applyPresentationDefaults(game)
   opts.colors = "redpp"
   opts.uiLayout = "centered"
   pcall(require("src.render.PaletteFX").setMode, "redpp")
+  -- Restore defaults also resets the diorama blur to OFF. Tilt-shift is
+  -- opt-in and must not survive a "restore defaults" press (or a save that
+  -- arrived with it forced on by an older FULL preset).
+  local Pipelines = require("src.render.Pipelines")
+  Pipelines.setLevel("tiltshift", 0)
+  Pipelines.syncOptions(opts)
   if changed and game.writeOptions then pcall(game.writeOptions, game) end
 end
 
@@ -909,6 +916,57 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     -- blur can turn it off from touch/controller-only options screens.
   end
   local extra = {}
+  -- Gold/Silver's OPTION screen never splices render-pipeline rows (only
+  -- Gen 1's menu does), so without this the VOXEL row cannot exist here no
+  -- matter what registers. Offer it beside the mod's own rows.
+  local hasVoxelRow = false
+  for _, row in ipairs(out) do
+    if row.id == "pipeline:voxel" then hasVoxelRow = true break end
+  end
+  if not hasVoxelRow then
+    -- The keyboard shortcut deliberately skips FULL and only advances. An
+    -- options row must expose the complete ladder and honor left and right.
+    table.insert(extra, 1, {
+      id = "pipeline:voxel",
+      label = "VOXEL",
+      value = function() return Pipelines.levelLabel("voxel") end,
+      step = function(g, dir)
+        local target = Voxel.nextHotkeyLevel(Pipelines.level("voxel"))
+        Pipelines.setLevel("voxel", target)
+        -- Persist like cycleVoxel: the live ladder alone does not survive a
+        -- menu exit.
+        local opts = g and g.save and g.save.options
+        if opts then
+          Pipelines.syncOptions(opts)
+          if g.writeOptions then pcall(g.writeOptions, g) end
+        end
+        return true
+      end,
+    })
+  end
+  -- Tilt-shift is a render pipeline (the diorama blur) that Gen2's OPTIONS
+  -- menu never splices in on its own (only Gen 1's menu does), the same gap
+  -- the VOXEL row above works around. Inject it unconditionally so the blur
+  -- is tunable from the in-game OPTIONS menu at any voxel level.
+  table.insert(extra, {
+    id = "pipeline:tiltshift",
+    label = "T-SHIFT",
+    value = function() return Pipelines.levelLabel("tiltshift") end,
+    step = function(g, dir)
+      local span = Pipelines.maxLevel("tiltshift") + 1
+      local target = (Pipelines.level("tiltshift") + (dir or 1)) % span
+      Pipelines.setLevel("tiltshift", target)
+      -- Persist: setLevel only touches the live ladder. Mirror cycleVoxel's
+      -- save path so the choice survives a menu exit (previously it reverted
+      -- to the stored level on exit).
+      local opts = g and g.save and g.save.options
+      if opts then
+        Pipelines.syncOptions(opts)
+        if g.writeOptions then pcall(g.writeOptions, g) end
+      end
+      return true
+    end,
+  })
   for _, entry in ipairs(SETTINGS) do
     -- Two things decide whether a row is offered.
     --
