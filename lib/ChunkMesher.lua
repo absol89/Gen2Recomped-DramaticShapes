@@ -1486,7 +1486,10 @@ local function runJob(job)
   -- vertex stream is the whole reason a town can appear the moment you walk
   -- into it, and grass/flowers/figures are cheap enough to land a frame or
   -- two later. On a miss the original order stands.
-  local cachedTerrain, cachedWater = loadCachedTerrain(job)
+  local cachedTerrain, cachedWater
+  if not (c.stale and c.stale[job.slot]) then
+    cachedTerrain, cachedWater = loadCachedTerrain(job)
+  end
   if cachedTerrain ~= nil then
     if (gen[job.id] or 0) ~= job.gen then
       if cachedTerrain and cachedTerrain.release then
