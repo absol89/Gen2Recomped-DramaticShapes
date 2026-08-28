@@ -455,7 +455,8 @@ local SETTINGS = {
   { RamPrecacheSetting,
     "Compressed voxel cache retained for CONTINUE and nearby-area loading. "
     .. "Choose FULL to retain every precached record; larger values use more "
-    .. "system RAM but reduce first-entry disk reads on mobile." },
+    .. "system RAM but reduce first-entry disk reads on mobile.",
+    full = true },
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
   { WorldCurve.setting,
     "Bend the world down over the horizon, Animal Crossing style." },

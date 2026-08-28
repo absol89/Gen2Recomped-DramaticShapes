@@ -19,6 +19,8 @@ assert(ramChoices:find("},\n  3)", 1, true),
   "RAM PRECACHE MB no longer defaults to 1024 MB")
 assert(main:find("VoxelMeshDisk.sizeText(after.bytes)", 1, true),
   "CACHE SAVE does not report the selected RAM size in the shared formatter")
+assert(ramChoices:find("full = true", 1, true),
+  "RAM PRECACHE MB disappears when VOXEL is FULL")
 local backSprites = assert(main:find("{ OverworldBattle.backSetting,", 1, true))
 local battleArt = assert(main:find("{ BattleArt.setting,", backSprites, true))
 assert(main:sub(backSprites, battleArt - 1):find("managerOnly = true", 1, true),
