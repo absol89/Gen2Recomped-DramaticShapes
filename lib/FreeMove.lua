@@ -70,14 +70,36 @@ local EPS = 0.01
 -- moved them, and the free walk adopts rather than fights
 local pos = nil
 local lastPx, lastPy = nil, nil
+local visualMoving = false
 
 local function adopt(p)
   pos = { x = p.px + 8, z = p.py + 8 }
   lastPx, lastPy = p.px, p.py
+
+  -- Free movement writes px/py directly and must never set Player.moving:
+  -- that flag starts the engine's grid interpolation, whose targetX/targetY
+  -- do not exist for a free step. Give only this player a visual walk phase
+  -- instead, and defer to the engine method for overhead/grid movement.
+  if not p._dramaticShapeFreeWalkPhase then
+    p._dramaticShapeFreeWalkPhase = true
+    local engineWalkPhase = p.walkPhase
+    p.walkPhase = function(self)
+      if pos then
+        if visualMoving then
+          local phase = (self.animClock or 0) % 16
+          return (phase >= 4 and phase < 12) and 1 or 0
+        end
+        return 0
+      end
+      if engineWalkPhase then return engineWalkPhase(self) end
+      return 0
+    end
+  end
 end
 
 function FreeMove.drop()
   pos = nil
+  visualMoving = false
   -- and the body with it: while something else is walking the player --
   -- a scripted move, a ledge hop, the grid walk off the rung -- the
   -- engine's own four-direction facing is the whole truth about which way
@@ -305,10 +327,7 @@ function FreeMove.tick(state)
   end
 
   if not moving then
-    if p.moving then
-      p.moving = false
-      p.animClock = 0
-    end
+    visualMoving = false
     return
   end
 
@@ -331,12 +350,10 @@ function FreeMove.tick(state)
   local hitX = slideX(state, p, dx)
   local hitZ = slideZ(state, p, dz)
 
-  -- The native grid walk already owns its animation in 2D and every partial
-  -- voxel mode. Only 1ST/3RD bypass that grid step, so drive the same player
-  -- fields here while free movement covers ground and release them on idle.
-  p.moving = true
+  -- Advance only the visual clock. Player.moving belongs to the native grid
+  -- interpolation and would consume nil target cells in this free-walk path.
+  visualMoving = true
   p.animClock = (p.animClock or 0) + 1
-  p.bumpFrames = 2
 
   p.px, p.py = pos.x - 8, pos.z - 8
   lastPx, lastPy = p.px, p.py
