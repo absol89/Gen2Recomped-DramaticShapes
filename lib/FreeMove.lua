@@ -304,7 +304,13 @@ function FreeMove.tick(state)
     end
   end
 
-  if not moving then return end
+  if not moving then
+    if p.moving then
+      p.moving = false
+      p.animClock = 0
+    end
+    return
+  end
 
   -- and once there IS a direction of travel, the body may point along it
   -- rather than along the head: on the boom (3RD) you can see yourself, so
@@ -325,9 +331,11 @@ function FreeMove.tick(state)
   local hitX = slideX(state, p, dx)
   local hitZ = slideZ(state, p, dz)
 
-  -- the walk cycle: the wall-bonk clock animates the legs of a player the
-  -- grid thinks is standing still, refreshed while the free walk covers
-  -- ground (Player:update ticks animClock off it; walkPhase reads it)
+  -- The native grid walk already owns its animation in 2D and every partial
+  -- voxel mode. Only 1ST/3RD bypass that grid step, so drive the same player
+  -- fields here while free movement covers ground and release them on idle.
+  p.moving = true
+  p.animClock = (p.animClock or 0) + 1
   p.bumpFrames = 2
 
   p.px, p.py = pos.x - 8, pos.z - 8

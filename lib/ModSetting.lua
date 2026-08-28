@@ -49,6 +49,10 @@ local function indexOf(self, value)
   return self.defaultIndex
 end
 
+function ModSetting:indexForValue(value)
+  return indexOf(self, value)
+end
+
 -- What the player left it at last session. Read lazily rather than at load
 -- time: the loader fills modOptions before a mod runs, but reading through
 -- the API keeps this honest about where the value lives.

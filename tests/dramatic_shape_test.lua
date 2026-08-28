@@ -122,9 +122,9 @@ local VoxelState = run.loader.exports.DRAMATIC_SHAPE.lib.require("VoxelState")
 
 -- ------- FULL is a preset that owns the rows describing the LOOK
 --
--- While it is selected the settings it drives come OFF the menu -- including
--- T-SHIFT, which is a pipeline row the engine spliced in. A row that no
--- longer decides anything is worse than no row.
+-- While it is selected the authored geometry settings come off the menu.
+-- T-SHIFT remains live: old saves may have blur persisted and touch-only
+-- devices need the row to turn it off even while FULL is selected.
 --
 -- The two BATTLE rows are the exception and stay. 3D-BTL decides what a fight
 -- is drawn over and BACK SPRITES how it is framed; neither is a knob on the
@@ -138,8 +138,8 @@ local fullRows = Runtime.call("ui.options.rows", function(_, r) return r end,
 local fullIds = {}
 for _, row in ipairs(fullRows) do fullIds[row.id] = true end
 T.check(fullIds["pipeline:voxel"], "FULL keeps the VOXEL row it lives on")
-T.check(not fullIds["pipeline:tiltshift"],
-  "FULL takes T-SHIFT off the menu -- it owns the blur")
+T.check(fullIds["pipeline:tiltshift"],
+  "FULL keeps T-SHIFT reachable for touch/controller users")
 T.check(not fullIds["DRAMATIC_SHAPE:grid"], "and V-GRID")
 T.check(not fullIds["DRAMATIC_SHAPE:curve"], "and V-CURVE")
 
@@ -346,7 +346,8 @@ pressed = {}
 T.eq(Pipelines.level("voxel"), 1, "the step landed on FULL")
 T.check(not rowIndex(menu, "DRAMATIC_SHAPE:grid"),
   "and the rows FULL owns left the OPEN menu at once")
-T.check(not rowIndex(menu, "pipeline:tiltshift"), "T-SHIFT with them")
+T.check(rowIndex(menu, "pipeline:tiltshift"),
+  "T-SHIFT remained reachable on the open FULL menu")
 T.check(menu.index <= #menu.rows + 1, "the cursor stayed in range")
 
 -- and back off it again

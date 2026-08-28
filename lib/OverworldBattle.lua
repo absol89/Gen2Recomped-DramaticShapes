@@ -1281,7 +1281,7 @@ function OverworldBattle.install()
     local dropShadow = mode == "OFF" or mode == "HALF"
     BattleHud.flipGlyphs(BattleScene.GB_W, BattleScene.GB_H, function()
       withoutBoxFill(battle, innerText)
-    end, false, dropShadow)
+    end, false, dropShadow, true)
   end
 
   -- Move animations are authored against the pics' fixed slots, and a single

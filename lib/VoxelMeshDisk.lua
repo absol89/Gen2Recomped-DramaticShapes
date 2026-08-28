@@ -28,6 +28,36 @@ local Disk = {}
 local ramFiles, sessionActive = {}, false
 local ramDirty, ramRejected = {}, {}
 local ramBytes = 0
+local ramOrder = {}
+-- Zero is intentionally unbounded for desktop eager-load. Console/mobile
+-- sessions set a finite budget and stream compressed map containers on demand.
+local ramBudget = 0
+
+local function ramNote(name)
+  for i = #ramOrder, 1, -1 do
+    if ramOrder[i] == name then table.remove(ramOrder, i) break end
+  end
+  ramOrder[#ramOrder + 1] = name
+end
+
+-- Dirty entries are runtime misses awaiting CACHE -> SAVE and cannot be
+-- discarded. Evict only clean, disk-backed containers; the soft budget may be
+-- exceeded temporarily when all resident data is unsaved.
+local function evictOldest()
+  if ramBudget <= 0 then return end
+  local i = 1
+  while ramBytes > ramBudget and i <= #ramOrder do
+    local name = ramOrder[i]
+    if ramDirty[name] then
+      i = i + 1
+    else
+      table.remove(ramOrder, i)
+      local held = ramFiles[name]
+      if held then ramBytes = math.max(0, ramBytes - #held) end
+      ramFiles[name] = nil
+    end
+  end
+end
 local storage
 local storageGame
 local knownSizes = {}
@@ -65,7 +95,10 @@ Disk.DIRECTORY = BASE_DIRECTORY .. "/unbound"
 
 -- Bump only when emitted geometry or this binary record format changes. Public
 -- mod patch releases which do neither continue using the existing cache.
-Disk.CACHE_REVISION = 1
+-- Revision 2 includes the PR #28 roof-surface correction. The canonical map
+-- fingerprint cannot see changes to authored voxel-profile rules, so keeping
+-- revision 1 would silently reload the old black-cap roof meshes forever.
+Disk.CACHE_REVISION = 2
 Disk.CACHE_FAMILY = "g2r-v1"
 Disk.PRECACHE_FAILURE_FILE =
   "mod-derived/BATTLE_ART_VOXEL_FORK/precache-failures.tsv"
@@ -317,6 +350,7 @@ local function bindStorage(game)
     -- A shell may change Gold/Silver without restarting the process. Never
     -- let compressed or dirty records from the old version cross that seam.
     ramFiles, ramDirty, ramRejected = {}, {}, {}
+    ramOrder = {}
     ramBytes = 0
     sessionActive = false
     diskGc()
@@ -547,6 +581,9 @@ local function discard(path, rejected)
   if held then ramBytes = math.max(0, ramBytes - #held) end
   ramFiles[path] = nil
   ramDirty[path] = nil
+  for i = #ramOrder, 1, -1 do
+    if ramOrder[i] == path then table.remove(ramOrder, i) end
+  end
   if rejected then ramRejected[path] = true end
 end
 
@@ -579,6 +616,7 @@ end
 
 function Disk.beginPrecache()
   ramFiles, ramDirty, ramRejected = {}, {}, {}
+  ramOrder = {}
   ramBytes = 0
   sessionActive = false
   diskGc()
@@ -591,12 +629,17 @@ function Disk.loadIntoRam(name)
   end
   local path = name
   local prior = ramFiles[path]
-  if prior then return true, #prior end
+  if prior then
+    ramNote(path)
+    return true, #prior
+  end
   local ok, blob = pcall(storage.readBytes, storage, path)
   if not ok or type(blob) ~= "string" then return false, 0 end
   ramFiles[path] = blob
   ramBytes = ramBytes + #blob
   knownSizes[path] = #blob
+  ramNote(path)
+  evictOldest()
   return true, #blob
 end
 
@@ -619,12 +662,32 @@ function Disk.ramStats()
            dirty = dirty, dirtyBytes = dirtyBytes }
 end
 
+-- Whole-cache preload is safe only on desktop-class systems. Switch, mobile,
+-- and other consoles retain the persistent disk cache but stream its records.
+function Disk.eagerLoadAllowed()
+  local ok, detected = pcall(function()
+    return Platform and Platform.detect and Platform.detect()
+  end)
+  if not ok or type(detected) ~= "table" then return true end
+  return not (detected.console or detected.mobile or detected.handheld)
+end
+
+function Disk.setRamBudget(bytes)
+  ramBudget = math.max(0, tonumber(bytes) or 0)
+  evictOldest()
+end
+
+function Disk.ramBudgetBytes()
+  return ramBudget
+end
+
 -- DROP abandons both the whole-world preload and any unsaved generated
 -- containers. Already-uploaded current/neighbor meshes remain alive; future
 -- requests repopulate this table lazily from disk or freshly generated data.
 function Disk.dropRam()
   local stats = Disk.ramStats()
   ramFiles, ramDirty, ramRejected = {}, {}, {}
+  ramOrder = {}
   ramBytes = 0
   sessionActive = true
   diskGc()
@@ -816,7 +879,9 @@ end
 local function readValidated(path, fp, map)
   if not available() then return nil end
   local blob = ramFiles[path]
-  if not blob then
+  if blob then
+    ramNote(path)
+  else
     if sessionActive and ramRejected[path] then return nil end
     local ok, loaded = pcall(storage.readBytes, storage, path)
     if not ok or not loaded then return nil end
@@ -825,6 +890,8 @@ local function readValidated(path, fp, map)
     if sessionActive then
       ramFiles[path] = blob
       ramBytes = ramBytes + #blob
+      ramNote(path)
+      evictOldest()
     end
   end
   local pos, actual = parseHeader(blob, fp)
@@ -956,6 +1023,8 @@ local function remember(path, blob, dirty)
   knownSizes[path] = #blob
   ramDirty[path] = dirty and true or nil
   ramRejected[path] = nil
+  ramNote(path)
+  evictOldest()
 end
 
 local function encoded(fp, writer)
@@ -1125,6 +1194,7 @@ function Disk.purge()
     end
   end
   ramFiles, ramDirty, ramBytes, ramRejected = {}, {}, 0, {}
+  ramOrder = {}
   return removed
 end
 

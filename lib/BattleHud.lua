@@ -293,20 +293,43 @@ local INK = 0.35   -- luminance at or under which a pixel counts as ink
 -- ...but only where the pixel is NEUTRAL. The HP bar's fill is the 1/3 gray
 -- shade multiplied by its bar colour, which lands well under INK -- a dark
 -- green, a dark red -- so luminance alone whitened the bar along with the
--- glyphs. The ink the HUD draws has no hue at all, so chroma separates them.
-local CHROMA = 0.12
-
+-- glyphs. Restrict the colour exemption to the authored HP/EXP rectangles;
+-- tinted text elsewhere must still receive its shadow.
 local FLIP = [[
   uniform float ink;
-  uniform float chroma;
+  bool gaugeColor(vec4 p, vec2 tc) {
+    vec2 px = tc * vec2(160.0, 144.0);
+    bool gauge = (px.x >= 32.0 && px.x < 80.0
+                  && px.y >= 16.0 && px.y < 24.0)
+              || (px.x >= 96.0 && px.x < 144.0
+                  && px.y >= 72.0 && px.y < 80.0)
+              || (px.x >= 80.0 && px.x < 144.0
+                  && px.y >= 88.0 && px.y < 96.0);
+    float sat = max(max(p.r, p.g), p.b) - min(min(p.r, p.g), p.b);
+    return gauge && sat > 0.04 * p.a;
+  }
   vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
     vec4 p = Texel(tex, tc);
     float luma = dot(p.rgb, vec3(0.299, 0.587, 0.114));
-    float sat = max(max(p.r, p.g), p.b) - min(min(p.r, p.g), p.b);
-    if (p.a > 0.0 && luma <= ink * p.a && sat <= chroma * p.a) p.rgb = vec3(p.a);
+    if (p.a > 0.0 && luma <= ink * p.a && !gaugeColor(p, tc))
+      p.rgb = vec3(p.a);
     return p * color;
   }
 ]]
+
+-- Textbox paper is removed before this pass. Emit only its border/text ink so
+-- pale matte pixels from a font or border tile cannot cover the world or the
+-- shadow underneath them.
+local INK_ONLY = [[
+  uniform float ink;
+  vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+    vec4 p = Texel(tex, tc);
+    float luma = dot(p.rgb, vec3(0.299, 0.587, 0.114));
+    float a = (p.a > 0.0 && luma <= ink * p.a) ? p.a : 0.0;
+    return vec4(a, a, a, a) * color;
+  }
+]]
+BattleHud._inkOnlySource = INK_ONLY
 
 -- One logical Game Boy pixel, applied before the detached HUD is scaled to
 -- the window. Neutral dark ink contributes to the shadow; saturated HP/EXP
@@ -315,21 +338,31 @@ local SHADOW_ALPHA = 0.72
 local COLOR_SHADOW_ALPHA = 0.38
 local SHADOW = [[
   uniform float ink;
-  uniform float chroma;
   uniform float opacity;
   uniform float shade;
+  bool gaugeColor(vec4 p, vec2 tc) {
+    vec2 px = tc * vec2(160.0, 144.0);
+    bool gauge = (px.x >= 32.0 && px.x < 80.0
+                  && px.y >= 16.0 && px.y < 24.0)
+              || (px.x >= 96.0 && px.x < 144.0
+                  && px.y >= 72.0 && px.y < 80.0)
+              || (px.x >= 80.0 && px.x < 144.0
+                  && px.y >= 88.0 && px.y < 96.0);
+    float sat = max(max(p.r, p.g), p.b) - min(min(p.r, p.g), p.b);
+    return gauge && sat > 0.04 * p.a;
+  }
   vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
     vec4 p = Texel(tex, tc);
     float luma = dot(p.rgb, vec3(0.299, 0.587, 0.114));
-    float sat = max(max(p.r, p.g), p.b) - min(min(p.r, p.g), p.b);
     float a = (p.a > 0.0 && luma <= ink * p.a
-               && sat <= chroma * p.a) ? p.a * opacity : 0.0;
+               && !gaugeColor(p, tc)) ? p.a * opacity : 0.0;
     return vec4(vec3(shade), a) * color;
   }
 ]]
 BattleHud._shadowSource = SHADOW
 
 local flipShader = nil
+local inkOnlyShader = nil
 local shadowShader = nil
 local layer = nil
 
@@ -339,6 +372,14 @@ local function getFlip()
     flipShader = (ok and sh) or false
   end
   return flipShader or nil
+end
+
+local function getInkOnly()
+  if inkOnlyShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, INK_ONLY)
+    inkOnlyShader = (ok and sh) or false
+  end
+  return inkOnlyShader or nil
 end
 
 local function getShadow()
@@ -357,8 +398,8 @@ end
 -- Run `fn` through the battle contrast treatment. In inverted mode the ink is
 -- white with a black shadow; preserveOriginal keeps the engine's black glyphs
 -- and colored bars and gives their neutral ink a lighter white shadow.
-function BattleHud.flipGlyphs(w, h, fn, preserveOriginal, dropShadow)
-  local sh = getFlip()
+function BattleHud.flipGlyphs(w, h, fn, preserveOriginal, dropShadow, inkOnly)
+  local sh = inkOnly and getInkOnly() or getFlip()
   if not sh and not preserveOriginal then return fn() end
   if not layer or layer:getWidth() ~= w or layer:getHeight() ~= h then
     layer = canvasOf(w, h, "nearest")
@@ -385,17 +426,17 @@ function BattleHud.flipGlyphs(w, h, fn, preserveOriginal, dropShadow)
   if shadow then
     love.graphics.setShader(shadow)
     pcall(shadow.send, shadow, "ink", INK)
-    pcall(shadow.send, shadow, "chroma", CHROMA)
     pcall(shadow.send, shadow, "opacity",
       preserveOriginal and COLOR_SHADOW_ALPHA or SHADOW_ALPHA)
     pcall(shadow.send, shadow, "shade", preserveOriginal and 1 or 0)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(layer, 1, 1)
   end
-  love.graphics.setShader(preserveOriginal and nil or sh)
-  if sh and not preserveOriginal then
+  if preserveOriginal then
+    love.graphics.setShader()
+  else
+    love.graphics.setShader(sh)
     pcall(sh.send, sh, "ink", INK)
-    pcall(sh.send, sh, "chroma", CHROMA)
   end
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(layer, 0, 0)

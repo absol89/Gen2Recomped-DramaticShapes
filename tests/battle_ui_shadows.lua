@@ -18,8 +18,8 @@ assert(hud:find("BattleHud.flipGlyphs(w, h, fn, not dark, true)", 1, true),
 local overworld = source("lib/OverworldBattle.lua")
 assert(overworld:find('mode == "OFF" or mode == "HALF"', 1, true),
   "textbox drop shadow is not restricted to OFF and HALF")
-assert(overworld:find("end, false, dropShadow)", 1, true),
-  "textbox ink does not pass the selected drop-shadow state")
+assert(overworld:find("end, false, dropShadow, true)", 1, true),
+  "textbox ink does not use its selected shadow and ink-only pass")
 assert(overworld:find("end, color, true)", 1, true),
   "in-frame battle HUD does not request COLOR/INVERTED shadow styling")
 

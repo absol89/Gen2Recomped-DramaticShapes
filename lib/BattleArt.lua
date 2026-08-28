@@ -481,8 +481,7 @@ end
 -- Pokemon BATTLE ART. This is why ROM is an explicit choice here: users can
 -- keep custom species and opponent trainers while retaining the original
 -- player portrait. Oak and Old Man remain separately named scripted roles.
-function BattleArt.playerTrainerImage()
-  local set = BattleArt.playerArtSetting:get()
+local function playerImageFromSettingValue(set)
   if set == "rom" then return nil end
   local function load(name)
     local rel = "assets/battle/back-static/" .. name
@@ -494,6 +493,23 @@ function BattleArt.playerTrainerImage()
   -- all the way back to ROM. player.png is the collection-independent BYO
   -- fallback; only its own absence reaches the engine portrait.
   return load(set .. "player.png") or load("player.png")
+end
+
+function BattleArt.playerTrainerImage()
+  return playerImageFromSettingValue(BattleArt.playerArtSetting:get())
+end
+
+-- Flat PNG ownership follows the active master mode. ANIMATED reads PLAYER
+-- ANIM and STATIC reads PLAYER ART, so Kris's PNG static default cannot mask
+-- a named animation atlas selected for the intro.
+function BattleArt.playerBackPathForOptions()
+  local selected = BattleArt.setting:get() == "animated"
+    and BattleArt.playerAnimationSetting:get()
+    or BattleArt.playerArtSetting:get()
+  if selected == "png" then
+    return V.mod.assets:path("assets/battle/back-static/player.png")
+  end
+  return nil
 end
 
 local function trainerKey(battle)
@@ -539,17 +555,65 @@ function BattleArt.applyTrainers(battle)
       player = tostring(battle.demoName or ""):find("OAK", 1, true)
                and "oak" or "old-man"
       playerImage = BattleArt.namedImage(player, "back")
-    elseif artMode == "animated" then
-      -- AnimatedBattleArt owns this field in animated mode. Passing nil here
-      -- first restores any static PLAYER ART image from a live mode switch;
-      -- on subsequent frames it leaves the animation manager's image alone.
-      playerImage = nil
     else
-      playerImage = BattleArt.playerTrainerImage()
+      local chosen = artMode == "animated"
+        and BattleArt.playerAnimationSetting:get()
+        or BattleArt.playerArtSetting:get()
+      -- Named atlases are owned by AnimatedBattleArt; PNG is deliberately a
+      -- valid single-frame selection even while the master mode is ANIMATED.
+      if artMode == "animated" and chosen ~= "png" and chosen ~= "rom" then
+        playerImage = nil
+      else
+        playerImage = playerImageFromSettingValue(chosen)
+      end
     end
   end
   replaceTrainerField(battle, "playerBackPic",
     playerImage)
+end
+
+local function playerIsFemale(save)
+  local gender = save and save.player and save.player.gender
+  if type(gender) == "string" then
+    gender = gender:lower()
+    if gender == "female" or gender == "f" or gender == "girl" then
+      return true
+    elseif gender == "male" or gender == "m" or gender == "boy" then
+      return false
+    end
+  end
+  local ok, Gen2Save = pcall(require, "src.core.gen2.Save")
+  if ok and Gen2Save and type(Gen2Save.isFemale) == "function" then
+    local called, female = pcall(Gen2Save.isFemale, save)
+    if called then return female == true end
+  end
+  return nil
+end
+
+-- Crystal's Kris has no named generation-specific trainer back. Seed both
+-- player rows to the BYO PNG for a girl and Gen 2 for a boy, but only when the
+-- save has no explicit stored choice. Silver and Crystal boy saves retain the
+-- existing Gen 2 default; every manual selection remains authoritative.
+function BattleArt.seedPlayerDefaults(game)
+  game = game or require("src.core.Game")
+  local save = game and game.save
+  if not save then return end
+  local female = playerIsFemale(save)
+  -- Crystal can raise save.created before its gender choice is committed.
+  -- Wait for game.ready instead of persisting a false boy default too early.
+  if female == nil then return end
+  local want = female and "png" or "gen2"
+  local id = (V.mod and V.mod.id) or "BATTLE_ART_VOXEL_GEN2"
+  for _, setting in ipairs({ BattleArt.playerArtSetting,
+                             BattleArt.playerAnimationSetting }) do
+    local stored = type(save.options) == "table"
+      and type(save.options.modOptions) == "table"
+      and save.options.modOptions[id]
+      and save.options.modOptions[id][setting.key]
+    if stored == nil then
+      setting:setIndex(setting:indexForValue(want), game)
+    end
+  end
 end
 
 function BattleArt.apply(battle)

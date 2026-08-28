@@ -1236,6 +1236,18 @@ def profile(sp, t):
         r = next((y for y in range(H) if inside(x, y)), t["roof_rows"])
         top.append(min(r, t["roof_rows"]))
 
+    # A tapered column starts with a black silhouette cap. The roof surface
+    # must clamp to its first painted row or that one outline texel repeats
+    # down the whole slope as black teeth.
+    surface_top = []
+    for x in range(W):
+        y = top[x]
+        while (y < t["roof_rows"] and inside(x, y)
+               and sp["col"][y][x] == BLACK):
+            y += 1
+        surface_top.append(y if y < t["roof_rows"] and inside(x, y)
+                           else top[x])
+
     # The drawing's own ground line: the row after the last drawn one. A
     # building ends on the black threshold row it stands on (ground == H),
     # but furniture is drawn standing on open floor -- the lab table's
@@ -1287,7 +1299,8 @@ def profile(sp, t):
     # Depth is the PLOT. For a whole-drawing building that is the grid
     # itself; `depth` (in tile rows) names it when the grid runs past the
     # plot onto ground the drawing merely stands its legs on.
-    return dict(top=top, wall_h=wall_h, ytop=ytop, recess=recess,
+    return dict(top=top, surface_top=surface_top,
+                wall_h=wall_h, ytop=ytop, recess=recess,
                 inside=inside,
                 # `depth` names the plot in TILE ROWS, which is the right
                 # grain for a building. `depth_px` names it in voxels, for
@@ -1797,10 +1810,8 @@ def build(sp, pr, t):
         tt = T(x)
         for z in range(z0, z1 + 1):
             outer = x == x0d or x == x1d or z == z0 or z == z1
-            # the slope's texture is the drawing's own: clamping into the
-            # column's first drawn row keeps flank battens running down the
-            # slope instead of falling off the silhouette
-            sy = max(roof_sy(z), pr["top"][x])
+            # Keep the surface off the column's black silhouette cap.
+            sy = max(roof_sy(z), pr["surface_top"][x])
             for y in range(tt - slab + 1, tt + 1):
                 if y == tt and not outer:
                     put(x, y, z, x, sy)
@@ -2042,6 +2053,25 @@ def verify_roof(vox, pr, t):
         # flat: one level roof the whole drawn span, give or take the
         # drawing's own corner rounding
         assert all(ytop - v <= 1 for v in prof), "the flat roof is not level"
+
+    # A roof surface may never wear the black silhouette cap at the top of
+    # its column. That texel belongs to the rim; repeating it through depth
+    # is the black-teeth regression fixed by PR #28.
+    z0, z1 = 0, D - 1 + t["front_eave"]
+    back, front = t["roof_back"], t["roof_front"]
+    c0, c1 = t["roof_cycle"]
+    for x in roofed[1:-1]:
+        for z in range(z0 + 1, z1):
+            df, db = z - z0, z1 - z
+            if df < back:
+                sy = df
+            elif db < front:
+                sy = t["roof_rows"] - 1 - db
+            else:
+                sy = c0 + (df - c0) % (c1 - c0 + 1)
+            sy = max(sy, pr["surface_top"][x])
+            assert sy != top[x], \
+                f"roof surface wears silhouette cap at {x},{z} (row {top[x]})"
 
     # every wall column carries roof over it -- and a column the roof never
     # reaches carries nothing at all, rather than being silently trimmed away

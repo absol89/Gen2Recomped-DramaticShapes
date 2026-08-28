@@ -40,6 +40,31 @@ local function buildCard16(img, frame)
   return Voxel3D.newMesh(verts, indices)
 end
 
+-- Registered mod sprites may use arbitrary frame dimensions and anchors.
+-- Keep those cards centred on the ordinary one-cell entity origin; Gen2's
+-- explicit `big` figures below are different because they occupy a 2x2
+-- footprint and therefore retain their dedicated placement path.
+local function buildRegisteredCard(def, img, frame)
+  local iw, ih = img:getDimensions()
+  local fw = def.frameWidth or 16
+  local fh = def.frameHeight or 16
+  local anchorX = def.anchorX or fw / 2
+  local anchorY = def.anchorY or fh
+  local fy = (frame or 0) * fh
+  if fy + fh > ih then fy = 0 end
+  local u0, u1 = 0.02 / iw, (fw - 0.02) / iw
+  local v0, v1 = (fy + 0.05) / ih, (fy + fh - 0.05) / ih
+  local x0, x1 = 8 - anchorX, 8 - anchorX + fw
+  local y0, y1 = anchorY - fh, anchorY
+  local verts = {
+    { x0, y0, 0, u0, v1, 1 }, { x1, y0, 0, u1, v1, 1 },
+    { x1, y1, 0, u1, v0, 1 }, { x0, y1, 0, u0, v0, 1 },
+  }
+  local indices = {}
+  Voxel3D.pushQuad(indices, 0)
+  return Voxel3D.newMesh(verts, indices)
+end
+
 -- Full 32x32 body (extractor already mirrored the left half into the sheet).
 local function buildCard32(img)
   local iw, ih = img:getDimensions()
@@ -79,6 +104,10 @@ local function buildCard(def, frame)
   if not (ok and img) then return nil end
   local iw, ih = img:getDimensions()
 
+  if def.frameWidth or def.frameHeight or def.anchorX or def.anchorY then
+    return buildRegisteredCard(def, img, frame)
+  end
+
   if isBigDef(def) or iw >= 32 then
     if iw >= 32 and ih >= 32 then
       return buildCard32(img)
@@ -93,6 +122,10 @@ end
 function SpriteBillboards.mesh(def, frame)
   local big = isBigDef(def)
   local key = def.image .. "#" .. (big and "big" or tostring(frame))
+              .. "#" .. (def.frameWidth or "auto")
+              .. "x" .. (def.frameHeight or "auto")
+              .. "@" .. (def.anchorX or "default")
+              .. "," .. (def.anchorY or "default")
   if meshes[key] == nil then
     local ok, m = pcall(buildCard, def, frame)
     meshes[key] = (ok and m) or false

@@ -905,7 +905,8 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     -- FULL owns the rows that PARAMETERISE the diorama -- the wireframe, the
     -- horizon bend, the blur. DAYTIME is no longer among them: FULL sets it
     -- to SYNC on arrival and then lets go, like the battle rows.
-    dropRow(out, "pipeline:tiltshift")
+    -- Keep T-SHIFT visible even at FULL so an older save which persisted the
+    -- blur can turn it off from touch/controller-only options screens.
   end
   local extra = {}
   for _, entry in ipairs(SETTINGS) do
@@ -944,11 +945,17 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
       local continue = item.onSelect
       item.onSelect = function()
         VoxelMeshDisk.beginSession()
-        local names = select(1, VoxelMeshDisk.ramPlan())
-        if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
+        if VoxelMeshDisk.eagerLoadAllowed() then
+          VoxelMeshDisk.setRamBudget(0)
+          local names = select(1, VoxelMeshDisk.ramPlan())
+          if names and #names > 0 and not VoxelMeshDisk.ramReady(names) then
+            game.stack:push(VoxelCacheRamScreen.new(game, continue))
+            return
+          end
           continue()
         else
-          game.stack:push(VoxelCacheRamScreen.new(game, continue))
+          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
+          continue()
         end
       end
     elseif tostring(item and item.label or "") == "NEW GAME"
@@ -958,6 +965,11 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         newGame()
         VoxelMeshDisk.bind(game, false)
         VoxelMeshDisk.beginSession()
+        if VoxelMeshDisk.eagerLoadAllowed() then
+          VoxelMeshDisk.setRamBudget(0)
+        else
+          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
+        end
       end
     end
   end
@@ -1344,6 +1356,22 @@ mod.hooks:wrap("pokemon.sprite", function(next, path, ctx)
   return (def and def.spriteFront) or out
 end)
 
+-- Player trainer backs use a separate provider seam. Honor the active row in
+-- ordinary 2D battles as well as staged voxel battles, preserve another
+-- provider's return values, and mark authored PNGs true-color where the engine
+-- accepts that second result.
+mod.hooks:wrap("player.sprite", function(next, path, ctx)
+  local out, trueColor = next(path, ctx)
+  if out == nil then return nil, trueColor end
+  if not ctx or ctx.side ~= "back"
+     or (ctx.kind and ctx.kind ~= "battle") then
+    return out, trueColor
+  end
+  local png = BattleArt.playerBackPathForOptions()
+  if png then return png, true end
+  return out, trueColor
+end)
+
 -- Every ending path emits this, including a battle skipped before it drew,
 -- so this is where the map's cast comes back.
 mod.events:on("battle.ended", function()
@@ -1389,8 +1417,16 @@ mod.events:on("save.writing", function()
   DayNight.store()
 end)
 
+-- On a newly-created Crystal journey the gender selection may land after the
+-- save.created notification. game.ready is the first universal point where
+-- both existing and new saves have their final player identity.
+mod.events:on("game.ready", function(payload)
+  pcall(BattleArt.seedPlayerDefaults, payload and payload.game)
+end)
+
 mod.events:on("save.loaded", function()
   DayNight.restore()
+  pcall(BattleArt.seedPlayerDefaults)
   -- a save written before this mod was installed can carry TILT or GBC FX
   -- switched on, and their rows are not there to switch them back off (see
   -- pinEngineFx). Answered here rather than only when the menu opens, so a
@@ -1401,6 +1437,7 @@ end)
 
 mod.events:on("save.created", function()
   DayNight.restore()
+  pcall(BattleArt.seedPlayerDefaults)
   pinEngineFx()
   applyPresentationDefaults()
 end)
