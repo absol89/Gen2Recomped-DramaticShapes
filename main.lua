@@ -1193,7 +1193,12 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
           end
           continue()
         else
-          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
+          VoxelMeshDisk.setRamBudget(VoxelMeshDisk.recommendedRamBudget())
+          local names = select(1, VoxelMeshDisk.ramPlan())
+          if names and #names > 0 and not VoxelMeshDisk.ramReady(names) then
+            game.stack:push(VoxelCacheRamScreen.new(game, continue))
+            return
+          end
           continue()
         end
       end
@@ -1207,7 +1212,7 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         if VoxelMeshDisk.eagerLoadAllowed() then
           VoxelMeshDisk.setRamBudget(0)
         else
-          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
+          VoxelMeshDisk.setRamBudget(VoxelMeshDisk.recommendedRamBudget())
         end
       end
     end
@@ -1692,7 +1697,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.2"
+mod.exports.version = "2.0.3"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,

@@ -227,6 +227,13 @@ function Precache.update(game)
     return
   end
 
+  -- The warp destination may be a city/interior rather than a connected
+  -- neighbour. Warm its precached compressed record before queueing the mesh so
+  -- the first post-warp frame reads from RAM instead of doing its first disk
+  -- fetch while the 3D pass is already visible.
+  if type(MeshDisk.preload) == "function" then
+    pcall(MeshDisk.preload, map, false)
+  end
   ChunkMesher.request(map, false, Precache.masksFor(data, map.id), false)
   active = { id = map.id, map = map }
 end

@@ -16,6 +16,7 @@ local Mat4 = V.require("Mat4")
 local Voxel3D = V.require("Voxel3D")
 local ShadowMap = V.require("ShadowMap")
 local ChunkMesher = V.require("ChunkMesher")
+local MeshDisk = V.require("VoxelMeshDisk")
 local SpriteBillboards = V.require("SpriteBillboards")
 local TileShape = V.require("TileShape")
 local Structures = V.require("Structures")
@@ -477,6 +478,19 @@ function VoxelScene.prefetch(state)
     -- RED++ bakes one atlas per map, so its animated copy is per map too
     -- and is bounded by the same neighbourhood
     TerrainAtlas.setLive(live)
+
+    -- On mobile the persistent cache is deliberately streamed instead of
+    -- eagerly loading the whole world. Warm the nearby compressed records in
+    -- priority order so the current map survives the 1 GiB LRU if a large
+    -- neighbourhood is encountered: connected bodies first, current full
+    -- terrain last. This does not retain decoded meshes or change the live
+    -- GPU eviction policy above.
+    if MeshDisk and type(MeshDisk.preload) == "function" then
+      for _, nb in ipairs(state.neighbors or {}) do
+        pcall(MeshDisk.preload, nb.map, true)
+      end
+      pcall(MeshDisk.preload, state.map, false)
+    end
   end
 
   -- masks: where connected neighbour BODIES sit, so the border ring is

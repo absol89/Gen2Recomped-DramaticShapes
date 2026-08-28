@@ -643,6 +643,28 @@ function Disk.loadIntoRam(name)
   return true, #blob
 end
 
+-- Warm only the records needed by the current neighbourhood. This loads the
+-- compressed BAVC containers, not decompressed vertices or GPU meshes, so the
+-- mobile budget remains a predictable upper bound while a route/city warp can
+-- find its precached terrain without waiting for a filesystem read during the
+-- first visible frame.
+function Disk.preload(map, bodyOnly)
+  if not sessionActive or not available() or not Disk.staticEligible(map) then
+    return 0
+  end
+  local slot = bodyOnly and "body" or "full"
+  local names = {
+    pathFor(map, "aux", "aux"),
+    pathFor(map, slot, "terrain"),
+  }
+  local loaded = 0
+  for _, name in ipairs(names) do
+    local ok, bytes = Disk.loadIntoRam(name)
+    if ok then loaded = loaded + (bytes or 0) end
+  end
+  return loaded
+end
+
 function Disk.ramReady(names)
   if not sessionActive then return false end
   for _, name in ipairs(names or {}) do
@@ -670,6 +692,16 @@ function Disk.eagerLoadAllowed()
   end)
   if not ok or type(detected) ~= "table" then return true end
   return not (detected.console or detected.mobile or detected.handheld)
+end
+
+-- Gen2's mobile cache is intentionally bounded, but 256 MiB retained too few
+-- compressed area records for the precached world. One GiB is still only the
+-- compressed container budget; decoded meshes remain limited to the current
+-- and previous live neighbourhood by ChunkMesher/VoxelScene.
+Disk.MOBILE_RAM_BUDGET = 1024 * 1024 * 1024
+
+function Disk.recommendedRamBudget()
+  return Disk.eagerLoadAllowed() and 0 or Disk.MOBILE_RAM_BUDGET
 end
 
 function Disk.setRamBudget(bytes)
