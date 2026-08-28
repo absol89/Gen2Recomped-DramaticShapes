@@ -546,8 +546,10 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
     local proj = Mat4.perspective(cam.fov, vw / vh,
                                   math.max(1, dist * 0.05), dist * 4 + 4096)
     -- the same clip-space Y flip the orbit needs, for the same reason: we
-    -- bypass LOVE's transform_projection and canvas coordinates run Y down
-    proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
+    -- bypass LOVE's transform_projection and canvas coordinates run Y down.
+    -- Metal's staged battle target has the opposite Y orientation; only
+    -- BattleScene marks that camera, leaving every overworld camera unchanged.
+    proj = Mat4.mul(Mat4.scale(1, cam.metalFlipY and 1 or -1, 1), proj)
     -- The camera's RAY FAN, for the sky's skybox path (Sky.paint's `ray`):
     -- a placed camera with a FREE PITCH -- the first-person rig, steered
     -- by a mouse on the flat screen -- must not hang its gradient off the

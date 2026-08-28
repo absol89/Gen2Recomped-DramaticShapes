@@ -533,6 +533,9 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   local groundY = BattleScene.groundY(host, arena)
   local cam, pitch = BattleCam.rig(arena, groundY)
   cam.fov = BattleScene.letterboxFov(cam.fov, ph, s)
+  -- LÖVE's Metal battle target presents clip-space Y inverted. Mark only the
+  -- staged battle camera; overworld cameras never receive this flag.
+  cam.metalFlipY = Voxel3D.metalRenderer() and true or nil
 
   local cx, cy = arena.mid[1], arena.mid[2]
   -- the world extents the sun frustum is fitted to; the camera itself is
