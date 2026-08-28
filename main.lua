@@ -536,7 +536,10 @@ applyFull = function(level)
   -- the default boot keeps the preset's other rows but not the tilt-shift.
   local freshDefault = level == GEN2_DEFAULT_VOXEL
   if not freshDefault then
-    Pipelines.setLevel("tiltshift", Pipelines.maxLevel("tiltshift"))
+    -- Tilt-shift is opt-in: FULL must not force the blur on (and persist it),
+    -- which previously snapped every manual FULL arrival to max and stuck.
+    -- Leave it OFF / at its stored value; the player turns T-SHIFT on from
+    -- the OPTIONS row if they want the diorama blur.
   end
   Pipelines.syncOptions(opts)
   -- the horizon flat. The curve bends the world away from a walking player,
@@ -1132,6 +1135,12 @@ local function applyPresentationDefaults(game)
   opts.colors = "redpp"
   opts.uiLayout = "centered"
   pcall(require("src.render.PaletteFX").setMode, "redpp")
+  -- Restore defaults also resets the diorama blur to OFF. Tilt-shift is
+  -- opt-in and must not survive a "restore defaults" press (or a save that
+  -- arrived with it forced on by an older FULL preset).
+  local Pipelines = require("src.render.Pipelines")
+  Pipelines.setLevel("tiltshift", 0)
+  Pipelines.syncOptions(opts)
   if changed and game.writeOptions then pcall(game.writeOptions, game) end
 end
 
@@ -1222,6 +1231,14 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
       local span = Pipelines.maxLevel("tiltshift") + 1
       local target = (Pipelines.level("tiltshift") + (dir or 1)) % span
       Pipelines.setLevel("tiltshift", target)
+      -- Persist: setLevel only touches the live ladder. Mirror cycleVoxel's
+      -- save path so the choice survives a menu exit (previously it reverted
+      -- to the stored level on exit).
+      local opts = g and g.save and g.save.options
+      if opts then
+        Pipelines.syncOptions(opts)
+        if g.writeOptions then pcall(g.writeOptions, g) end
+      end
       return true
     end,
   })
