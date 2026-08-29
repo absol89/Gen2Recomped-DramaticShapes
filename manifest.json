@@ -6,7 +6,7 @@
   "entry": "main.lua",
   "profile": "content",
   "category": "GRAPHICS",
-  "games": ["gold", "silver", "crystal"],
+  "games": ["gen2"],
   "game_version": "0.0.0-dev || >=0.2.20 <3.0.0",
   "priority": 100,
   "dependencies": [],
