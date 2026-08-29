@@ -12,7 +12,7 @@
   "dependencies": [],
   "optional_dependencies": ["STADIUM2_IMPORTER"],
   "conflicts": [
-    "overworld_wild_spawns",
+    "VOXEL_ASCENDANT",
     "DRAMATIC_SHAPE",
     "DRAMALESS_SHAPE",
     "potato_voxel",
