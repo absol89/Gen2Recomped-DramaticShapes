@@ -55,6 +55,20 @@ end
 
 local Disk = assert(loadfile("lib/VoxelMeshDisk.lua"))(V)
 
+assert(Disk.sizeText(256 * 1024 * 1024) == "256.0 MB",
+  "RAM size formatter did not use MB")
+assert(Disk.sizeText(1024 * 1024 * 1024) == "1.00 GB",
+  "RAM size formatter did not use GB")
+do
+  -- Gen1Recomp 0.2.25 can omit the Lua GC global. The cache cleanup API must
+  -- remain a no-op in that sandbox rather than raising a nil-call error.
+  local savedGc = collectgarbage
+  collectgarbage = nil
+  local ok = pcall(Disk.collectGarbage)
+  collectgarbage = savedGc
+  assert(ok, "cache cleanup is not safe without collectgarbage")
+end
+
 -- Seed a small cache so loadIntoRam has something to hold.
 assert(Disk.bind({ save = { version = "gold" } }, true))
 Disk.beginPrecache()
@@ -72,6 +86,16 @@ assert(Disk.saveTerrain(map, "full", {}, record(), { n = 0 }))
 assert(Disk.saveAux(map, aux()))
 local names = Disk.ramPlan()
 assert(#names == 2, "seeded cache did not persist two products")
+
+-- A capped mobile CONTINUE budget must spend its first bytes on the map being
+-- resumed, not alphabetical records from elsewhere in the world.
+bytes[Disk.DIRECTORY .. "/A_FAR/full-terrain"] = "far"
+bytes[Disk.DIRECTORY .. "/Z_RESUME/full-terrain"] = "resume"
+local prioritized = Disk.ramPlan({ "Z_RESUME", "TEST_MAP" })
+assert(prioritized[1] == Disk.DIRECTORY .. "/Z_RESUME/full-terrain",
+  "RAM plan did not prioritize the resumed map ahead of alphabetical cache files")
+assert(prioritized[2]:find("/TEST_MAP/", 1, true),
+  "RAM plan did not retain the caller's preferred-map order")
 
 -- 1) eagerLoadAllowed: desktop yes, console/mobile no.
 DETECT = { os = "Windows", console = false, mobile = false }

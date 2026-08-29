@@ -1,7 +1,7 @@
 {
   "id": "BATTLE_ART_VOXEL_GEN2",
   "name": "BATTLE ART VOXEL GEN2",
-  "version": "2.0.1",
+  "version": "2.0.4",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,7 +12,7 @@
   "dependencies": [],
   "optional_dependencies": ["STADIUM2_IMPORTER"],
   "conflicts": [
-    "BATTLE_ART_VOXEL_FORK",
+    "overworld_wild_spawns",
     "DRAMATIC_SHAPE",
     "DRAMALESS_SHAPE",
     "potato_voxel",
@@ -23,6 +23,6 @@
   ],
   "affects_link": false,
   "description": "Gold/Silver/Crystal port for Gen1Recomp: a full 3D diorama overworld with Battle Art sprites and staged battles.",
-  "github": "DramaticShape/DramaticShapeVoxelMod",
-  "update_check": false
+  "github": "absol89/Gen2Recomped-DramaticShapes",
+  "update_check": true
 }

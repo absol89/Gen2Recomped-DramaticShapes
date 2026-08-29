@@ -12,20 +12,16 @@ Screen.__index = Screen
 Screen.isOpaque = true
 
 local function sizeText(bytes)
-  bytes = tonumber(bytes) or 0
-  if bytes >= 1024 * 1024 * 1024 then
-    return ("%.2f GiB"):format(bytes / (1024 * 1024 * 1024))
-  end
-  return ("%.1f MiB"):format(bytes / (1024 * 1024))
+  return Disk.sizeText(bytes)
 end
 
 local function put(text, row)
   Font.draw(tostring(text or ""), 8, row * 8)
 end
 
-function Screen.new(game, onReady)
+function Screen.new(game, onReady, preferredMapIds)
   Disk.beginSession()
-  local names, total = Disk.ramPlan()
+  local names, total = Disk.ramPlan(preferredMapIds)
   return setmetatable({
     game = game,
     onReady = onReady,
@@ -46,18 +42,24 @@ function Screen:finish()
 end
 
 function Screen:update()
-  -- Read at least one file per frame, then small records up to an 8 MiB slice.
+  -- Read at least one file per frame, then small records up to an 8 MB slice.
   -- A large route is intentionally one loading-screen frame rather than a
   -- traversal hitch later.
   local slice, processed = 0, 0
-  while self.names[self.index] and (processed == 0 or slice < 8 * 1024 * 1024) do
+  local budget = type(Disk.ramBudgetBytes) == "function"
+    and Disk.ramBudgetBytes() or 0
+  local function atBudget()
+    return budget > 0 and Disk.ramStats().bytes >= budget
+  end
+  while self.names[self.index] and not atBudget()
+      and (processed == 0 or slice < 8 * 1024 * 1024) do
     local ok, bytes = Disk.loadIntoRam(self.names[self.index])
     if ok then self.loaded = self.loaded + bytes else self.failed = self.failed + 1 end
     self.index = self.index + 1
     slice, processed = slice + bytes, processed + 1
   end
-  if not self.names[self.index] then
-    collectgarbage("collect")
+  if not self.names[self.index] or atBudget() then
+    Disk.collectGarbage()
     self:finish()
   end
 end
@@ -70,8 +72,10 @@ function Screen:draw()
   put("LOADING VOXELS", 2)
   put(("FILE %d/%d"):format(math.min(self.index - 1, #self.names),
                               #self.names), 5)
-  put(("RAM %s"):format(sizeText(self.loaded)), 7)
-  put(("TOTAL %s"):format(sizeText(self.total)), 8)
+  local stats = Disk.ramStats()
+  put(("RAM %s"):format(sizeText(stats.bytes)), 7)
+  put(("READ %s"):format(sizeText(self.loaded)), 8)
+  put(("TOTAL %s"):format(sizeText(self.total)), 9)
   if self.failed > 0 then put(("DISK FALLBACK %d"):format(self.failed), 11) end
   put("PLEASE WAIT", 14)
 end

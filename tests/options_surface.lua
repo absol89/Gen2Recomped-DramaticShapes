@@ -6,6 +6,32 @@ local function source(path)
 end
 
 local main = source("main.lua")
+local ramSetting = assert(main:find(
+  '"ramPrecacheMb", "RAM PRECACHE MB"', 1, true))
+local ramSettingEnd = assert(main:find("local PipelineCanvas", ramSetting, true))
+local ramDefinition = main:sub(ramSetting, ramSettingEnd - 1)
+assert(ramDefinition:find(
+  '{ 256, 512, 1024, 1536, 2048, 2560, 3172, 0 }', 1, true),
+  "RAM PRECACHE MB choices do not include the requested budgets")
+assert(ramDefinition:find(
+  '{ "256", "512", "1024", "1536", "2048", "2560", "3172", "FULL" }',
+  1, true), "RAM PRECACHE MB labels do not expose FULL")
+assert(ramDefinition:find("\n  3)", 1, true),
+  "RAM PRECACHE MB does not default to 1024")
+assert(main:find("{ RamPrecacheSetting,", 1, true),
+  "RAM PRECACHE MB is not part of the shared settings surface")
+local ramEntry = assert(main:find("{ RamPrecacheSetting,", 1, true))
+local ramEntryEnd = assert(main:find("{ VoxelGrid.setting,", ramEntry, true))
+assert(main:sub(ramEntry, ramEntryEnd - 1):find("full = true", 1, true),
+  "RAM PRECACHE MB disappears under VOXEL FULL")
+assert(main:find("applyRamPrecacheBudget()", 1, true),
+  "RAM PRECACHE MB is not applied to cache loading")
+assert(main:find("VoxelCacheRamScreen.new(game, resume, priorityMaps)", 1, true),
+  "CONTINUE does not expose the RAM loading screen")
+assert(main:find("VoxelPrecache.startupMapIds(game.data, game.save)", 1, true),
+  "CONTINUE does not prioritize the saved map for the RAM cache")
+assert(main:find("applyRamPrecacheBudget()", ramEntryEnd, true),
+  "new-game cache setup does not use RAM PRECACHE MB")
 local backSprites = assert(main:find("{ OverworldBattle.backSetting,", 1, true))
 local battleArt = assert(main:find("{ BattleArt.setting,", backSprites, true))
 assert(main:sub(backSprites, battleArt - 1):find("managerOnly = true", 1, true),
@@ -49,6 +75,10 @@ assert(main:find('row.id == "zoom"', 1, true),
   "Gen 2 mod rows are not anchored before the options screen's CANCEL row")
 assert(main:find('setVoxelOption(g, target)', 1, true),
   "the touch VOXEL row does not step the complete bidirectional ladder")
+assert(main:find('"CACHE SAVED\\n%d FILE%s\\nRAM %s\\n%d IN RAM"', 1, true),
+  "CACHE SAVE does not report the selected-unit RAM size")
+assert(main:find('"CACHE ALREADY SAVED\\nRAM %s"', 1, true),
+  "CACHE ALREADY SAVED does not report the RAM size")
 
 local presentation = assert(main:find(
   "local function applyPresentationDefaults", 1, true))

@@ -145,7 +145,7 @@ end
 
 UiBackplates.textboxFill = ModSetting.new("textboxFill", "TEXTBOX FILL",
   { "WHITE", "HALF", "BLACK", "OFF" },
-  { "WHITE", "HALF", "BLACK", "OFF" })
+  { "WHITE", "HALF", "BLACK", "OFF" }, 2)
 
 -- ARENA FILL: WHITE keeps the latest-build presentation: black ink on opaque
 -- paper. On the 3D arena, the player's explicit textbox choice owns the box.

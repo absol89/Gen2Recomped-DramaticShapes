@@ -505,18 +505,31 @@ function BattleArt.playerTrainerImage()
   return playerImageFromSetting(BattleArt.playerArtSetting)
 end
 
--- The path the engine should draw for the player's back in a battle. The
--- master mode selects the owning row: ANIMATED uses PLAYER ANIM and STATIC
--- uses PLAYER ART. This matters for Crystal because Kris defaults PLAYER ART
--- to PNG, which must not suppress a named animation atlas the user selects.
+-- The path the engine should draw for the player's back in a non-staged
+-- battle. The master mode selects the owning row: ANIMATED uses PLAYER ANIM
+-- and STATIC uses PLAYER ART. Named selections resolve to their corresponding
+-- back-static/<name>player.png file and fall back to player.png if missing.
 function BattleArt.playerBackPathForOptions()
-  local selected = BattleArt.setting:get() == "animated"
-    and BattleArt.playerAnimationSetting:get()
+  local animated = BattleArt.setting:get() == "animated"
+  local selected = animated and BattleArt.playerAnimationSetting:get()
     or BattleArt.playerArtSetting:get()
-  if selected == "png" then
-    return V.mod.assets:path("assets/battle/back-static/player.png")
+  if selected == "rom" then return nil end
+  -- Named ANIMATED selections are owned by AnimatedBattleArt, which installs
+  -- prepared atlas frames after construction. Only its explicit PNG fallback
+  -- is a static file at this seam; mapping GEN 2 (etc.) here would put a
+  -- colored still underneath the animated trainer frames.
+  if animated and selected ~= "png" then return nil end
+  local assets = V.mod.assets
+  local function pathIfPresent(name)
+    local rel = "assets/battle/back-static/" .. name .. "player.png"
+    if type(assets.info) == "function" then
+      local ok, info = pcall(assets.info, assets, rel)
+      if ok and not info then return nil end
+    end
+    return assets:path(rel)
   end
-  return nil
+  return pathIfPresent(selected == "png" and "" or selected)
+      or pathIfPresent("")
 end
 
 local function trainerKey(battle)
@@ -545,6 +558,25 @@ local function replaceTrainerField(battle, field, img)
   end
 end
 
+local function replaceTrainerFieldWithColor(battle, field, img, trueColorField)
+  local rec = trainerOriginal[battle]
+  if not rec then rec = {}; trainerOriginal[battle] = rec end
+  local saved = field .. "Saved"
+  local savedColor = saved .. "TrueColor"
+  if img then
+    if not rec[saved] then
+      rec[field], rec[saved] = battle[field] or false, true
+      if trueColorField then rec[savedColor] = battle[trueColorField] end
+    end
+    battle[field] = img
+    if trueColorField then battle[trueColorField] = true end
+  elseif rec[saved] then
+    battle[field] = rec[field] or nil
+    if trueColorField then battle[trueColorField] = rec[savedColor] end
+    rec[field], rec[saved], rec[savedColor] = nil, nil, nil
+  end
+end
+
 function BattleArt.applyTrainers(battle)
   if not battle then return end
   local enemy = battle.showEnemyTrainer and trainerKey(battle) or nil
@@ -552,7 +584,9 @@ function BattleArt.applyTrainers(battle)
     enemy and BattleArt.trainerImage(enemy) or nil)
 
   local player, playerImage
-  if battle.showPlayerBack then
+  local gen2 = battle.showPlayerTrainer ~= nil
+  local playerVisible = battle.showPlayerBack or battle.showPlayerTrainer
+  if playerVisible then
     local artMode = BattleArt.setting:get()
     if artMode == "rom" then
       -- A stale PLAYER ART selection must never leak a custom trainer back
@@ -582,8 +616,12 @@ function BattleArt.applyTrainers(battle)
       end
     end
   end
-  replaceTrainerField(battle, "playerBackPic",
-    playerImage)
+  if gen2 then
+    replaceTrainerFieldWithColor(battle, "playerBackImage", playerImage,
+                                 "playerBackTrueColor")
+  else
+    replaceTrainerField(battle, "playerBackPic", playerImage)
+  end
 end
 
 -- Crystal's Kris has no art in the named generation sets, so a girl's player

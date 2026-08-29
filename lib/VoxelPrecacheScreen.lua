@@ -20,11 +20,7 @@ Screen.__index = Screen
 Screen.isOpaque = true
 
 local function sizeText(bytes)
-  bytes = tonumber(bytes) or 0
-  if bytes >= 1024 * 1024 * 1024 then
-    return ("%.2f GiB"):format(bytes / (1024 * 1024 * 1024))
-  end
-  return ("%.1f MiB"):format(bytes / (1024 * 1024))
+  return MeshDisk.sizeText(bytes)
 end
 
 local function put(text, row, col)
@@ -159,7 +155,7 @@ function Screen:finish(phase)
   -- Whole-world generation touches several route-sized FFI buffers. Runtime
   -- meshes are already released above; collect their Lua/cdata owners before
   -- returning to gameplay so the first warp does not inherit generator debris.
-  collectgarbage("collect")
+  MeshDisk.collectGarbage()
 end
 
 function Screen:startNext()

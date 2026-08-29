@@ -2,9 +2,10 @@ local settings = {}
 local V = {
   require = function(name)
     if name == "ModSetting" then
-      return { new = function(key, label, values, labels)
+      return { new = function(key, label, values, labels, defaultIndex)
         local setting = { key = key, label = label,
-                          values = values, labels = labels, index = 1 }
+                          values = values, labels = labels,
+                          index = defaultIndex or 1 }
         function setting:get() return self.values[self.index] end
         function setting:setIndex(index) self.index = index end
         settings[key] = setting
@@ -18,17 +19,39 @@ local V = {
 local UiBackplates = assert(loadfile("lib/UiBackplates.lua"))(V)
 assert(settings.hudColor.values[1] == "INVERTED",
   "HUD COLOR does not default to INVERTED")
+assert(not UiBackplates.hudUsesColor(),
+  "HUD COLOR: INVERTED does not request white HUD ink")
+assert(not UiBackplates.hudUsesColorShadow(),
+  "HUD COLOR: INVERTED does not request its dark shadow")
+settings.hudColor:setIndex(2)
+assert(UiBackplates.hudUsesColor(),
+  "HUD COLOR: COLOR does not request black HUD ink")
+assert(UiBackplates.hudUsesColorShadow(),
+  "HUD COLOR: COLOR does not request its bright shadow")
+settings.hudColor:setIndex(1)
 assert(table.concat(settings.arenaFill.values, ",") == "OFF,WHITE,PNG",
   "ARENA FILL exposes choices outside this release")
 assert(settings.backdropOffset.values[1] == 100,
   "BG Y-OFFSET does not default to 100 PX")
 assert(settings.bossBg.values[1] == "OFF",
   "BOSS BG does not default to OFF")
-assert(settings.textboxFill.values[1] == "WHITE",
-  "TEXTBOX FILL changed its established default")
+assert(settings.textboxFill:get() == "HALF",
+  "TEXTBOX FILL does not default to HALF")
 settings.textboxFill:setIndex(4)
 assert(not UiBackplates.textboxUsesFrost(),
   "TEXTBOX FILL: OFF still requests frosted glass")
+settings.textboxFill:setIndex(2)
+local half = UiBackplates.textboxFillStyle()
+assert(half and half[4] == 0.30,
+  "TEXTBOX FILL: HALF does not expose its translucent fill")
+settings.textboxFill:setIndex(3)
+local black = UiBackplates.textboxFillStyle()
+assert(black and black[1] == 0 and black[4] == 1,
+  "TEXTBOX FILL: BLACK does not expose an opaque black fill")
+settings.textboxFill:setIndex(1)
+local white = UiBackplates.textboxFillStyle()
+assert(white and white[1] == 1 and white[4] == 1,
+  "TEXTBOX FILL: WHITE does not expose an opaque white fill")
 
 local function source(path)
   local file = assert(io.open(path, "rb"))
@@ -64,5 +87,39 @@ for _ in overworld:gmatch("UiBackplates%.textboxUsesFrost%(%)") do
 end
 assert(frostChecks == 2,
   "TEXTBOX FILL does not govern both snapped and fallback frosted panels")
+local gen2 = source("lib/Gen2BattleAdapter.lua")
+assert(gen2:find("UiBackplates.textboxMode()", 1, true),
+  "Gen2 staged battles do not read the Gen2 TEXTBOX FILL setting")
+assert(gen2:find("drawingStyledBox", 1, true),
+  "Gen2 staged battles do not replace Chrome box paper in its draw transform")
+assert(gen2:find("styledBoxes", 1, true),
+  "Gen2 staged battles do not track Chrome textbox bounds")
+assert(gen2:find("installChromeUiStyle", 1, true),
+  "Gen2 staged battles do not install Chrome UI styling")
+assert(gen2:find("UiBackplates.hudUsesColor()", 1, true),
+  "Gen2 Chrome UI does not read HUD COLOR")
+assert(gen2:find("drawShadowWithOpacity(drawShadow, finishShadow", 1, true),
+  "Gen2 Chrome UI does not apply the HUD glyph drop shadow")
+assert(gen2:find("fresh shadow/main closures", 1, true),
+  "Gen2 Chrome does not isolate the shadow palette from each main glyph")
+assert(gen2:find('return mode ~= "WHITE" and mode ~= "BLACK"',
+  1, true),
+  "Gen2 Chrome does not suppress the drop shadow in opaque textbox fill modes")
+assert(gen2:find('if mode == "WHITE" then return { 0, 0, 0 }, mode end',
+  1, true),
+  "Gen2 WHITE textbox text does not override HUD ink to black")
+assert(gen2:find('if mode == "HALF" then return { 255, 255, 255 }, mode end',
+  1, true),
+  "Gen2 HALF textbox text does not override HUD ink to white")
+assert(gen2:find('if mode == "HALF" then return { 0, 0, 0 } end', 1, true),
+  "Gen2 HALF textbox shadow is not dark")
+assert(gen2:find("local BRIGHT_SHADOW_ALPHA = 0.50", 1, true),
+  "Gen2 COLOR HUD shadow opacity is not reduced")
+assert(gen2:find("local halfFillRects = {}", 1, true),
+  "Gen2 HALF textbox fills can compound in overlapping boxes")
+assert(gen2:find('if textboxMode == "WHITE" then', 1, true),
+  "Gen2 WHITE textbox frame does not override HUD ink to black")
+assert(gen2:find("Chrome.paletteBox", 1, true),
+  "Gen2 Chrome UI box borders do not receive the HUD color")
 
 print("battle UI options regression: ok")

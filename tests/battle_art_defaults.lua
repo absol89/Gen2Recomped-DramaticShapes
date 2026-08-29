@@ -15,6 +15,10 @@ local V = {
     error(name)
   end,
   data = function() return {} end,
+  mod = { assets = {
+    path = function(_, path) return path end,
+    info = function() return { type = "file" } end,
+  } },
 }
 
 local BattleArt = assert(loadfile("lib/BattleArt.lua"))(V)
@@ -40,5 +44,15 @@ assert(BattleArt.mirrorsPlayerSprite(),
 settings.frontFlip:setIndex(2)
 assert(not BattleArt.mirrorsPlayerSprite(),
   "DEFAULT front orientation is not preserved")
+
+settings.battleArt:setIndex(2) -- STATIC
+settings.playerArtSet:setIndex(3) -- GEN 2
+assert(BattleArt.playerBackPathForOptions()
+    == "assets/battle/back-static/gen2player.png",
+  "STATIC player art does not route to the selected back-static PNG")
+settings.battleArt:setIndex(1) -- ANIMATED
+settings.playerAnimatedSet:setIndex(3) -- GEN 2 atlas
+assert(BattleArt.playerBackPathForOptions() == nil,
+  "ANIMATED named player art was incorrectly replaced by a static PNG")
 
 print("battle-art defaults regression: ok")

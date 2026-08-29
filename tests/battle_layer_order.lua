@@ -67,6 +67,11 @@ assert(overworld:find("not battle.enemyTrainerTrueColor", sideTexture, true)
   "authored true-colour trainers are routed through inferred matte keying")
 assert(gen2:find("isScreenFlash", 1, true),
   "Gen 2 staged battles no longer remove the opaque-paper flash")
+assert(gen2:find("function BattleState:frontAnimFrame", 1, true)
+    and gen2:find("BattleArt.isExternal(mon.sprite)", 1, true),
+  "Gen 2 native front animation is not suppressed for selected Battle Art")
+assert(gen2:find("UiBackplates.textboxMode()", 1, true),
+  "Gen 2 staged textbox fill is not routed through Battle Art")
 local keyedHud = assert(gen2:find("BattlePics.shade0Transparent", 1, true))
 assert(gen2:find('"hpBar", "expBar", "enemyBorder", "playerBorder"', 1, true),
   "Gen 2 staged HUD sheets are not all routed through paper keying")

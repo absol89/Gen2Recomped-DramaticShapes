@@ -175,6 +175,12 @@ local VoxelPrecacheScreen = V.require("VoxelPrecacheScreen")
 local VoxelCacheRamScreen = V.require("VoxelCacheRamScreen")
 local VoxelMeshDisk = V.require("VoxelMeshDisk")
 local StaticGeometry = V.require("StaticGeometry")
+local ModSetting = V.require("ModSetting")
+local RamPrecacheSetting = ModSetting.new(
+  "ramPrecacheMb", "RAM PRECACHE MB",
+  { 256, 512, 1024, 1536, 2048, 2560, 3172, 0 },
+  { "256", "512", "1024", "1536", "2048", "2560", "3172", "FULL" },
+  3)
 local PipelineCanvas = V.require("PipelineCanvas")
 local WorldCanvasOrientation = V.require("WorldCanvasOrientation")
 local VoxelGrid = V.require("VoxelGrid")
@@ -595,6 +601,12 @@ local function stagedBattles()
   return OverworldBattle.enabled()
 end
 
+local function applyRamPrecacheBudget()
+  local megabytes = RamPrecacheSetting:get()
+  VoxelMeshDisk.setRamBudget(megabytes == 0 and 0
+    or megabytes * 1024 * 1024)
+end
+
 -- Gen 2 does not build render-pipeline rows for either of its options
 -- screens. Keep one small bridge for those surfaces: the in-game row still
 -- edits Pipelines directly, while the mod manager stores this mirror key and
@@ -647,6 +659,11 @@ local function setVoxelOption(game, level)
 end
 
 local SETTINGS = {
+  { RamPrecacheSetting,
+    "Compressed voxel cache retained for CONTINUE and nearby-area loading. "
+    .. "Choose FULL to retain every precached record; larger values use more "
+    .. "system RAM but reduce first-entry disk reads on mobile.",
+    full = true },
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
   { WorldCurve.setting,
     "Bend the world down over the horizon, Animal Crossing style." },
@@ -1195,7 +1212,18 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     local offered = not entry.managerOnly
                     and (entry.full or not full)
                     and (not entry.when or entry.when())
-    if offered then extra[#extra + 1] = entry[1]:row() end
+    if offered then
+      local row = entry[1]:row()
+      if entry[1] == RamPrecacheSetting then
+        local step = row.step
+        row.step = function(g, dir)
+          local changed = step(g, dir)
+          applyRamPrecacheBudget()
+          return changed
+        end
+      end
+      extra[#extra + 1] = row
+    end
   end
   -- Gold/Silver's OPTION screen never splices render-pipeline rows (only
   -- Gen 1's menu does), so without this the VOXEL row cannot exist here no
@@ -1284,25 +1312,36 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
       end
       if continue then item.onSelect = function(_, menu)
         VoxelMeshDisk.beginSession()
+        -- Mobile RAM budgets are smaller than a complete Gen2 cache. Start
+        -- with the saved area and its connected neighbours so CONTINUE enters
+        -- the 3D world immediately instead of spending the budget on an
+        -- alphabetical, unrelated portion of the cache.
+        local priorityMaps = VoxelPrecache.startupMapIds(game.data, game.save)
         -- Desktop-class builds may hold the whole compressed cache resident
         -- (eager preload). Consoles, mobiles and handhelds stream per-map from
         -- disk under a RAM budget and evict the oldest, so a long session
         -- cannot OOM the way a 4 GiB Switch did loading the full world.
         if VoxelMeshDisk.eagerLoadAllowed() then
           VoxelMeshDisk.setRamBudget(0)
-          local names = select(1, VoxelMeshDisk.ramPlan())
+          local names = select(1, VoxelMeshDisk.ramPlan(priorityMaps))
           local resume = function() continue(game, menu) end
           if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
             resume()
           else
-            game.stack:push(VoxelCacheRamScreen.new(game, resume))
+            game.stack:push(VoxelCacheRamScreen.new(game, resume, priorityMaps))
           end
         else
-          -- Streaming platform: bound the resident compressed cache (256 MiB)
-          -- so nearby maps load on demand and the oldest are freed under
-          -- pressure during long sessions.
-          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
-          continue(game, menu)
+          -- Streaming platform: retain the user's selected compressed-cache
+          -- budget. The loader screen fills that budget before continuing so
+          -- the first visible area does not pay the disk-read cost.
+          applyRamPrecacheBudget()
+          local names = select(1, VoxelMeshDisk.ramPlan(priorityMaps))
+          local resume = function() continue(game, menu) end
+          if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
+            resume()
+          else
+            game.stack:push(VoxelCacheRamScreen.new(game, resume, priorityMaps))
+          end
         end
       end end
     elseif tostring(item and item.label or "") == "NEW GAME" then
@@ -1320,7 +1359,7 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         if VoxelMeshDisk.eagerLoadAllowed() then
           VoxelMeshDisk.setRamBudget(0)
         else
-          VoxelMeshDisk.setRamBudget(256 * 1024 * 1024)
+          applyRamPrecacheBudget()
         end
       end end
     end
@@ -1374,11 +1413,15 @@ mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
               ("CACHE SAVE FAILED\n%d FILE%s NOT WRITTEN\fTRY SAVE AGAIN")
                 :format(failed, failed == 1 and "" or "S")))
           elseif saved == 0 then
-            game.stack:push(TextBox.new(game, "CACHE ALREADY SAVED"))
-          else
             game.stack:push(TextBox.new(game,
-              ("CACHE SAVED\n%d FILE%s\n%d IN RAM")
-                :format(saved, saved == 1 and "" or "S", before.files)))
+              ("CACHE ALREADY SAVED\nRAM %s")
+                :format(VoxelMeshDisk.sizeText(before.bytes))))
+          else
+            local after = VoxelMeshDisk.ramStats()
+            game.stack:push(TextBox.new(game,
+              ("CACHE SAVED\n%d FILE%s\nRAM %s\n%d IN RAM")
+                :format(saved, saved == 1 and "" or "S",
+                        VoxelMeshDisk.sizeText(after.bytes), before.files)))
           end
         end },
         { label = "DROP", onSelect = function()
@@ -1444,6 +1487,9 @@ mod.events:on("mod.options_changed", function(payload)
   end
   for _, entry in ipairs(SETTINGS) do
     if payload.key == entry[1].key then entry[1]:sync(payload.value) end
+  end
+  if payload.key == RamPrecacheSetting.key then
+    applyRamPrecacheBudget()
   end
   -- 3D-BTL switched on from the manager's page pins BATTLE LAYOUT exactly as
   -- the OPTIONS row does. The manager persists its own value; this is the one
@@ -1835,7 +1881,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.1"
+mod.exports.version = "2.0.4"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,
@@ -1848,9 +1894,9 @@ InterfaceSprites.install()
 -- Player back pic in a normal (non-staged) gen2 battle. The engine resolves
 -- the player's back through Sprites.playerPic -> the "player.sprite" hook, and
 -- BATTLE ART's override otherwise only runs inside the staged voxel renderer.
--- Wrap that seam so a flat PNG choice replaces the back for ANY player (boy or
--- girl, Gold or Kris) without touching fronts, intros or the engine's own
--- generation/ROM backs when the option is not PNG.
+-- Wrap that seam so the selected STATIC back-static PNG replaces the back for
+-- ANY player (boy or girl, Gold or Kris) without touching fronts, intros or
+-- the engine's own generation/ROM backs when the option is ROM.
 mod.hooks:wrap("player.sprite", function(next, path, ctx)
   local out = next(path, ctx)
   if out == nil then return nil end

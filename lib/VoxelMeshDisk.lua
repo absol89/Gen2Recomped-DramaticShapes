@@ -85,6 +85,13 @@ local function diskGc()
   pcall(collectgarbage, "collect")
 end
 
+-- Public cleanup entry point for screens and other UI code. Some Gen2Recomp
+-- 0.2.25 sandboxes omit the global entirely; keep that engine detail behind
+-- the guarded helper so cache cleanup can never turn into a fatal nil call.
+function Disk.collectGarbage()
+  diskGc()
+end
+
 -- Static geometry is shared by every journey through one game version. Keep
 -- it in a mod-private, deterministic storage scope instead of tying hundreds
 -- of map blobs to a save slot. This is only the Game argument supplied to
@@ -614,9 +621,13 @@ local function header(fp)
 end
 
 -- CONTINUE may preload the compressed BAVC containers. They remain compressed
--- here (~745 MiB for the current full world rather than ~2.7 GiB of vertices)
+-- here (~745 MB for the current full world rather than ~2.7 GB of vertices)
 -- and are decoded into temporary ByteData only when a map is uploaded.
-function Disk.ramPlan()
+--
+-- On a capped mobile cache, loading alphabetically can fill the whole budget
+-- before the map in the save file is reached. `preferredMapIds` puts the
+-- current map and its immediate visible neighbours at the front instead.
+function Disk.ramPlan(preferredMapIds)
   if not available() then return {}, 0 end
   local names, bytes = {}, 0
   local ok, listed = pcall(storage.list, storage, Disk.DIRECTORY)
@@ -628,7 +639,22 @@ function Disk.ramPlan()
       bytes = bytes + (held and #held or knownSizes[key] or 0)
     end
   end
-  table.sort(names)
+  local preferred = {}
+  for index, id in ipairs(preferredMapIds or {}) do
+    if type(id) == "string" and preferred[safeId(id)] == nil then
+      preferred[safeId(id)] = index
+    end
+  end
+  local prefix = Disk.DIRECTORY .. "/"
+  local function rank(path)
+    local id = path:sub(#prefix + 1):match("^([^/]+)")
+    return preferred[id] or math.huge
+  end
+  table.sort(names, function(a, b)
+    local ar, br = rank(a), rank(b)
+    if ar ~= br then return ar < br end
+    return a < b
+  end)
   return names, bytes
 end
 
@@ -707,6 +733,16 @@ end
 
 function Disk.ramBudgetBytes() return ramBudget end
 
+-- UI-facing size labels use MB/GB while the byte arithmetic remains binary so
+-- each selected RAM budget is exact.
+function Disk.sizeText(bytes)
+  bytes = tonumber(bytes) or 0
+  if bytes >= 1024 * 1024 * 1024 then
+    return ("%.2f GB"):format(bytes / (1024 * 1024 * 1024))
+  end
+  return ("%.1f MB"):format(bytes / (1024 * 1024))
+end
+
 -- DROP abandons both the whole-world preload and any unsaved generated
 -- containers. Already-uploaded current/neighbor meshes remain alive; future
 -- requests repopulate this table lazily from disk or freshly generated data.
@@ -762,7 +798,7 @@ local function parseHeader(blob, expected)
 end
 
 -- Cheap resume probe for the title-screen whole-game generator.  Reading and
--- decompressing a 20+ MiB route merely to learn that it is already cached
+-- decompressing a 20+ MB route merely to learn that it is already cached
 -- would make "resume" nearly as expensive as generating it, so inspect only
 -- the fixed header and exact fingerprint.  The ordinary load path still fully
 -- validates every stream before gameplay uses it.
@@ -876,7 +912,7 @@ local function streamRecord(blob, pos)
   if expected == 0 then return { n = n }, pos end
   -- Allocate the final stable buffer once. The old loader decompressed into a
   -- table of Lua strings and table.concat made a second full-size copy; a
-  -- Forest-sized mesh briefly occupied ~172 MiB before upload, and an FFI
+  -- Forest-sized mesh briefly occupied ~172 MB before upload, and an FFI
   -- pointer into that Lua string was then carried across cooperative yields.
   local rawChunks, total = {}, 0
   for _ = 1, chunks do

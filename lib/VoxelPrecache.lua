@@ -45,6 +45,38 @@ local function connectionId(connection)
   if type(connection.map) == "string" then return connection.map end
 end
 
+-- Return the cache directories most likely to be needed in the first frame
+-- after CONTINUE.  This is intentionally title-screen safe: it reads only the
+-- save and static map registry, never creates an OverworldController.  The
+-- saved map comes first, followed by its connected outdoor neighbours.  When
+-- the save is indoors, the remembered outdoor map is next so a door/last-map
+-- exit does not immediately fall back to a disk read.
+function Precache.startupMapIds(data, save)
+  local maps = mapsFor(data)
+  local out, seen = {}, {}
+  local function add(id)
+    if type(id) == "string" and id ~= "" and not seen[id] then
+      seen[id] = true
+      out[#out + 1] = id
+    end
+  end
+
+  local current = save and save.player and save.player.map
+  add(current)
+  local currentDef = type(current) == "string" and maps[current] or nil
+  local neighbours = {}
+  for _, connection in pairs((currentDef and currentDef.connections) or {}) do
+    local id = connectionId(connection)
+    if id and maps[id] then neighbours[#neighbours + 1] = id end
+  end
+  table.sort(neighbours)
+  for _, id in ipairs(neighbours) do add(id) end
+
+  local outdoor = save and save.lastOutdoor and save.lastOutdoor.id
+  add(outdoor)
+  return out
+end
+
 function Precache.cacheable(map)
   return MeshDisk.staticEligible(map)
 end
