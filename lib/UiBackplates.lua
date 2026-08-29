@@ -46,9 +46,9 @@ end
 -- COLOR keeps the engine's black HUD glyphs and green/yellow/red HP bars,
 -- adding a bright one-pixel shadow so they remain legible over terrain.
 -- INVERTED is the established fork presentation: white ink with a dark
--- shadow. COLOR comes first because it is the fresh-install default used by
--- the other forks. A white arena must use black ink regardless of the saved
--- choice or the HUD would disappear into its background.
+-- shadow. It is the fresh-install default. A white arena must use black ink
+-- regardless of the saved choice or the HUD would disappear into its
+-- background.
 UiBackplates.hudColor = ModSetting.new("hudColor", "HUD COLOR",
   { "INVERTED", "COLOR" }, { "INVERTED", "COLOR" })
 
@@ -144,8 +144,8 @@ end
 -- ------- A) TEXTBOX FILL -------
 
 UiBackplates.textboxFill = ModSetting.new("textboxFill", "TEXTBOX FILL",
-  { "WHITE", "HALF", "BLACK", "OFF" },
-  { "WHITE", "HALF", "BLACK", "OFF" })
+  { "HALF", "WHITE", "BLACK", "OFF" },
+  { "HALF", "WHITE", "BLACK", "OFF" })
 
 -- ARENA FILL: WHITE keeps the latest-build presentation: black ink on opaque
 -- paper. On the 3D arena, the player's explicit textbox choice owns the box.

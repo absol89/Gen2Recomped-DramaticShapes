@@ -45,6 +45,16 @@ assert(Disk.saveAux(map, { grass = record(), flowers = { n = 0 }, figures = {} }
 local names = Disk.ramPlan()
 assert(#names == 2, "test cache did not persist both map products")
 
+-- Capped mobile CONTINUE must begin with the resumed map rather than cache
+-- records from alphabetical earlier locations.
+bytes[Disk.DIRECTORY .. "/A_FAR/full-terrain"] = "far"
+bytes[Disk.DIRECTORY .. "/Z_RESUME/full-terrain"] = "resume"
+local prioritized = Disk.ramPlan({ "Z_RESUME", "TEST_MAP" })
+assert(prioritized[1] == Disk.DIRECTORY .. "/Z_RESUME/full-terrain",
+  "RAM plan did not prioritize the resumed map")
+assert(prioritized[2]:find("/TEST_MAP/", 1, true),
+  "RAM plan did not retain preferred-map order")
+
 DETECT = { os = "Windows", console = false, mobile = false }
 assert(Disk.eagerLoadAllowed(), "desktop lost eager cache loading")
 for _, platform in ipairs({

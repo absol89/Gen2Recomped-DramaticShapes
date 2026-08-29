@@ -24,8 +24,8 @@ assert(settings.backdropOffset.values[1] == 100,
   "BG Y-OFFSET does not default to 100 PX")
 assert(settings.bossBg.values[1] == "OFF",
   "BOSS BG does not default to OFF")
-assert(settings.textboxFill.values[1] == "WHITE",
-  "TEXTBOX FILL changed its established default")
+assert(settings.textboxFill.values[1] == "HALF",
+  "TEXTBOX FILL does not default to HALF")
 settings.textboxFill:setIndex(4)
 assert(not UiBackplates.textboxUsesFrost(),
   "TEXTBOX FILL: OFF still requests frosted glass")

@@ -15,6 +15,7 @@ local V = {
 }
 local BattleArt = assert(loadfile("lib/BattleArt.lua"))(V)
 local PNG = "RESOLVED/assets/battle/back-static/player.png"
+local GEN4 = "RESOLVED/assets/battle/back-static/gen4player.png"
 
 stored.battleArt = "animated"
 stored.playerArtSet = "png"       -- Kris's static default must not win here.
@@ -35,7 +36,10 @@ assert(BattleArt.playerBackPathForOptions() == PNG,
   "STATIC mode did not honor PLAYER ART PNG")
 stored.playerArtSet = "gen4"
 stored.playerAnimatedSet = "png"
+assert(BattleArt.playerBackPathForOptions() == GEN4,
+  "STATIC mode did not map named PLAYER ART to its back-static PNG")
+stored.playerArtSet = "rom"
 assert(BattleArt.playerBackPathForOptions() == nil,
-  "inactive PLAYER ANIM PNG leaked into STATIC mode")
+  "STATIC PLAYER ART: ROM did not restore the engine player picture")
 
 print("player back path regression: ok")

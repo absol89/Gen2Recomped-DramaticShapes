@@ -1219,19 +1219,23 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
       local continue = item.onSelect
       item.onSelect = function()
         VoxelMeshDisk.beginSession()
+        -- A mobile RAM budget cannot retain a complete Gen2 cache. Start with
+        -- the saved location and its visible neighbours so CONTINUE enters 3D
+        -- immediately rather than spending the budget alphabetically.
+        local priorityMaps = VoxelPrecache.startupMapIds(game.data, game.save)
         if VoxelMeshDisk.eagerLoadAllowed() then
           VoxelMeshDisk.setRamBudget(0)
-          local names = select(1, VoxelMeshDisk.ramPlan())
+          local names = select(1, VoxelMeshDisk.ramPlan(priorityMaps))
           if names and #names > 0 and not VoxelMeshDisk.ramReady(names) then
-            game.stack:push(VoxelCacheRamScreen.new(game, continue))
+            game.stack:push(VoxelCacheRamScreen.new(game, continue, priorityMaps))
             return
           end
           continue()
         else
           applyRamPrecacheBudget()
-          local names = select(1, VoxelMeshDisk.ramPlan())
+          local names = select(1, VoxelMeshDisk.ramPlan(priorityMaps))
           if names and #names > 0 and not VoxelMeshDisk.ramReady(names) then
-            game.stack:push(VoxelCacheRamScreen.new(game, continue))
+            game.stack:push(VoxelCacheRamScreen.new(game, continue, priorityMaps))
             return
           end
           continue()
@@ -1739,7 +1743,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.3"
+mod.exports.version = "2.0.5"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,

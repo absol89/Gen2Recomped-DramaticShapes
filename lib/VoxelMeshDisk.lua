@@ -594,7 +594,11 @@ end
 -- CONTINUE may preload the compressed BAVC containers. They remain compressed
 -- here (~745 MB for the current full world rather than ~2.7 GB of vertices)
 -- and are decoded into temporary ByteData only when a map is uploaded.
-function Disk.ramPlan()
+--
+-- On a capped mobile cache, loading alphabetically can fill the whole budget
+-- before the saved map is reached. `preferredMapIds` puts the resumed map and
+-- its immediate visible neighbours at the front instead.
+function Disk.ramPlan(preferredMapIds)
   if not available() then return {}, 0 end
   local names, bytes = {}, 0
   local ok, listed = pcall(storage.list, storage, Disk.DIRECTORY)
@@ -606,7 +610,22 @@ function Disk.ramPlan()
       bytes = bytes + (held and #held or knownSizes[key] or 0)
     end
   end
-  table.sort(names)
+  local preferred = {}
+  for index, id in ipairs(preferredMapIds or {}) do
+    if type(id) == "string" and preferred[safeId(id)] == nil then
+      preferred[safeId(id)] = index
+    end
+  end
+  local prefix = Disk.DIRECTORY .. "/"
+  local function rank(path)
+    local id = path:sub(#prefix + 1):match("^([^/]+)")
+    return preferred[id] or math.huge
+  end
+  table.sort(names, function(a, b)
+    local ar, br = rank(a), rank(b)
+    if ar ~= br then return ar < br end
+    return a < b
+  end)
   return names, bytes
 end
 

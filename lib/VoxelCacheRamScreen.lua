@@ -19,9 +19,9 @@ local function put(text, row)
   Font.draw(tostring(text or ""), 8, row * 8)
 end
 
-function Screen.new(game, onReady)
+function Screen.new(game, onReady, preferredMapIds)
   Disk.beginSession()
-  local names, total = Disk.ramPlan()
+  local names, total = Disk.ramPlan(preferredMapIds)
   return setmetatable({
     game = game,
     onReady = onReady,

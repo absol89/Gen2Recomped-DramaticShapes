@@ -25,6 +25,52 @@ local candidates = {}
 local nextCandidate = 1
 local active = nil
 
+local function populated(value)
+  return type(value) == "table" and next(value) ~= nil
+end
+
+local function mapsFor(data)
+  if type(data) ~= "table" then return {} end
+  if populated(data.gen2Maps) then return data.gen2Maps end
+  return data.maps or {}
+end
+
+-- Extracted Gen2 connections carry a numeric ROM map index in `map` and the
+-- registry key in `mapId`; the latter is the cache directory name. Gen1's
+-- legacy shape uses a string `map`, so retain that fallback.
+local function connectionId(connection)
+  if type(connection) ~= "table" then return nil end
+  if type(connection.mapId) == "string" then return connection.mapId end
+  if type(connection.map) == "string" then return connection.map end
+end
+
+-- Return the cache directories most likely to be needed in the first frame
+-- after CONTINUE without instantiating the overworld. The saved map is first,
+-- then directly connected outdoor maps; lastOutdoor makes an indoor save's
+-- first door/LAST_MAP exit warm too.
+function Precache.startupMapIds(data, save)
+  local maps = mapsFor(data)
+  local out, seen = {}, {}
+  local function add(id)
+    if type(id) == "string" and id ~= "" and not seen[id] then
+      seen[id] = true
+      out[#out + 1] = id
+    end
+  end
+  local current = save and save.player and save.player.map
+  add(current)
+  local currentDef = type(current) == "string" and maps[current] or nil
+  local neighbours = {}
+  for _, connection in pairs((currentDef and currentDef.connections) or {}) do
+    local id = connectionId(connection)
+    if id and maps[id] then neighbours[#neighbours + 1] = id end
+  end
+  table.sort(neighbours)
+  for _, id in ipairs(neighbours) do add(id) end
+  add(save and save.lastOutdoor and save.lastOutdoor.id)
+  return out
+end
+
 function Precache.cacheable(map)
   return MeshDisk.staticEligible(map)
 end

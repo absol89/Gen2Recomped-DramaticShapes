@@ -509,6 +509,13 @@ function BattleArt.playerBackPathForOptions()
   if selected == "png" then
     return V.mod.assets:path("assets/battle/back-static/player.png")
   end
+  -- STATIC selections are ordinary authored PNGs, including the named player
+  -- collections. Animated named selections are atlas-owned and must remain
+  -- under AnimatedBattleArt instead of being mistaken for one large frame.
+  if BattleArt.setting:get() == "static" and type(selected) == "string"
+     and selected ~= "rom" then
+    return V.mod.assets:path("assets/battle/back-static/" .. selected .. "player.png")
+  end
   return nil
 end
 
