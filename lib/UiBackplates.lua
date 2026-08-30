@@ -5,8 +5,8 @@
 --      bright (UNLIT). UNLIT keeps them readable on the white arena fill (B);
 --      SHADED is the default OG look and is also supported on white.
 --
---   B) ARENA FILL    OFF / WHITE / GEN6 / PNG / BLUE -- either the voxel
---      arena, a flat Battle Art plate, or the Stadium importer's own stage.
+--   B) ARENA FILL    OFF / WHITE / PNG / STADIUM2 -- either the voxel arena,
+--      a flat Battle Art plate, or the Stadium importer's own stage.
 --      BOSS BG is an independent override within illustrated collections.
 --
 --   A) TEXTBOX FILL  WHITE / HALF / BLACK / OFF
@@ -65,7 +65,8 @@ end
 -- ------- B) ARENA FILL -------
 
 UiBackplates.arenaFill = ModSetting.new("arenaFill", "ARENA FILL",
-  { "OFF", "WHITE", "PNG" }, { "OFF", "WHITE", "PNG" })
+  { "OFF", "WHITE", "PNG", "STADIUM2" },
+  { "OFF", "WHITE", "PNG", "STADIUM2" })
 
 -- Stadium's platform is independent of the selected arena fill. The row is
 -- exposed only when a scene provider advertises it (see main.lua), so this
@@ -118,6 +119,10 @@ function UiBackplates.arenaPng()
   return UiBackplates.arenaFill:get() == "PNG"
 end
 
+function UiBackplates.arenaStadium2()
+  return UiBackplates.arenaFill:get() == "STADIUM2"
+end
+
 function UiBackplates.arenaBlue()
   return UiBackplates.arenaFill:get() == "BLUE"
 end
@@ -128,6 +133,7 @@ end
 function UiBackplates.arenaArt()
   local value = UiBackplates.arenaFill:get()
   return value ~= "OFF" and value ~= "WHITE" and value ~= "BLUE"
+    and value ~= "STADIUM2"
 end
 
 UiBackplates.bossBg = ModSetting.new("bossBg", "BOSS BG",

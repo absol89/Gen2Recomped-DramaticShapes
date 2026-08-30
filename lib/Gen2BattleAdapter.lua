@@ -20,6 +20,50 @@ local function pack(...)
   return { n = select("#", ...), ... }
 end
 
+-- Stadium 2 may own the complete Gen2 battle presentation.  The importer is
+-- an optional dependency, so it is normally installed before this adapter
+-- and our captured nativeWidescreen points at its wrapper.  When its live
+-- scene exists, call that wrapper unchanged: Stadium keeps its arena, camera,
+-- models and HUD, while Battle Art remains the fallback for every battle the
+-- importer declines or cannot build.
+local function stadiumSceneFor(state)
+  local mode
+  if UiBackplates.arenaFill and type(UiBackplates.arenaFill.get) == "function" then
+    mode = UiBackplates.arenaFill:get()
+  elseif type(UiBackplates.arenaStadium2) == "function"
+      and UiBackplates.arenaStadium2() then
+    mode = "STADIUM2"
+  else
+    mode = "OFF"
+  end
+  -- STADIUM2 uses the importer's authored arena. OFF still uses its active
+  -- scene for models/camera, while StadiumBackground swaps only the stage for
+  -- Battle Art's voxel terrain.
+  if mode ~= "STADIUM2" and mode ~= "OFF" then return nil end
+  -- Optional mods are not guaranteed to initialize in dependency order.
+  -- main.lua's eager install can therefore run before Stadium publishes its
+  -- Scene API. Retry when a live Stadium presentation is actually requested;
+  -- install() is idempotent, and the following Stadium render will then enter
+  -- Battle Art's environment provider instead of retaining the native arena.
+  local providerOk, provider = pcall(V.require, "StadiumBackground")
+  if providerOk and provider and type(provider.install) == "function" then
+    pcall(provider.install)
+  end
+  local finder = V.mod and V.mod.find
+  if type(finder) ~= "function" then return nil end
+  local ok, handle = pcall(finder, "STADIUM2_IMPORTER")
+  if not ok or not handle then ok, handle = pcall(finder, V.mod, "STADIUM2_IMPORTER") end
+  local exports = ok and handle and handle.exports or nil
+  local current = exports and exports.getActiveBattleScene
+  if type(current) ~= "function" then return nil end
+  local sceneOk, scene = pcall(current)
+  if not sceneOk then sceneOk, scene = pcall(current, exports) end
+  if not sceneOk or type(scene) ~= "table" then return nil end
+  if scene.screen == state or scene.battle == state
+      or (state and scene.battle == state.battle) then return scene end
+  return nil
+end
+
 local function isWhite(r, g, b, a)
   return r >= 0.999 and g >= 0.999 and b >= 0.999 and a >= 0.999
 end
@@ -224,7 +268,8 @@ local function installChromeUiStyle(Chrome, textboxModeAt)
   end
 end
 
-local function withoutOpaqueBattlePaper(state, width, height, body)
+local function withoutOpaqueBattlePaper(state, width, height, body, options)
+  options = options or {}
   local g = love.graphics
   local Chrome = require("src.ui.gen2.Chrome")
   local nativeClear = Chrome.clear
@@ -236,6 +281,20 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   local styledBoxes = {}
   local drawingStyledBox = nil
   local halfFillRects = {}
+  local halfFillCanvas = nil
+
+  -- The wide compositor captures the same Chrome boxes into several canvases
+  -- (full UI, HUD-only, and HUD-free auxiliary). HALF overlap suppression is
+  -- local to one target: a rectangle filled in the first canvas must not make
+  -- the corresponding rectangle disappear from the auxiliary capture later.
+  local function currentHalfFillRects()
+    local canvas = g.getCanvas and g.getCanvas() or false
+    if canvas ~= halfFillCanvas then
+      halfFillCanvas = canvas
+      halfFillRects = {}
+    end
+    return halfFillRects
+  end
 
   local function contains(box, x, y, w, h)
     return x >= box.x and y >= box.y
@@ -258,7 +317,7 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   -- box.
   local function uncovered(rect)
     local pieces = { rect }
-    for _, cover in ipairs(halfFillRects) do
+    for _, cover in ipairs(currentHalfFillRects()) do
       local nextPieces = {}
       for _, piece in ipairs(pieces) do
         local left = math.max(piece.x, cover.x)
@@ -319,7 +378,7 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
   -- panel's picture calls suppressed for the entire staged presentation or
   -- both that trainer and the player's standing mon are drawn a second time
   -- in screen space as soon as battle.over is latched.
-  state.drawPic = function() end
+  if not options.keepTrainerPics then state.drawPic = function() end end
 
   -- BattleHud's four indexed sheets carry opaque shade-0 paper inside every
   -- HP/EXP cell and frame tile. Swap in cached keyed copies for this staged
@@ -368,7 +427,10 @@ local function withoutOpaqueBattlePaper(state, width, height, body)
           or { drawingStyledBox }
         for _, part in ipairs(parts) do
           nativeRectangle("fill", part.x, part.y, part.w, part.h, ...)
-          if textboxMode == "HALF" then halfFillRects[#halfFillRects + 1] = part end
+          if textboxMode == "HALF" then
+            local fills = currentHalfFillRects()
+            fills[#fills + 1] = part
+          end
         end
         g.setColor(oldColor[1], oldColor[2], oldColor[3], oldColor[4])
         g.setShader(oldShader)
@@ -466,6 +528,74 @@ function Adapter.install(OverworldBattle)
   end
 
   function BattleState:drawWidescreen(width, height)
+    local stadium = stadiumSceneFor(self)
+    if stadium then
+      -- Stadium owns only the world pass. Battle Art remains the complete UI
+      -- compositor: its HUD colors, textbox fill, menus and Chrome styling are
+      -- applied over Stadium's field/model canvas. Trainer pictures are now
+      -- owned by the scene provider as depth-tested world cards as well, so
+      -- this UI pass suppresses every battle picture.
+      local picture = stadium.presentCanvas or stadium.canvas
+      if not (picture and drawArena(picture, width, height)) then
+        return nativeWidescreen(self, width, height)
+      end
+      local anim = self.anim
+      if anim ~= nil then self.anim = nil end
+      self.stadium2ImporterBattleArtUiPass = true
+      local ok, result = pcall(function()
+        local hudOk, WideHud = pcall(require,
+          "mods.STADIUM2_IMPORTER.lib.battle_hud")
+        if not (hudOk and WideHud and WideHud.layer and WideHud.hudLayer
+            and WideHud.composite and type(self.drawScene)=="function"
+            and type(self.drawHud)=="function") then
+          return withoutOpaqueBattlePaper(self, width, height, function()
+            return nativeWidescreen(self, width, height)
+          end)
+        end
+        local layer, hudLayer, auxiliaryLayer
+        stadium.crystalMovePane=self.phase=="moves"
+        withoutOpaqueBattlePaper(self, 160, 144, function()
+          layer=WideHud.layer(function() self:drawScene() end,
+            {preservePaper=true,crystalMovePane=stadium.crystalMovePane})
+          hudLayer=WideHud.hudLayer(function() self:drawHud() end)
+          if WideHud.modalLayer then
+            auxiliaryLayer=WideHud.modalLayer(function()
+              local instanceHud=rawget(self,"drawHud")
+              self.drawHud=function() end
+              local drawOk,drawErr=pcall(self.drawScene,self)
+              self.drawHud=instanceHud
+              if not drawOk then error(drawErr,0) end
+            end,{preservePaper=true,crystalMovePane=stadium.crystalMovePane})
+          end
+        end)
+        stadium.statusHudOwned=true
+        stadium.bottomUiVisible=true
+        local composed = WideHud.composite(stadium,self,layer,hudLayer,auxiliaryLayer,
+          {decorate=false,bottomToScreen=true,edgeInset=2})
+        -- Stadium's model clips replace the battler sprites, but Gen 2's OBJ
+        -- move effects remain authoritative. Draw that layer once over the
+        -- finished 3D scene; the importer's drawObjects wrapper projects it
+        -- from the original GB slots onto the live model anchors.
+        if anim and self.animView and stadium.uiAnchors then
+          local box = stadium.hudBox
+          local g = love.graphics
+          if box then
+            g.push()
+            g.translate(box.lx, box.ly)
+            g.scale(box.scale, box.scale)
+            local drawOk, drawErr = pcall(self.animView.drawObjects,
+              self.animView, anim, self.battle)
+            g.pop()
+            if not drawOk then error(drawErr, 0) end
+          end
+        end
+        return composed
+      end)
+      self.stadium2ImporterBattleArtUiPass = nil
+      self.anim = anim
+      if not ok then error(result, 0) end
+      return result
+    end
     local shot = OverworldBattle.shot()
     if not (shot and shot.canvas and love and love.graphics) then
       return nativeWidescreen(self, width, height)

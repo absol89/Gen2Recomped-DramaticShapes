@@ -29,8 +29,23 @@ assert(UiBackplates.hudUsesColor(),
 assert(UiBackplates.hudUsesColorShadow(),
   "HUD COLOR: COLOR does not request its bright shadow")
 settings.hudColor:setIndex(1)
-assert(table.concat(settings.arenaFill.values, ",") == "OFF,WHITE,PNG",
+assert(table.concat(settings.arenaFill.values, ",") == "OFF,WHITE,PNG,STADIUM2",
   "ARENA FILL exposes choices outside this release")
+settings.arenaFill:setIndex(4)
+assert(UiBackplates.arenaStadium2() and not UiBackplates.arenaArt(),
+  "STADIUM2 is not isolated from flat illustrated arena handling")
+settings.arenaFill:setIndex(1)
+assert(not UiBackplates.arenaStadium2() and not UiBackplates.arenaArt(),
+  "ARENA FILL: OFF no longer retains the voxel battlefield")
+assert(table.concat(settings.stadiumCircle.values, ",") == "ON,OFF,HALF"
+    and UiBackplates.stadiumCircleScale() == 1,
+  "STADIUM CIRCLE does not expose the full/two-size platform control")
+settings.stadiumCircle:setIndex(3)
+assert(math.abs(UiBackplates.stadiumCircleScale() - 2 / 3) < 1e-9,
+  "STADIUM CIRCLE: HALF is not two-thirds size")
+settings.stadiumCircle:setIndex(2)
+assert(UiBackplates.stadiumCircleScale() == 0,
+  "STADIUM CIRCLE: OFF still requests visible platform geometry")
 assert(settings.backdropOffset.values[1] == 100,
   "BG Y-OFFSET does not default to 100 PX")
 assert(settings.bossBg.values[1] == "OFF",
@@ -61,7 +76,7 @@ local function source(path)
 end
 
 local main = source("main.lua")
-for _, setting in ipairs({ "hudColor", "arenaFill", "backdropOffset",
+for _, setting in ipairs({ "hudColor", "arenaFill", "stadiumCircle", "backdropOffset",
                            "textboxFill" }) do
   assert(main:find("{ UiBackplates." .. setting .. ",", 1, true),
     setting .. " is missing from the in-game options schema")
@@ -76,6 +91,19 @@ assert(not main:find("{ BattleArt.backPlacementSetting,", 1, true),
 local scene = source("lib/BattleScene.lua")
 assert(scene:find("Voxel3D.backdrop(artImage", 1, true),
   "PNG arena selection is not connected to the battle scene")
+assert(scene:find("externalModelShadow", 1, true)
+    and scene:find("drawActorPass", 1, true),
+  "Stadium-hosted voxel scenes do not accept model shadows and actors")
+local stadiumBackground = source("lib/StadiumBackground.lua")
+assert(stadiumBackground:find('scene.register, V.mod, "camera"', 1, true)
+    and stadiumBackground:find('scene.register, V.mod, "environment"', 1, true)
+    and stadiumBackground:find("OverworldBattle.providerRender", 1, true)
+    and stadiumBackground:find("ctx.scene.arena then return next(ctx)", 1, true)
+    and stadiumBackground:find("drawShadowCatcher", 1, true),
+  "Stadium environment provider is missing its voxel/shadow integration")
+local voxel3d = source("lib/Voxel3D.lua")
+assert(voxel3d:find("modelSunlight(vModelSun)", 1, true),
+  "voxel terrain does not receive the Stadium model shadow map")
 local overworld = source("lib/OverworldBattle.lua")
 assert(overworld:find("not UiBackplates.hudUsesColor()", 1, true),
   "HUD COLOR is not connected to staged HUD rendering")
@@ -117,6 +145,9 @@ assert(gen2:find("local BRIGHT_SHADOW_ALPHA = 0.50", 1, true),
   "Gen2 COLOR HUD shadow opacity is not reduced")
 assert(gen2:find("local halfFillRects = {}", 1, true),
   "Gen2 HALF textbox fills can compound in overlapping boxes")
+assert(gen2:find("currentHalfFillRects", 1, true)
+    and gen2:find("halfFillCanvas", 1, true),
+  "Gen2 HALF fill de-duplication leaks between wide UI capture canvases")
 assert(gen2:find('if textboxMode == "WHITE" then', 1, true),
   "Gen2 WHITE textbox frame does not override HUD ink to black")
 assert(gen2:find("Chrome.paletteBox", 1, true),

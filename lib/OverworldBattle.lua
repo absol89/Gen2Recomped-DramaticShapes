@@ -559,6 +559,61 @@ function OverworldBattle.arena()
   return session and session.arena or nil
 end
 
+-- Public scene-provider seam used by Stadium 2. Stadium remains responsible
+-- for its camera, actors and native animation projection while Battle Art
+-- renders only the voxel environment into that scene.
+function OverworldBattle.map()
+  return session and session.state and session.state.map or nil
+end
+
+local function providerMatches(expectedBattle)
+  if not session or not session.arena then return false end
+  if expectedBattle == nil then return true end
+  return session.model == nil or session.model == expectedBattle
+end
+
+function OverworldBattle.providerBegin(expectedBattle)
+  if not providerMatches(expectedBattle) then return false end
+  session.model = session.model or expectedBattle
+  session.apiHosted = true
+  session.providerShot = nil
+  session.shot = nil
+  session.snapped = false
+  return true
+end
+
+function OverworldBattle.providerRender(expectedBattle, drawActors,
+                                        externalCamera, externalModelShadow)
+  if not (session and session.apiHosted and providerMatches(expectedBattle)
+      and (type(drawActors) == "function" or type(drawActors) == "table")) then
+    return nil
+  end
+  session.token = (session.token or 0) + 1
+  local ok, shot = pcall(BattleScene.render, session.state, session.arena,
+    nil, session.token, session.battle, nil, nil,
+    externalCamera, externalModelShadow, drawActors)
+  if not (ok and shot and shot.canvas) then
+    session.providerShot = nil
+    return nil
+  end
+  local y1 = shot.ly + shot.player[2] * shot.scale
+  local y2 = shot.ly + shot.enemy[2] * shot.scale
+  local focusY, band, range = BattleDOF.bandFor(y1, y2, shot.ph)
+  local okDof, blurred = pcall(BattleDOF.apply, shot.canvas,
+    focusY, band, range)
+  if okDof and blurred then shot.canvas = blurred end
+  session.providerShot = shot
+  return shot.canvas
+end
+
+function OverworldBattle.providerFinish()
+  if not session then return end
+  session.apiHosted = false
+  session.providerShot = nil
+  session.shot = nil
+  session.snapped = false
+end
+
 -- Gold/Silver raises battle.ended the moment the outcome is decided,
 -- while the defeat/exp dialogue is still queued; a full teardown here
 -- froze the staged arena mid-conversation. Mark the session retiring and
@@ -655,6 +710,15 @@ function OverworldBattle.update(dt)
   -- the world pass is hidden behind the battle, so mesh builds get the wide
   -- slice: nothing visible can hitch on them
   ChunkMesher.pump(true)
+
+  -- A Stadium-owned scene calls providerRender synchronously from its
+  -- environment phase. Do not also build Battle Art's ordinary standalone
+  -- battle frame while that host is active.
+  if session.apiHosted then
+    session.shot = nil
+    session.snapped = false
+    return
+  end
 
   -- The mons' textures are rendered HERE, with no canvas bound, for the same
   -- reason the scene is: the pics layer binds its own targets, and doing that
@@ -1133,6 +1197,7 @@ function OverworldBattle.sideTexture(battle, side)
     end
   end
   local trainerImageField, savedTrainerImage
+  local savedWinSlide, worldSlide
   if not gen2 then
     for k, v in pairs(OFF[side]) do saved[k] = battle[k]; battle[k] = v end
     texturing = side
@@ -1149,6 +1214,19 @@ function OverworldBattle.sideTexture(battle, side)
     savedTrainerImage = battle[trainerImageField]
     battle[trainerImageField] = BattlePics.outsideTransparent(savedTrainerImage)
   end
+  if gen2 and side == "enemy" and battle.showEnemyTrainer
+      and battle.winSlide ~= nil then
+    -- Gold's victory trainer slide stops two tiles right of the ordinary
+    -- enemy slot. In a 160px source canvas that crops the sprite before it
+    -- ever reaches the world. Capture the complete base pose and carry only
+    -- the animated displacement as world-card metadata, remapped from the
+    -- native 7..2 tile range to a 5..0 tile range.
+    local frame = math.max(0, tonumber(battle.winSlide) or 0)
+    local step = math.min(6, math.floor(frame / 4) + 1)
+    worldSlide = math.max(0, 6 - step) * 8
+    savedWinSlide = battle.winSlide
+    battle.winSlide = nil
+  end
 
   local ok, err = pcall(function()
     g.setCanvas(canvas)
@@ -1164,6 +1242,7 @@ function OverworldBattle.sideTexture(battle, side)
 
   texturing = nil
   if forcedPlayerTrainer then battle.showPlayerTrainer = false end
+  if savedWinSlide ~= nil then battle.winSlide = savedWinSlide end
   if trainerImageField then battle[trainerImageField] = savedTrainerImage end
   if savedFaintSlide then battle.faintSlide = savedFaintSlide end
   if not gen2 then
@@ -1199,7 +1278,8 @@ function OverworldBattle.sideTexture(battle, side)
   local playerNoMirror = side == "player"
                          and not BattleArt.mirrorsPlayerSprite()
   return { canvas = canvas, ax = ax, ay = ay, trainer = trainer,
-           noMirror = playerNoMirror, sink = sink }
+           noMirror = playerNoMirror, sink = sink,
+           worldSlide = worldSlide }
 end
 
 -- Whether the hit flash is showing this frame.

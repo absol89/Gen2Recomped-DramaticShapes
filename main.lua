@@ -186,6 +186,7 @@ local WorldCanvasOrientation = V.require("WorldCanvasOrientation")
 local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
+local StadiumBackground = V.require("StadiumBackground")
 local BattleExit = V.require("BattleExit")
 local BattleArt = V.require("BattleArt")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
@@ -761,8 +762,15 @@ local SETTINGS = {
     when = function() return stagedBattles() end, full = true },
   { UiBackplates.arenaFill,
     "Choose the staged battle background: the voxel world, a flat white "
-    .. "field, or assets/battle/front-static/bosses/arena.png.",
+    .. "field, assets/battle/front-static/bosses/arena.png, or Stadium 2's "
+    .. "live field and models when its importer is ready. STADIUM2 falls "
+    .. "back to OFF's voxel battlefield when unavailable.",
     when = function() return stagedBattles() end, full = true },
+  { UiBackplates.stadiumCircle,
+    "Control Stadium's ground circles independently of ARENA FILL. ON uses "
+    .. "the full circle, HALF uses a smaller circle, and OFF hides it while "
+    .. "an invisible plane still receives model shadows.",
+    when = function() return StadiumBackground.installed() end, full = true },
   { UiBackplates.backdropOffset,
     "Crop the selected PNG arena downward in source-image pixels.",
     when = function()
@@ -1641,6 +1649,7 @@ end
 -- where the reasoning for each one is written down. Installed once, here,
 -- so this file keeps naming every engine seam the mod touches.
 OverworldBattle.install()
+StadiumBackground.install()
 
 -- ------- the free-roam rungs' inputs and their walk
 --
@@ -1881,7 +1890,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.4"
+mod.exports.version = "2.0.6"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,

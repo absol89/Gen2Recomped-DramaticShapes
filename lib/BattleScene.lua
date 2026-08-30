@@ -194,6 +194,7 @@ local function monMatrix(tex, x, groundY, z, mirror)
   local w = BattleScene.GB_W * k
   local h = BattleScene.GB_H * k
   local ox = -((tex.ax / BattleScene.GB_W) - 0.5) * w
+  ox = ox + (tonumber(tex.worldSlide) or 0) * k
   local oy = -((BattleScene.GB_H - tex.ay) / BattleScene.GB_H) * h
   local yaw = BattleBillboard.yawToward(x, z, Voxel3D.eye)
   local card = Mat4.mul(Mat4.translate(ox, oy, 0), Mat4.scale(w, h, 1))
@@ -479,12 +480,15 @@ local function tickTiles()
 end
 
 function BattleScene.render(state, arena, textures, token, battle, animTex,
-                            animAnchors)
+                            animAnchors, externalCamera, externalModelShadow,
+                            drawActors)
   -- The Stadium 2 importer keys its model instances to the live battle (a
   -- mid-fight Transform or a shiny flip swaps the instance); nil battle just
   -- means the placements come back empty and the sprite cards stand.
-  StadiumModels.sync(battle)
-  StadiumModels.update(battle)
+  if not drawActors then
+    StadiumModels.sync(battle)
+    StadiumModels.update(battle)
+  end
   if not (state and state.map and arena) then return nil end
   if not Voxel3D.available() then return nil end
   tickTiles()
@@ -531,8 +535,30 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   end
 
   local groundY = BattleScene.groundY(host, arena)
-  local cam, pitch = BattleCam.rig(arena, groundY)
-  cam.fov = BattleScene.letterboxFov(cam.fov, ph, s)
+  local cam, pitch
+  local externalEye = externalCamera and externalCamera.eye
+  local externalFocus = externalCamera and externalCamera.focus
+  local externalProjection = externalCamera and externalCamera.projection
+  local externalF = type(externalProjection) == "table"
+    and tonumber(externalProjection[6]) or nil
+  if type(externalEye) == "table" and type(externalFocus) == "table"
+      and externalF and math.abs(externalF) > 1e-6 then
+    cam = {
+      eye = { externalEye[1] + arena.mid[1],
+              externalEye[2] + groundY,
+              externalEye[3] + arena.mid[2] },
+      focus = { externalFocus[1] + arena.mid[1],
+                externalFocus[2] + groundY,
+                externalFocus[3] + arena.mid[2] },
+      fov = 2 * math.atan(1 / math.abs(externalF)), curve = 0,
+    }
+    local dx, dy, dz = cam.eye[1] - cam.focus[1],
+      cam.eye[2] - cam.focus[2], cam.eye[3] - cam.focus[3]
+    pitch = math.atan2(math.sqrt(dx * dx + dz * dz), math.max(1e-3, dy))
+  else
+    cam, pitch = BattleCam.rig(arena, groundY)
+    cam.fov = BattleScene.letterboxFov(cam.fov, ph, s)
+  end
   -- LÖVE's Metal battle target presents clip-space Y inverted. Mark only the
   -- staged battle camera; overworld cameras never receive this flag.
   cam.metalFlipY = Voxel3D.metalRenderer() and true or nil
@@ -552,11 +578,15 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   -- and the real one is rebuilt inside the scene below.
   Voxel3D.camera = cam
   Voxel3D.viewProjection(cx, cy, vw, vh)
-  local cards = monCards(arena, groundY, textures)
+  local hostedActors = drawActors and true or false
+  local drawActorPass = type(drawActors) == "table" and drawActors.draw
+    or (type(drawActors) == "function" and drawActors or nil)
+  local cards = hostedActors and {} or monCards(arena, groundY, textures)
   -- The Stadium 2 importer's models, when connected: one placement per side,
   -- replacing only that side's sprite card. Computed before the scene opens
   -- so a model failure can still fall back to the card below.
-  local stadium = StadiumModels.placements(arena, groundY, textures, battle)
+  local stadium = hostedActors and {}
+    or StadiumModels.placements(arena, groundY, textures, battle)
   Voxel3D.camera = nil
   if flatFill then
     ShadowMap.discard()
@@ -600,7 +630,17 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     local rw, rh = AntiAlias.expand(pw, ph)
     local skyFill = whiteFill and { 1, 1, 1 }
                     or (artImage and { 0, 0, 0 } or sky)
-    if not Voxel3D.beginScene(rw, rh, cx, cy, vw, vh, skyFill, "battle") then
+    local modelShadow = type(externalModelShadow) == "table"
+        and externalModelShadow.map and externalModelShadow.sunVP and {
+          map = externalModelShadow.map,
+          sunVP = externalModelShadow.sunVP,
+          sunDark = externalModelShadow.sunDark,
+          sunBias = externalModelShadow.sunBias,
+          sunTexel = externalModelShadow.sunTexel,
+          origin = { arena.mid[1], groundY, arena.mid[2] },
+        } or nil
+    if not Voxel3D.beginScene(rw, rh, cx, cy, vw, vh, skyFill, "battle",
+        modelShadow) then
       return
     end
     if artImage then
@@ -730,6 +770,16 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
                      Mat4.translate(nb.ox, 0, nb.oy), fpull,
                      ShadowMap.snug(Mat4.translate(nb.ox, 0, nb.oy)))
       end
+    end
+    if drawActorPass then
+      drawActorPass({
+        vp = Voxel3D.vp,
+        view = Mat4.lookAt(Voxel3D.eye, Voxel3D.focus,
+          cam.up or { 0, 1, 0 }),
+        eye = Voxel3D.eye,
+        origin = { arena.mid[1], groundY, arena.mid[2] },
+        groundY = groundY, width = pw, height = ph,
+      })
     end
     local canvas = AntiAlias.resolve(Voxel3D.endScene(), pw, ph, "battle")
     if not canvas then return end
