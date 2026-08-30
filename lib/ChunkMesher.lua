@@ -56,6 +56,16 @@ local TileShape = V.require("TileShape")
 local Voxel3D = V.require("Voxel3D")
 local Budget = V.require("BuildBudget")
 
+-- Persistent geometry cache. Optional on purpose: a build without the module
+-- (or one whose option is off) simply meshes every time, exactly as before.
+local DiskCache = nil
+do
+  local okCache, cacheMod = pcall(V.require, "VoxelDiskCache")
+  if okCache and type(cacheMod) == "table" and type(cacheMod.load) == "function" then
+    DiskCache = cacheMod
+  end
+end
+
 local ffi = nil
 do
   local ok, mod = pcall(require, "ffi")
@@ -63,6 +73,29 @@ do
 end
 
 local ChunkMesher = {}
+
+-- Anything geometry depends on that neither the map body nor the editor's
+-- tile pins nor the companion config describes. Bumping it invalidates every
+-- entry at once; it is the escape hatch for a rules change this file makes.
+function ChunkMesher.setCacheRulesTag(tag)
+  if DiskCache and type(DiskCache.setRulesTag) == "function" then
+    DiskCache.setRulesTag(tag)
+  end
+end
+
+function ChunkMesher.cacheStatus()
+  if DiskCache and type(DiskCache.status) == "function" then
+    return DiskCache.status()
+  end
+  return { enabled = false, unavailable = true }
+end
+
+function ChunkMesher.clearCache()
+  if DiskCache and type(DiskCache.clear) == "function" then
+    return DiskCache.clear()
+  end
+  return false
+end
 
 -- Ring of border blocks meshed around the body, matching the width
 -- TileRenderer draws so the two modes end at the same place.
@@ -132,6 +165,13 @@ local function newTableSink()
     results = function()
       return verts, indices, quads
     end,
+    -- Vertices as the GPU would see them: the table sink is INDEXED, so its
+    -- drawn vertex count is three per triangle, not #verts. Only the FFI
+    -- sink's unindexed stream can be persisted; this exists so a caller can
+    -- ask either sink the same question.
+    vertexCount = function()
+      return quads * 6
+    end,
     finish = function()
       return Voxel3D.newMesh(verts, indices)
     end,
@@ -166,6 +206,56 @@ local function newFfiSink()
         base = base + 6
       end
       n = n + 6
+    end,
+    vertexCount = function()
+      return n
+    end,
+    -- Spill the raw six-float stream straight to disk, in the same slices
+    -- the GPU upload uses and with a budget tick between them, so baking a
+    -- whole region never stalls a frame. Writing from here rather than from
+    -- the cache module keeps every cdata pointer inside this file.
+    -- Called by the cache as `sink:writeRaw(path)`, so the sink itself
+    -- arrives first; a plain `sink.writeRaw(path)` works too. Getting this
+    -- wrong is silent -- the path becomes a table and the write lands
+    -- nowhere -- so it is checked rather than assumed.
+    writeRaw = function(a, b)
+      local path = b
+      if path == nil and type(a) == "string" then path = a end
+      if type(path) ~= "string" then return false, "writeRaw needs a path" end
+      if not (love and love.filesystem and love.filesystem.newFile
+              and love.data and love.data.newByteData) then
+        return false, "no filesystem"
+      end
+      local okFile, file = pcall(love.filesystem.newFile, path)
+      if not okFile or not file then
+        return false, "could not create " .. tostring(path)
+      end
+      local okOpen, opened = pcall(file.open, file, "w")
+      if not okOpen or opened == false then
+        pcall(file.close, file)
+        return false, "could not open " .. tostring(path)
+      end
+      local okWrite, err = pcall(function()
+        local CHUNK = 65536
+        local i = 0
+        while i < n do
+          local count = math.min(CHUNK, n - i)
+          local bytes = count * 6 * 4
+          local data = love.data.newByteData(bytes)
+          ffi.copy(data:getFFIPointer(), buf + i * 6, bytes)
+          local wrote = file:write(data:getString())
+          if data.release then pcall(data.release, data) end
+          if wrote == false then error("short write") end
+          i = i + count
+          Budget.check()
+        end
+      end)
+      pcall(file.close, file)
+      if not okWrite then
+        pcall(love.filesystem.remove, path)
+        return false, tostring(err)
+      end
+      return true
     end,
     finish = function()
       if n == 0 then return nil end
@@ -534,6 +624,95 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
             end
           end
         end
+      elseif s and s.sub and s.sub.res and s.sub.h then
+        -- ------------------------------------------------ SUB-TILE HEIGHTS
+        --
+        -- A tile's height is normally ONE number: `topQuad` plants all four
+        -- corners of the 8px square at it and the side faces span from the
+        -- neighbour up to it. That is the whole contract everything below
+        -- assumes, which is why finer heights could not simply be a smaller
+        -- number -- they need their own emitter.
+        --
+        -- This is it: the tile is divided into `res` x `res` sub-columns
+        -- (res 2 = 4px squares, 4 = 2px, 8 = 1px) and each is emitted as its
+        -- own little box. Sides are drawn only where the neighbouring
+        -- sub-column is LOWER, exactly as the tile-sized path does, so the
+        -- inside of a flat patch costs nothing and only the steps between
+        -- levels produce faces.
+        --
+        -- GATED ON A FIELD THAT IS NIL EVERYWHERE. A tile with no `sub` takes
+        -- the original branch below, unchanged, so nothing that renders today
+        -- can render differently because this exists.
+        --
+        -- THE COST IS REAL AND IT IS THE READER'S TO SPEND. At res 8 one tile
+        -- is up to 64 boxes; a whole map of them would be a hundred times the
+        -- geometry. It is a sparse override on the few tiles that need
+        -- sculpting, and the editor writes it nowhere else.
+        local res = math.max(1, math.min(8, math.floor(s.sub.res)))
+        local step = 8 / res
+        local hs = s.sub.h
+        local base = run and run.h or shapeHeight(tx, ty, s)
+        local x0, z0 = tx * 8, ty * 8
+        local tile = S.tileAt[k]
+
+        local function subH(i, j)
+          if i < 0 or j < 0 or i >= res or j >= res then return nil end
+          local v = hs[j * res + i + 1]
+          return tonumber(v) or base
+        end
+
+        -- The art under one sub-square, so a sculpted tile keeps its drawing
+        -- instead of repeating the whole tile per box.
+        local function subUV(i, j)
+          local ax = (tile % perRow) * 8
+          local ay = math.floor(tile / perRow) * 8
+          local u0 = (ax + i * step) / atlasW
+          local u1 = (ax + (i + 1) * step) / atlasW
+          local v0 = (ay + j * step) / atlasH
+          local v1 = (ay + (j + 1) * step) / atlasH
+          return u0, u1, v0, v1
+        end
+
+        for j = 0, res - 1 do
+          for i = 0, res - 1 do
+            local hh = subH(i, j) or base
+            local sx, sz = x0 + i * step, z0 + j * step
+            local u0, u1, v0, v1 = subUV(i, j)
+            -- top
+            push({ { sx, hh, sz }, { sx + step, hh, sz },
+                   { sx + step, hh, sz + step }, { sx, hh, sz + step } },
+                 { { u0, v0 }, { u1, v0 }, { u1, v1 }, { u0, v1 } },
+                 aoShades(tx, ty, hh, 1))
+            -- sides, only where the neighbour is lower. Off the tile's own
+            -- edge the neighbour is the NEXT TILE's height, so a sculpted
+            -- tile still closes against the flat ground beside it rather
+            -- than leaving a slot you can see through.
+            for _, side in ipairs(SIDES) do
+              local ni, nj = i + side[1], j + side[2]
+              local nh = subH(ni, nj)
+              if nh == nil then
+                nh = heightAt(tx + side[1], ty + side[2])
+              end
+              if nh < hh then
+                local d = side[3]
+                local x1, z1 = sx + step, sz + step
+                local c
+                if d == 5 then
+                  c = { { sx, nh, z1 }, { x1, nh, z1 }, { x1, hh, z1 }, { sx, hh, z1 } }
+                elseif d == 6 then
+                  c = { { x1, nh, sz }, { sx, nh, sz }, { sx, hh, sz }, { x1, hh, sz } }
+                elseif d == 1 then
+                  c = { { x1, nh, z1 }, { x1, nh, sz }, { x1, hh, sz }, { x1, hh, z1 } }
+                else
+                  c = { { sx, nh, sz }, { sx, nh, z1 }, { sx, hh, z1 }, { sx, hh, sz } }
+                end
+                push(c, { { u0, v1 }, { u1, v1 }, { u1, v0 }, { u0, v0 } },
+                     Voxel3D.FACE_SHADE[d] or 1)
+              end
+            end
+          end
+        end
+
       elseif s then
         local run = S.runs[k]
         local h = run and run.h or shapeHeight(tx, ty, s)
@@ -869,6 +1048,40 @@ function ChunkMesher.build(map, bodyOnly, masks, split)
   return sink.finish(), waterSink and waterSink.finish() or nil
 end
 
+-- ---------------------------------------------------------------- prebake
+
+-- Mesh `map` STRAIGHT TO DISK and throw the geometry away.
+--
+-- The difference from build() is that nothing is uploaded: no GPU mesh is
+-- created, nothing enters the in-memory cache, and no slot is swapped. That
+-- is what makes it safe to run over the whole map list -- baking two hundred
+-- maps into VRAM would be a very expensive way to run out of it.
+--
+-- Returns true when an entry was written, false plus a reason otherwise.
+-- "cached" is not a failure: it is the answer for a map already baked under
+-- the current rules, which is what makes a second prebake pass cheap.
+function ChunkMesher.bake(map, slot, masks)
+  slot = slot or "body"
+  if not DiskCache then return false, "no disk cache" end
+  if type(DiskCache.enabled) == "function" and not DiskCache.enabled() then
+    return false, "disabled"
+  end
+  if type(DiskCache.has) == "function" then
+    local okHas, hit = pcall(DiskCache.has, map, slot, masks)
+    if okHas and hit then return false, "cached" end
+  end
+  local sink = newSink()
+  if type(sink.writeRaw) ~= "function" then
+    return false, "no ffi sink"          -- the table sink cannot be persisted
+  end
+  local waterSink = newSink()
+  local okGeom, err = pcall(runGeometry, map, slot == "body", masks, sink, waterSink)
+  if not okGeom then return false, tostring(err) end
+  local okStore, stored = pcall(DiskCache.store, map, slot, masks, sink, waterSink)
+  if not okStore then return false, tostring(stored) end
+  return stored and true or false, stored and nil or "store declined"
+end
+
 local function quadsMesh(quads)
   if #quads == 0 then return nil end
   local verts, indices, n = {}, {}, 0
@@ -1011,9 +1224,48 @@ end
 -- A build only lands if the map's generation still matches the one the
 -- job was queued under -- invalidate/evict bump it to cancel in-flight
 -- work whose inputs went stale.
+-- Terrain off the disk cache, or nil for "not cached, build it".
+--
+-- Both persisted slots go through here. BODY is the interesting one for a
+-- walk across the world: it is what every neighbouring map contributes, its
+-- key does not depend on where the player is standing, and it is what the
+-- prebake writes for the whole map list in one pass.
+local function loadCachedTerrain(job)
+  if not DiskCache then return nil end
+  local okLoad, hit, terrain, water =
+    pcall(DiskCache.load, job.map, job.slot, job.masks)
+  if not okLoad or not hit then return nil end
+  return terrain or false, water or false
+end
+
+local function storeTerrain(job, sink, waterSink)
+  if not DiskCache then return end
+  pcall(DiskCache.store, job.map, job.slot, job.masks, sink, waterSink)
+end
+
 local function runJob(job)
   local map = job.map
   local c = entry(job.id)
+
+  -- Terrain BEFORE the auxiliary meshes when it comes off disk: the cached
+  -- vertex stream is the whole reason a town can appear the moment you walk
+  -- into it, and grass/flowers/figures are cheap enough to land a frame or
+  -- two later. On a miss the original order stands.
+  local cachedTerrain, cachedWater = loadCachedTerrain(job)
+  if cachedTerrain ~= nil then
+    if (gen[job.id] or 0) ~= job.gen then
+      if cachedTerrain and cachedTerrain.release then
+        pcall(cachedTerrain.release, cachedTerrain)
+      end
+      if cachedWater and cachedWater.release then
+        pcall(cachedWater.release, cachedWater)
+      end
+      return
+    end
+    swapSlot(c, job.slot, cachedTerrain)
+    swapSlot(c, waterSlot(job.slot), cachedWater)
+  end
+
   if c.grass == nil or c.flowers == nil or c.figures == nil
      or (c.stale and c.stale.aux) then
     local okG, grass = pcall(buildGrassMesh, map)
@@ -1033,18 +1285,23 @@ local function runJob(job)
     c.figures = (okX and figures) or false
     if c.stale then c.stale.aux = nil end
   end
-  local sink = newSink()
-  local waterSink = newSink()
-  runGeometry(map, job.slot == "body", job.masks, sink, waterSink)
-  local mesh = sink.finish()
-  local water = waterSink.finish()
-  if (gen[job.id] or 0) ~= job.gen then
-    if mesh and mesh.release then pcall(mesh.release, mesh) end
-    if water and water.release then pcall(water.release, water) end
-    return
+  if cachedTerrain == nil then
+    local sink = newSink()
+    local waterSink = newSink()
+    runGeometry(map, job.slot == "body", job.masks, sink, waterSink)
+    -- Persist BEFORE finish(): the sink still owns the raw stream, and
+    -- writing it costs no GPU upload. A failed write is not a build failure.
+    storeTerrain(job, sink, waterSink)
+    local mesh = sink.finish()
+    local water = waterSink.finish()
+    if (gen[job.id] or 0) ~= job.gen then
+      if mesh and mesh.release then pcall(mesh.release, mesh) end
+      if water and water.release then pcall(water.release, water) end
+      return
+    end
+    swapSlot(c, job.slot, mesh or false)
+    swapSlot(c, waterSlot(job.slot), water or false)
   end
-  swapSlot(c, job.slot, mesh or false)
-  swapSlot(c, waterSlot(job.slot), water or false)
   if c.stale then
     c.stale[job.slot] = nil
     if not (c.stale.full or c.stale.body or c.stale.aux) then
@@ -1092,8 +1349,48 @@ local URGENT_SLICE = 0.012
 local IDLE_SLICE = 0.005
 local COVERED_SLICE = 0.030
 
+-- The fixed slices above are a CEILING, not a target. On a machine with room
+-- to spare they are never reached; on a machine already missing its frame,
+-- spending a flat 12 ms on top of an already-full frame is what turns a busy
+-- frame into a dropped one. So measure what the rest of the frame costs and
+-- hand meshing a share of what is actually left, with a floor so builds still
+-- finish on a machine with no headroom at all.
+local FRAME_TARGET = 1 / 60
+local SHARE = 0.75
+local MIN_SLICE = 0.0015
+
+ChunkMesher.frameTarget = FRAME_TARGET
+
+-- Hosts that run at something other than 60 (a 30 Hz handheld mode, a 120 Hz
+-- panel) can move the target the headroom is measured against.
+function ChunkMesher.setFrameTarget(seconds)
+  seconds = tonumber(seconds)
+  if seconds and seconds > 0 then
+    ChunkMesher.frameTarget = seconds
+  end
+end
+
+local lastSpend = 0    -- seconds this module burned last pump
+local avgOther = nil   -- smoothed seconds the REST of the frame costs
+
+local function sliceFor(urgent, covered)
+  -- A covered frame draws no world, so there is nothing to hitch and the
+  -- adaptive measurement does not apply: take the whole fade.
+  if covered then return COVERED_SLICE end
+  local cap = urgent and URGENT_SLICE or IDLE_SLICE
+  local dt = (love and love.timer and love.timer.getDelta
+              and love.timer.getDelta()) or ChunkMesher.frameTarget
+  local other = math.max(0, dt - lastSpend)
+  avgOther = avgOther and (avgOther * 0.8 + other * 0.2) or other
+  local headroom = ChunkMesher.frameTarget - avgOther
+  return math.max(MIN_SLICE, math.min(cap, headroom * SHARE))
+end
+
+-- Seconds the last pump actually spent; for probes and overlays.
+function ChunkMesher.lastSlice() return lastSpend end
+
 function ChunkMesher.pump(covered)
-  if #jobs == 0 then return end
+  if #jobs == 0 then lastSpend = 0 return end
   local pick = jobs[1]
   for _, j in ipairs(jobs) do
     if j.urgent then
@@ -1101,9 +1398,9 @@ function ChunkMesher.pump(covered)
       break
     end
   end
-  local slice = covered and COVERED_SLICE
-                or (pick.urgent and URGENT_SLICE or IDLE_SLICE)
-  local deadline = clock() + slice
+  local started = clock()
+  local slice = sliceFor(pick.urgent, covered)
+  local deadline = started + slice
   while pick do
     if not pick.co then
       pick.co = coroutine.create(runJob)
@@ -1116,9 +1413,13 @@ function ChunkMesher.pump(covered)
     elseif coroutine.status(pick.co) == "dead" then
       finishJob(pick, true)
     else
+      lastSpend = clock() - started
       return   -- slice spent mid-build; resume next frame
     end
-    if clock() >= deadline or #jobs == 0 then return end
+    if clock() >= deadline or #jobs == 0 then
+      lastSpend = clock() - started
+      return
+    end
     pick = jobs[1]
     for _, j in ipairs(jobs) do
       if j.urgent then
@@ -1127,6 +1428,7 @@ function ChunkMesher.pump(covered)
       end
     end
   end
+  lastSpend = clock() - started
 end
 
 -- Meshes for `map`, built SYNCHRONOUSLY on first use -- the historical
