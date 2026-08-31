@@ -194,7 +194,7 @@ function OverworldBattle.wantsFront()
   -- required here rather than through the file's own helper: this runs
   -- while a battler is being built, which is before that helper is defined
   local g = require("src.core.Game")
-  local ow = g and g.overworld
+  local ow = g and (g.overworld or g.world)
   if not (ow and ow.map and ow.player) then return false end
   if staged.mapId ~= ow.map.id then
     local ok, arena = pcall(BattleArena.find, ow.map,
@@ -236,7 +236,10 @@ OverworldBattle.SLOT_W = { front = 56, back = 32 }
 -- the anchors above.
 OverworldBattle.HUD_RECT = {
   enemy = { 8, 0, 80, 32 },
-  player = { 72, 56, 88, 40 },
+  -- DrawPlayerHUDAndHPBar reaches x=72..152.  The old 88-wide capture
+  -- included eight blank columns, so snapping that rectangle to the right
+  -- still left the visible chrome eight logical pixels inboard.
+  player = { 72, 56, 80, 40 },
 }
 
 -- ------- the box at the bottom, on the same glass
@@ -348,11 +351,18 @@ OverworldBattle.HUD_BAND = {
 function OverworldBattle.snapRects(shot)
   local s = shot.scale
   local e, p = OverworldBattle.HUD_RECT.enemy, OverworldBattle.HUD_RECT.player
-  local ex = -e[1] * s                       -- foe: panel's left edge to 0
-  local px = shot.pw - (p[1] + p[3]) * s     -- player: right edge to the far side
+  local sideInset = 2 * s
+  -- Keep the large status furniture away from the title bar and the bottom
+  -- edge.  Horizontal and vertical insets deliberately differ: two logical
+  -- pixels makes the HUDs read as edge furniture, while eight keeps their
+  -- oversized Gen 2 lettering from feeling cropped above/below.
+  local verticalInset = 8 * s
+  local ex = sideInset - e[1] * s            -- foe: 2 logical px from left
+  local px = shot.pw - sideInset - (p[1] + p[3]) * s
   local rects = {
-    enemy = { ex + e[1] * s, shot.ly + e[2] * s, e[3] * s, e[4] * s },
-    player = { px + p[1] * s, shot.ly + p[2] * s, p[3] * s, p[4] * s },
+    enemy = { ex + e[1] * s, verticalInset, e[3] * s, e[4] * s },
+    player = { px + p[1] * s, shot.ph - verticalInset - p[4] * s,
+               p[3] * s, p[4] * s },
   }
   return rects, { enemy = ex, player = px }
 end
@@ -373,6 +383,50 @@ end
 -- nil when no overworld battle is running. Never more than one: battles do
 -- not nest.
 local session = nil
+local lastHudBridgeReport = nil
+
+local function reportHudBridge(message)
+  message = tostring(message)
+  if message == lastHudBridgeReport then return end
+  lastHudBridgeReport = message
+  local fs = love and love.filesystem
+  if fs and fs.append then
+    pcall(fs.append, "battle_art_stadium2_bridge.txt", "hud " .. message .. "\n")
+  end
+end
+
+-- Importer 0.10.7 attached its Gen 2 presentation to
+-- BattleState:drawWidescreen. Gen2Recomped 0.7.33 unified the battle screen
+-- and now calls WideBattle.draw / drawClassic directly, so that method is no
+-- longer a presentation seam. Host the already-created legacy scene here,
+-- where Battle Art owns the window-resolution backdrop for both layouts.
+--
+-- We retain Battle Art's shot metadata (HUD scale, anchors and letterbox) and
+-- replace only its color canvas. Thus the current unified HUD compositor stays
+-- authoritative while ARENA FILL: STADIUM2 gets the importer's authored arena
+-- and model pass. OFF never enters this function and remains the voxel arena.
+local function stadium2ArenaCanvas(shot, battle)
+  if not (shot and shot.canvas and battle
+      and UiBackplates.arenaFill:get() == "STADIUM2") then return shot end
+  local Background = V.require("StadiumBackground")
+  local scene = Background.legacyScene and Background.legacyScene(battle)
+  if not scene then return shot end
+  scene.screen = battle
+  if type(scene.sync) == "function" then
+    local ok = pcall(scene.sync, scene)
+    if not ok then return shot end
+  end
+  local width, height = BattleScene.pixelSize()
+  if not (width and height and type(scene.render) == "function") then
+    return shot
+  end
+  local ok, rendered = pcall(scene.render, scene, width, height)
+  local canvas = ok and rendered and (scene.presentCanvas or scene.canvas)
+  if not (canvas and canvas.getDimensions) then return shot end
+  shot.canvas = canvas
+  shot.stadium2Arena = true
+  return shot
+end
 
 local function isIOS()
   return love.system and love.system.getOS and love.system.getOS() == "iOS"
@@ -494,7 +548,7 @@ function OverworldBattle.ensure(battle)
     return
   end
   local g = game()
-  local ow = g and g.overworld
+  local ow = g and (g.overworld or g.world)
   if ow and ow.map then OverworldBattle.begin(ow, battle) end
 end
 
@@ -502,6 +556,108 @@ end
 -- screenshot can be labelled with the ground it was taken on.
 function OverworldBattle.arena()
   return session and session.arena or nil
+end
+
+function OverworldBattle.battle()
+  return session and session.battle or nil
+end
+
+-- Public scene-provider boundary. The optional Stadium importer remains the
+-- live battle/camera owner while Battle Art contributes only its voxel world
+-- and accepts Stadium actors before the shared depth target is closed.
+function OverworldBattle.map()
+  return session and session.state and session.state.map or nil
+end
+
+local function sameBattle(a, b)
+  if a == nil or b == nil then return a == b end
+  if a == b then return true end
+  local aa = type(a) == "table" and a.battle or nil
+  local bb = type(b) == "table" and b.battle or nil
+  return aa == b or bb == a or (aa ~= nil and aa == bb)
+end
+
+local function providerMatches(expectedBattle)
+  if not session or not session.arena then return false end
+  if expectedBattle == nil then return true end
+  return session.battle == nil or sameBattle(session.battle, expectedBattle)
+end
+
+function OverworldBattle.providerAvailable(expectedBattle)
+  return providerMatches(expectedBattle)
+end
+
+function OverworldBattle.providerHosted()
+  return session and session.apiHosted == true or false
+end
+
+function OverworldBattle.providerBegin(expectedBattle)
+  if not providerMatches(expectedBattle) then return false end
+  session.battle = session.battle or expectedBattle
+  session.apiHosted = true
+  session.providerShot = nil
+  session.shot = nil
+  session.snapped = false
+  return true
+end
+
+function OverworldBattle.providerRender(expectedBattle, drawActors,
+                                         externalCamera, externalModelShadow,
+                                         modelBattle)
+  if not (session and session.apiHosted and providerMatches(expectedBattle)
+      and (drawActors == nil or type(drawActors) == "function"
+        or type(drawActors) == "table")) then
+    return nil
+  end
+  session.token = (session.token or 0) + 1
+  -- Hosted Stadium actors are allowed to replace individual world cards, but
+  -- the cards remain the fallback for trainer intros and unavailable models.
+  -- Passing nil here made a successful provider connection suppress both
+  -- sides even when the importer had not produced a drawable actor yet.
+  local textures = OverworldBattle.textures(session.battle)
+  local ok, shot = pcall(BattleScene.render, session.state, session.arena,
+    textures, session.token, session.battle, nil, nil,
+    externalCamera, externalModelShadow, drawActors, modelBattle)
+  if not (ok and shot and shot.canvas) then
+    session.providerShot = nil
+    return nil
+  end
+  local y1 = shot.ly + shot.player[2] * shot.scale
+  local y2 = shot.ly + shot.enemy[2] * shot.scale
+  local focusY, band, range = BattleDOF.bandFor(y1, y2, shot.ph)
+  local okDof, blurred = pcall(BattleDOF.apply, shot.canvas,
+    focusY, band, range)
+  if okDof and blurred then shot.canvas = blurred end
+  -- The hosted path returns before update() builds Battle Art's standalone
+  -- frame, so it must also perform the final UI composite here.  Otherwise
+  -- drawHUDs remains unsuppressed and both HUDs stay in their central Game Boy
+  -- coordinates even though the hosted world canvas spans the full window.
+  pcall(BattleHud.build, shot.canvas)
+  local ios = isIOS()
+  local okHud, up = false, false
+  if not ios then
+    okHud, up = pcall(OverworldBattle.snapHUDs, session.battle, shot)
+    reportHudBridge(("hosted-snap=%s result=%s scale=%s size=%sx%s detail=%s")
+      :format(tostring(okHud), tostring(okHud and up == true),
+              tostring(shot.scale), tostring(shot.pw), tostring(shot.ph),
+              tostring(okHud and "none" or up)))
+  end
+  session.snapped = (okHud and up) and true or false
+  if not ios and not okHud and not session.hudWarned then
+    session.hudWarned = true
+    V.mod.log:warn("hosted battle HUD snap failed: %s -- the HUDs draw "
+                   .. "in the battle frame this battle", tostring(up))
+  end
+  session.providerShot = shot
+  return shot.canvas, shot
+end
+
+function OverworldBattle.providerFinish()
+  if not session then return end
+  session.apiHosted = false
+  session.providerShot = nil
+  session.shot = nil
+  session.snapped = false
 end
 
 function OverworldBattle.finish()
@@ -539,7 +695,7 @@ function OverworldBattle.update(dt)
 
   local g = game()
   local top = g and g.stack and g.stack:top()
-  local ow = g and g.overworld
+  local ow = g and (g.overworld or g.world)
   -- A battle that ended without saying so (a script tearing the state down,
   -- a path that never emits battle.ended) would otherwise leave the cast
   -- culled for good. Armed only once something has actually covered the
@@ -573,9 +729,25 @@ function OverworldBattle.update(dt)
   -- the battle only exists once it has been pushed; a session opened at
   -- pushBattle time has it, one opened from battle.started was handed it
   session.battle = session.battle or (top ~= ow and top or nil)
+  -- BattleScene renders during this update but does not own a clock. Advance
+  -- standalone Stadium instances here with the same real frame delta as the
+  -- camera and animated sprite providers. Its internal render-time sync then
+  -- remains a zero-delta identity operation.
+  if session.battle then
+    pcall(StadiumModels.update, session.battle, dt)
+  end
   -- the world pass is hidden behind the battle, so mesh builds get the wide
   -- slice: nothing visible can hitch on them
   ChunkMesher.pump(true)
+
+  -- The importer calls providerRender synchronously from its environment
+  -- phase. Building the normal standalone frame too would create two complete
+  -- battle scenes and whichever compositor ran last would obscure the other.
+  if session.apiHosted then
+    session.shot = nil
+    session.snapped = false
+    return
+  end
 
   -- The mons' textures are rendered HERE, with no canvas bound, for the same
   -- reason the scene is: the pics layer binds its own targets, and doing that
@@ -622,6 +794,7 @@ function OverworldBattle.update(dt)
                    .. "on the plain battle background", tostring(shot))
     return
   end
+  shot = stadium2ArenaCanvas(shot, session.battle)
   session.snapped = false
   if shot and shot.canvas then
     -- the depth of field is measured off the two marks: the slab in focus is
@@ -646,6 +819,10 @@ function OverworldBattle.update(dt)
     local okHud, up = false, false
     if not ios then
       okHud, up = pcall(OverworldBattle.snapHUDs, session.battle, shot)
+      reportHudBridge(("snap-call=%s result=%s scale=%s size=%sx%s detail=%s")
+        :format(tostring(okHud), tostring(okHud and up == true),
+                tostring(shot.scale), tostring(shot.pw), tostring(shot.ph),
+                tostring(okHud and "none" or up)))
     end
     session.snapped = (okHud and up) and true or false
     -- once per battle, not once per frame: a driver that cannot do this cannot
@@ -670,7 +847,11 @@ end
 -- should draw the way it always did.
 function OverworldBattle.shot()
   if not session or session.broken then return nil end
-  local s = session.shot
+  -- A Stadium-hosted OFF arena is still Battle Art's live voxel shot. The
+  -- importer owns battle lifetime and model actors, but camera input must see
+  -- the provider result just as it sees the standalone result; otherwise the
+  -- mouse/stick gate closes while a perfectly valid voxel frame is visible.
+  local s = session.apiHosted and session.providerShot or session.shot
   if s and s.canvas then return s end
   return nil
 end
@@ -736,7 +917,10 @@ function OverworldBattle.animTexture(battle)
     g.clear(0, 0, 0, 0)
     g.setBlendMode("alpha")
     g.setColor(1, 1, 1, 1)
-    innerAnim(battle, false)
+    -- Gen 2's OAM animation tiles are palette indices, not finished RGB.
+    -- Asking the native layer for its colorized form prevents the default
+    -- yellow OBJ palette from becoming bright comb-like strips in the world.
+    innerAnim(battle, true)
     g.pop()
   end)
   if not ok then pcall(g.pop, g) end
@@ -995,6 +1179,18 @@ function OverworldBattle.sideTexture(battle, side)
   local saved = {}
   for k, v in pairs(OFF[side]) do saved[k] = battle[k]; battle[k] = v end
   texturing = side
+  local savedWinSlide, worldSlide
+  if side == "enemy" and battle.showEnemyTrainer
+      and battle.winSlide ~= nil then
+    -- Capture the complete victory trainer pose. Native winSlide moves it
+    -- inside a 160px UI canvas and crops the right edge; carry that motion as
+    -- world metadata instead so the card remains complete and depth-tested.
+    local frame = math.max(0, tonumber(battle.winSlide) or 0)
+    local step = math.min(6, math.floor(frame / 4) + 1)
+    worldSlide = math.max(0, 6 - step) * 8
+    savedWinSlide = battle.winSlide
+    battle.winSlide = nil
+  end
 
   local ok, err = pcall(function()
     g.setCanvas(canvas)
@@ -1005,6 +1201,7 @@ function OverworldBattle.sideTexture(battle, side)
   end)
 
   texturing = nil
+  if savedWinSlide ~= nil then battle.winSlide = savedWinSlide end
   for k in pairs(OFF[side]) do battle[k] = saved[k] end
   g.setScissor, g.intersectScissor, g.getScissor =
     setScissor, intersectScissor, getScissor
@@ -1026,7 +1223,64 @@ function OverworldBattle.sideTexture(battle, side)
   local playerNoMirror = side == "player"
                          and not BattleArt.mirrorsPlayerSprite()
   return { canvas = canvas, ax = ax, ay = ay, trainer = trainer,
-           noMirror = playerNoMirror }
+           noMirror = playerNoMirror, worldSlide = worldSlide }
+end
+
+-- Native Gen 2 trainer-card capture. Its BattleState is a separate class from
+-- the compatibility battle wrapped above, but drawPic already resolves the
+-- configured player/trainer image and the importer's keyed transparency.
+function OverworldBattle.gen2TrainerTexture(state, side)
+  if not (state and type(state.drawPic) == "function"
+      and type(state.activeMon) == "function") then return nil end
+  local animated, trainerOffset
+  if side == "player" then
+    animated, trainerOffset = AnimatedBattleArt.playerTrainerFrame(state)
+  end
+  local showing = side == "enemy" and state.showEnemyTrainer
+    or side == "player" and (state.showPlayerTrainer or animated ~= nil)
+  if not showing then return nil end
+  local canvas = texCanvasFor(side)
+  if not canvas then return nil end
+  local g = love.graphics
+  local previous = g.getCanvas()
+  local blend, alpha = g.getBlendMode()
+  local setScissor, intersectScissor, getScissor =
+    g.setScissor, g.intersectScissor, g.getScissor
+  g.setScissor = function() end
+  g.intersectScissor = function() end
+  g.getScissor = function() return nil end
+  local savedWinSlide, worldSlide
+  local forcedPlayerTrainer = false
+  if side == "player" and animated and not state.showPlayerTrainer then
+    state.showPlayerTrainer, forcedPlayerTrainer = true, true
+  end
+  if side == "enemy" and state.winSlide ~= nil then
+    local frame = math.max(0, tonumber(state.winSlide) or 0)
+    local step = math.min(6, math.floor(frame / 4) + 1)
+    worldSlide = math.max(0, 6 - step) * 8
+    savedWinSlide, state.winSlide = state.winSlide, nil
+  end
+  local ok, err = pcall(function()
+    g.setCanvas(canvas)
+    g.clear(0, 0, 0, 0)
+    g.setBlendMode("alpha")
+    g.setColor(1, 1, 1, 1)
+    state:drawPic(state:activeMon(side), side == "player")
+  end)
+  if savedWinSlide ~= nil then state.winSlide = savedWinSlide end
+  if forcedPlayerTrainer then state.showPlayerTrainer = false end
+  g.setScissor, g.intersectScissor, g.getScissor =
+    setScissor, intersectScissor, getScissor
+  if previous then g.setCanvas(previous) else g.setCanvas() end
+  g.setBlendMode(blend or "alpha", alpha)
+  if not ok then error(err, 0) end
+  return {
+    canvas = canvas,
+    ax = side == "player" and (40 - (tonumber(trainerOffset) or 0)) or 124,
+    ay = side == "player" and 96 or 56,
+    trainer = true,
+    worldSlide = worldSlide,
+  }
 end
 
 -- Whether the hit flash is showing this frame.

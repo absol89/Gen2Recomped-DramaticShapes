@@ -1,7 +1,7 @@
 {
   "id": "BATTLE_ART_VOXEL_GEN2",
   "name": "BATTLE ART VOXEL GEN2",
-  "version": "2.0.5",
+  "version": "2.0.7",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -9,8 +9,8 @@
   "game_version": "0.0.0-dev || >=0.1.37 <3.0.0",
   "priority": 100,
   "dependencies": [],
-  "optional_dependencies": [],
-  "conflicts": ["Gen2Recomped-DramaticShapes", "overworld_wild_spawns"],
+  "optional_dependencies": ["STADIUM2_IMPORTER"],
+  "conflicts": ["Gen2Recomped-DramaticShapes", "STADIUM2_OVERWORLD_MODELS"],
   "permissions": [
     "engine_internals"
   ],

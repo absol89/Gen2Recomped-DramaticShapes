@@ -6,6 +6,7 @@ local function source(path)
 end
 
 local overworld = source("lib/OverworldBattle.lua")
+local main = source("main.lua")
 local sideTexture = assert(overworld:find("function OverworldBattle.sideTexture", 1, true))
 local sideTextureEnd = assert(overworld:find(
   "function OverworldBattle.flashing", sideTexture, true))
@@ -30,10 +31,20 @@ local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true)
 assert(apply < reassert and reassert < pics,
   "animated ownership is not reclaimed after Battle Art and before capture")
 local capture = assert(overworld:find("OverworldBattle.animTexture", 1, true))
+assert(main:find("installLegacyAlias(payload and payload.loader", 1, true),
+  "mods.loaded must publish the StadiumBattleFX discovery alias from its loader")
 local render = assert(overworld:find("BattleScene.render", capture, true))
 local hud = assert(overworld:find("OverworldBattle.snapHUDs", render, true))
 assert(capture < render and render < hud,
   "animation capture, world render, and HUD composite are out of order")
+local provider = assert(overworld:find("function OverworldBattle.providerRender", 1, true))
+local providerEnd = assert(overworld:find(
+  "function OverworldBattle.providerFinish", provider, true))
+local hosted = overworld:sub(provider, providerEnd - 1)
+local hostedDof = assert(hosted:find("BattleDOF.apply", 1, true))
+local hostedHud = assert(hosted:find("OverworldBattle.snapHUDs", hostedDof, true))
+assert(hostedDof < hostedHud and hosted:find("session.snapped =", hostedHud, true),
+  "StadiumBattleFX-hosted frames do not snap and own the edge HUDs")
 local hudEnd = assert(overworld:find("function OverworldBattle.drawHudPanels", hud, true))
 local snappedHud = overworld:sub(hud, hudEnd - 1)
 assert(snappedHud:find("not UiBackplates.hudUsesColor()", 1, true),
@@ -53,6 +64,11 @@ assert(stagedPics > restorePics and pinPics < uiDraw and uiDraw < restorePics,
   "staged draws do not transactionally defeat per-state picture overrides")
 
 local scene = source("lib/BattleScene.lua")
+assert(scene:find("side = side", 1, true)
+    and scene:find("trainer = tex.trainer == true", 1, true),
+  "world cards do not retain the side/trainer metadata needed for ownership")
+assert(scene:find("hostedActors and not card.trainer", 1, true),
+  "hosted Stadium actors do not replace Pokemon cards while preserving trainers")
 local effect = assert(scene:find("BattleScene.fxCard", 1, true))
 local effectDraw = assert(scene:find("BattleBillboard.PULL + 6", effect, true))
 local finish = assert(scene:find("Voxel3D.endScene", effectDraw, true))

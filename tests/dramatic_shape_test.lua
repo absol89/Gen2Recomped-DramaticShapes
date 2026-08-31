@@ -2479,19 +2479,23 @@ local hudShot = { lx = 100, ly = 12, scale = 3, pw = 1000, ph = 500 }
 local hudRects, bandX = Battles.snapRects(hudShot)
 local hudRect = Battles.HUD_RECT
 
-T.eq(hudRects.enemy[1], 0, "the foe's panel starts at the window's left edge")
-T.eq(hudRects.player[1] + hudRects.player[3], hudShot.pw,
-  "and the player's ends at the right one")
+T.eq(hudRects.enemy[1], 2 * hudShot.scale,
+  "the foe's panel starts two logical pixels from the left edge")
+T.eq(hudRects.player[1] + hudRects.player[3],
+  hudShot.pw - 2 * hudShot.scale,
+  "and the player's ends two logical pixels before the right edge")
 T.check(hudRects.enemy[1] < hudShot.lx,
   "so the foe's block has left the letterbox it used to sit in")
 T.check(hudRects.player[1] > hudShot.lx + hudRect.player[1] * hudShot.scale,
   "and the player's has gone the other way")
 
--- the vertical is untouched: both blocks stay on the rows the GB put them on
-T.eq(hudRects.enemy[2], hudShot.ly + hudRect.enemy[2] * hudShot.scale,
-  "the foe's block keeps its own rows")
-T.eq(hudRects.player[2], hudShot.ly + hudRect.player[2] * hudShot.scale,
-  "and so does the player's")
+-- Oversized Gen 2 glyphs need more breathing room from the horizontal edges
+-- than the chrome needs from the sides.
+T.eq(hudRects.enemy[2], 8 * hudShot.scale,
+  "the foe's block keeps eight logical pixels below the top")
+T.eq(hudRects.player[2] + hudRects.player[4],
+  hudShot.ph - 8 * hudShot.scale,
+  "and the player's keeps the same room above the bottom")
 
 -- and their size: a block is the same GB tiles at the same scale as the rest of
 -- the art, moved and not stretched
@@ -2511,9 +2515,10 @@ T.eq(bandX.player + hudRect.player[1] * hudShot.scale, hudRects.player[1],
 -- block already ends at column 160, so it must not move at all
 local snug = { lx = 0, ly = 0, scale = 4, pw = 160 * 4, ph = 144 * 4 }
 local snugRects = Battles.snapRects(snug)
-T.eq(snugRects.player[1], hudRect.player[1] * snug.scale,
-  "on a GB-shaped window the player's block stays exactly where it was")
-T.eq(snugRects.enemy[1], 0, "and the foe's is flush with a left edge it already met")
+T.eq(snugRects.player[1], (hudRect.player[1] - 2) * snug.scale,
+  "on a GB-shaped window the player's block keeps the requested right inset")
+T.eq(snugRects.enemy[1], 2 * snug.scale,
+  "and the foe keeps the requested left inset")
 
 -- the bands together cover every row drawHUDs draws into (0-96: the two HUDs,
 -- the pokeball rows and the safari ball count) and never overlap, so nothing it

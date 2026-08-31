@@ -187,6 +187,7 @@ local function monMatrix(tex, x, groundY, z, mirror)
   local w = BattleScene.GB_W * k
   local h = BattleScene.GB_H * k
   local ox = -((tex.ax / BattleScene.GB_W) - 0.5) * w
+  ox = ox + (tonumber(tex.worldSlide) or 0) * k
   local oy = -((BattleScene.GB_H - tex.ay) / BattleScene.GB_H) * h
   local yaw = BattleBillboard.yawToward(x, z, Voxel3D.eye)
   local card = Mat4.mul(Mat4.translate(ox, oy, 0), Mat4.scale(w, h, 1))
@@ -214,7 +215,9 @@ local function monCards(arena, groundY, textures)
             tostring(tex.noMirror), tostring(BattleArt.flipsPlayerFront()))
         end
       end
-      out[#out + 1] = { tex = tex.canvas,
+      out[#out + 1] = { side = side,
+                        trainer = tex.trainer == true,
+                        tex = tex.canvas,
                         model = monMatrix(tex, cell[1], groundY, cell[2],
                                           mirror) }
     end
@@ -335,7 +338,7 @@ local function shadowSignature(state, arena, terrain, nbMesh, token)
 end
 
 local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
-                           atlasFor, cards, token, host, neighbors,
+                           atlasFor, cards, stadium, token, host, neighbors,
                            water, nbWater)
   if not ShadowMap.available() then return end
   local sig = shadowSignature(state, arena, terrain, nbMesh, token)
@@ -378,6 +381,15 @@ local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
                      ShadowMap.snug(card.model))
     end
     ShadowMap.sprites(false)
+  end
+
+  -- A Stadium placement owns the battler completely, including its caster.
+  -- Previously the visible card was skipped but its old Battle Art texture
+  -- was still submitted to the sun map.  Besides producing the wrong flat
+  -- shadow, provider callbacks could leak that stale sprite-shaped geometry
+  -- back into the model/effects pass.  Use the model caster instead.
+  for _, placement in pairs(stadium or {}) do
+    StadiumModels.drawShadow(placement, ShadowMap.clipVP)
   end
 
   ShadowMap.finish(sig)
@@ -471,12 +483,15 @@ local function tickTiles()
 end
 
 function BattleScene.render(state, arena, textures, token, battle, animTex,
-                            animAnchors)
+                            animAnchors, externalCamera, externalModelShadow,
+                            drawActors, modelBattle)
   -- The Stadium 2 importer keys its model instances to the live battle (a
   -- mid-fight Transform or a shiny flip swaps the instance); nil battle just
   -- means the placements come back empty and the sprite cards stand.
-  StadiumModels.sync(battle)
-  StadiumModels.update(battle)
+  local modelSource = modelBattle or battle
+  if not drawActors then
+    StadiumModels.sync(modelSource)
+  end
   if not (state and state.map and arena) then return nil end
   if not Voxel3D.available() then return nil end
   tickTiles()
@@ -523,8 +538,30 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   end
 
   local groundY = BattleScene.groundY(host, arena)
-  local cam, pitch = BattleCam.rig(arena, groundY)
-  cam.fov = BattleScene.letterboxFov(cam.fov, ph, s)
+  local cam, pitch
+  local externalEye = externalCamera and externalCamera.eye
+  local externalFocus = externalCamera and externalCamera.focus
+  local externalProjection = externalCamera and externalCamera.projection
+  local externalF = type(externalProjection) == "table"
+    and tonumber(externalProjection[6]) or nil
+  if type(externalEye) == "table" and type(externalFocus) == "table"
+      and externalF and math.abs(externalF) > 1e-6 then
+    cam = {
+      eye = { externalEye[1] + arena.mid[1],
+              externalEye[2] + groundY,
+              externalEye[3] + arena.mid[2] },
+      focus = { externalFocus[1] + arena.mid[1],
+                externalFocus[2] + groundY,
+                externalFocus[3] + arena.mid[2] },
+      fov = 2 * math.atan(1 / math.abs(externalF)), curve = 0,
+    }
+    local dx, dy, dz = cam.eye[1] - cam.focus[1],
+      cam.eye[2] - cam.focus[2], cam.eye[3] - cam.focus[3]
+    pitch = math.atan2(math.sqrt(dx * dx + dz * dz), math.max(1e-3, dy))
+  else
+    cam, pitch = BattleCam.rig(arena, groundY)
+    cam.fov = BattleScene.letterboxFov(cam.fov, ph, s)
+  end
 
   local cx, cy = arena.mid[1], arena.mid[2]
   -- the world extents the sun frustum is fitted to; the camera itself is
@@ -541,17 +578,47 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
   -- and the real one is rebuilt inside the scene below.
   Voxel3D.camera = cam
   Voxel3D.viewProjection(cx, cy, vw, vh)
-  local cards = monCards(arena, groundY, textures)
+  local drawActorPass = type(drawActors) == "table" and drawActors.draw
+    or (type(drawActors) == "function" and drawActors or nil)
+  local actorCovers = type(drawActors) == "table" and drawActors.covers
+  local covered = {}
+  if type(actorCovers) == "function" then
+    for _, side in ipairs({ "enemy", "player" }) do
+      local okCover, value = pcall(actorCovers, side)
+      covered[side] = okCover and value == true
+    end
+  end
+  -- New hosted renderers can report per-side coverage. The legacy plain
+  -- callback owns both battler slots; trainer cards are distinguished below.
+  local hostedActors = type(drawActors) == "function"
+  local cards = {}
+  for _, card in ipairs(monCards(arena, groundY, textures)) do
+    -- StadiumBattleFX 2.1.x hands its arena provider a plain actor draw
+    -- callback rather than the newer { draw, covers } contract.  That
+    -- callback owns both Pokemon slots, but not the trainer intro/end cards
+    -- captured by Battle Art.  Keep trainers and suppress only battlers so a
+    -- hosted Stadium model is not drawn on top of its Battle Art sprite.
+    local actorOwns = covered[card.side]
+      or (hostedActors and not card.trainer)
+    if not actorOwns then cards[#cards + 1] = card end
+  end
   -- The Stadium 2 importer's models, when connected: one placement per side,
   -- replacing only that side's sprite card. Computed before the scene opens
   -- so a model failure can still fall back to the card below.
-  local stadium = StadiumModels.placements(arena, groundY, textures, battle)
+  local stadium = drawActors and {}
+    or StadiumModels.placements(arena, groundY, textures, modelSource)
+  local spriteCards = {}
+  for _, card in ipairs(cards) do
+    if not StadiumModels.uses(stadium, card.side) then
+      spriteCards[#spriteCards + 1] = card
+    end
+  end
   Voxel3D.camera = nil
   if flatFill then
     ShadowMap.discard()
   else
     castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh, atlasFor,
-                cards, token, host, neighbors, water, nbWater)
+                spriteCards, stadium, token, host, neighbors, water, nbWater)
   end
 
   -- An opaque void either way. Outdoors the camera is low enough that the
@@ -589,7 +656,17 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     local rw, rh = AntiAlias.expand(pw, ph)
     local skyFill = whiteFill and { 1, 1, 1 }
                     or (artImage and { 0, 0, 0 } or sky)
-    if not Voxel3D.beginScene(rw, rh, cx, cy, vw, vh, skyFill, "battle") then
+    local modelShadow = type(externalModelShadow) == "table"
+        and externalModelShadow.map and externalModelShadow.sunVP and {
+          map = externalModelShadow.map,
+          sunVP = externalModelShadow.sunVP,
+          sunDark = externalModelShadow.sunDark,
+          sunBias = externalModelShadow.sunBias,
+          sunTexel = externalModelShadow.sunTexel,
+          origin = { arena.mid[1], groundY, arena.mid[2] },
+        } or nil
+    if not Voxel3D.beginScene(rw, rh, cx, cy, vw, vh, skyFill, "battle",
+        modelShadow) then
       return
     end
     if artImage then
@@ -648,14 +725,12 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     local unlit = UiBackplates.spritesUnlit()
     if unlit then setUnlit(true) end
 
-    for _, card in ipairs(monCards(arena, groundY, textures)) do
-      if not StadiumModels.uses(stadium, card.side) then
-        -- the sun stored this card snugged (castShadows), so its own shadow
-        -- lookup must read the same snugged transform -- see ShadowMap.snug
-        local sunModel = not unlit and ShadowMap.snug(card.model) or nil
-        Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
-                     BattleBillboard.PULL, sunModel)
-      end
+    for _, card in ipairs(spriteCards) do
+      -- the sun stored this card snugged (castShadows), so its own shadow
+      -- lookup must read the same snugged transform -- see ShadowMap.snug
+      local sunModel = not unlit and ShadowMap.snug(card.model) or nil
+      Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
+                   BattleBillboard.PULL, sunModel)
     end
     -- The models themselves: two passes over the placements, with a per-side
     -- fallback so a provider failure cannot strand a missing battler.
@@ -681,7 +756,7 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
       end
     end
     if failedModels.player or failedModels.enemy then
-      for _, card in ipairs(monCards(arena, groundY, textures)) do
+      for _, card in ipairs(cards) do
         if failedModels[card.side] then
           local sunModel = not unlit and ShadowMap.snug(card.model) or nil
           Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
@@ -719,6 +794,16 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
                      Mat4.translate(nb.ox, 0, nb.oy), fpull,
                      ShadowMap.snug(Mat4.translate(nb.ox, 0, nb.oy)))
       end
+    end
+    if drawActorPass then
+      drawActorPass({
+        vp = Voxel3D.vp,
+        view = Mat4.lookAt(Voxel3D.eye, Voxel3D.focus,
+          cam.up or { 0, 1, 0 }),
+        eye = Voxel3D.eye,
+        origin = { arena.mid[1], groundY, arena.mid[2] },
+        groundY = groundY, width = pw, height = ph,
+      })
     end
     local canvas = AntiAlias.resolve(Voxel3D.endScene(), pw, ph, "battle")
     if not canvas then return end

@@ -171,51 +171,81 @@ end
 local function restoreTrainer(battle)
   local state = battle and trainerStates[battle]
   if not state then return end
-  if battle.playerBackPic == currentImage(state) then
-    battle.playerBackPic = state.original
+  local field = state.field or "playerBackPic"
+  if battle[field] == currentImage(state) then
+    battle[field] = state.original
+  end
+  if state.trueColorField and battle[state.trueColorField] == true then
+    battle[state.trueColorField] = state.originalTrueColor
   end
   trainerStates[battle] = nil
 end
 
+local function playerTrainerSurface(battle)
+  if battle and battle.showPlayerTrainer ~= nil then
+    return "showPlayerTrainer", "playerBackImage", "playerBackTrueColor", true
+  end
+  return "showPlayerBack", "playerBackPic", nil, false
+end
+
 local function updateStaticPlayerTrainer(battle, mode)
   local image = BattleArt.namedImage("player", "back")
+  local showField, imageField, trueColorField, gen2 =
+    playerTrainerSurface(battle)
+  local visible = battle and battle[showField] and true or false
   local state = trainerStates[battle]
   if state and (state.kind ~= "static" or state.mode ~= mode
                 or state.image ~= image) then
     restoreTrainer(battle)
     state = nil
   end
-  if not image or not battle.playerBackPic then
+  if not image or (not battle[imageField] and not state) then
     restoreTrainer(battle)
     return
   end
   if not state then
-    state = { kind = "static", mode = mode, original = battle.playerBackPic,
-              image = image }
+    if not visible then return end
+    state = { kind = "static", mode = mode, original = battle[imageField],
+              field = imageField, trueColorField = trueColorField,
+              originalTrueColor = trueColorField and battle[trueColorField],
+              gen2 = gen2, image = image }
     trainerStates[battle] = state
-  elseif battle.playerBackPic ~= state.image
-     and battle.playerBackPic ~= state.original then
+  elseif battle[imageField] ~= state.image
+     and battle[imageField] ~= state.original then
     trainerStates[battle] = nil
     return
   end
-  battle.playerBackPic = state.image
+  if gen2 and not visible then
+    state.leaveFrames = (state.leaveFrames or 0) + 1
+    if state.leaveFrames * 4 >= 72 then
+      restoreTrainer(battle)
+      return
+    end
+  else
+    state.leaveFrames = nil
+  end
+  battle[imageField] = state.image
+  if trueColorField then battle[trueColorField] = true end
 end
 
 -- Five authored poses are tied to SlideTrainerPicOffScreen rather than to a
 -- free-running clock. Frame one waits with the stationary intro portrait;
 -- frames two through five divide the 72-pixel leftward walk, then clamp.
 local function updatePlayerTrainer(battle, mode)
-  if not (battle and battle.showPlayerBack and not battle.demo) then
+  if not battle or battle.demo then
     restoreTrainer(battle)
     return
   end
+  local showField, imageField, trueColorField, gen2 =
+    playerTrainerSurface(battle)
+  local visible = battle[showField] and true or false
   local selected = BattleArt.playerAnimationSetting:get()
   if selected == "png" then
     updateStaticPlayerTrainer(battle, mode)
     return
   end
   local def = selected ~= "rom" and PLAYER_SETS[selected] or nil
-  if not def or not battle.playerBackPic then
+  if not def or (not battle[imageField] and not trainerStates[battle]) then
     restoreTrainer(battle)
     return
   end
@@ -225,20 +255,38 @@ local function updatePlayerTrainer(battle, mode)
     state = nil
   end
   if not state then
+    if not visible then return end
     local frames = loadFrames(def, mode)
     if not frames then return end
     state = { kind = "animated", def = def, mode = mode,
-              original = battle.playerBackPic,
+              original = battle[imageField], field = imageField,
+              trueColorField = trueColorField,
+              originalTrueColor = trueColorField and battle[trueColorField],
+              gen2 = gen2,
               frames = frames, frame = 1 }
     trainerStates[battle] = state
-  elseif battle.playerBackPic ~= state.frames[state.frame]
-     and battle.playerBackPic ~= state.original then
+  elseif battle[imageField] ~= state.frames[state.frame]
+     and battle[imageField] ~= state.original then
     trainerStates[battle] = nil
     return
   end
 
   local offset = 0
-  if type(battle.picOffset) == "function" then
+  if state.gen2 then
+    if visible then
+      state.leaveFrames = nil
+    else
+      state.leaveFrames = (state.leaveFrames or 0) + 1
+      offset = -math.min(72, state.leaveFrames * 4)
+      if offset <= -72 then
+        restoreTrainer(battle)
+        return
+      end
+    end
+  elseif not visible then
+    restoreTrainer(battle)
+    return
+  elseif type(battle.picOffset) == "function" then
     local ok, got = pcall(battle.picOffset, battle, "back")
     if ok then offset = tonumber(got) or 0 end
   end
@@ -250,7 +298,8 @@ local function updatePlayerTrainer(battle, mode)
     state.frame = math.min(#state.frames,
       2 + math.floor(math.max(0, progress - 1) * movingFrames / 72))
   end
-  battle.playerBackPic = state.frames[state.frame]
+  battle[imageField] = state.frames[state.frame]
+  if trueColorField then battle[trueColorField] = true end
 end
 
 local function restore(battler)
@@ -408,18 +457,19 @@ local function updateFront(battler, generation, dt, mode)
   end
 end
 
-function AnimatedBattleArt.update(battle, dt)
+function AnimatedBattleArt.update(battle, dt, trainerBattle)
   if not battle then return end
   if BattleArt.setting:get() ~= "animated" then
-    AnimatedBattleArt.finish(battle)
+    AnimatedBattleArt.finish(battle, trainerBattle)
     return
   end
   local mode = BattleArt.displayMode()
   BattleArt.releaseSpeciesOverrides(battle)
   -- Restore a static PLAYER ART replacement before the animation manager
   -- captures the engine portrait, then leave managed animation frames alone.
-  BattleArt.applyTrainers(battle)
-  updatePlayerTrainer(battle, mode)
+  trainerBattle = trainerBattle or battle
+  BattleArt.applyTrainers(trainerBattle)
+  updatePlayerTrainer(trainerBattle, mode)
   local frontGeneration = BattleArt.frontAnimationSetting:get()
   updateFront(battle.enemy, frontGeneration, dt, mode)
   local playerSide = BattleArt.playerSide()
@@ -472,12 +522,19 @@ end
 -- the ROM image should receive the Game Boy 2x scale.
 function AnimatedBattleArt.hasPlayerTrainerFrame(battle)
   local state = battle and trainerStates[battle]
-  return state and battle.playerBackPic == currentImage(state) or false
+  local field = state and (state.field or "playerBackPic")
+  return state and battle[field] == currentImage(state) or false
 end
 
-function AnimatedBattleArt.finish(battle)
+function AnimatedBattleArt.playerTrainerFrame(battle)
+  local state = battle and trainerStates[battle]
+  if not state then return nil, 0 end
+  return currentImage(state), -math.min(72, (state.leaveFrames or 0) * 4)
+end
+
+function AnimatedBattleArt.finish(battle, trainerBattle)
   if not battle then return end
-  restoreTrainer(battle)
+  restoreTrainer(trainerBattle or battle)
   restore(battle.enemy)
   restore(battle.player)
 end

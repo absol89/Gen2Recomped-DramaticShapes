@@ -50,6 +50,18 @@ Voxel.MAX_LEVEL = #Voxel.ANGLES_DEG - 1
 -- the rung FULL sits on, so nothing has to hunt for it by label
 Voxel.FULL_LEVEL = 1
 
+-- Render-pipeline levels live in the engine options bucket, outside the mod
+-- settings schema, so an absent key otherwise inherits the engine's generic
+-- level 0. Seed only a genuinely new option: an explicit 0 is a player's OFF
+-- choice and must survive updates, reinstalls, and later save creation.
+function Voxel.seedOptions(opts)
+  if type(opts) ~= "table" then return false end
+  if type(opts.pipelines) ~= "table" then opts.pipelines = {} end
+  if opts.pipelines.voxel ~= nil then return false end
+  opts.pipelines.voxel = Voxel.FULL_LEVEL
+  return true
+end
+
 function Voxel.isFull(level)
   return (level or Voxel.level) == Voxel.FULL_LEVEL
 end

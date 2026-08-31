@@ -6,6 +6,7 @@ local BattleStage = {}
 
 BattleStage.API_VERSION = 1
 BattleStage.SOURCE_MOD_ID = "BATTLE_ART_VOXEL_GEN2"
+BattleStage.LEGACY_MOD_ID = "BATTLE_ART_VOXEL_FORK"
 
 local OWNERSHIP = {
   arena = true,
@@ -44,6 +45,11 @@ function BattleStage.export(battles)
   local authoredEnemy = copyPoint(anchors.enemy, { 124, 56 })
 
   local function state(expectedBattle)
+    -- StadiumBattleFX selected Battle Art as its arena and is about to call
+    -- providerRender(drawActors). Do not simultaneously advertise Battle Art
+    -- as a competing external world owner: current SBFX intentionally yields
+    -- before provider dispatch whenever this descriptor claims the battle.
+    if call(battles, "providerHosted") == true then return nil end
     local battle = call(battles, "battle")
     if battle == nil or (expectedBattle ~= nil and battle ~= expectedBattle) then
       return nil
@@ -105,6 +111,32 @@ function BattleStage.export(battles)
     enabled = function() return call(battles, "enabled") == true end,
     state = state,
   }
+end
+
+-- Stadium Battle FX 2.1.x predates the Gen2Recomped package id and discovers
+-- staged renderers through mod.find("BATTLE_ART_VOXEL_FORK").  The loader's
+-- public API deliberately has no alias-registration call, but Battle Art
+-- already carries engine_internals permission for its renderer hooks. Publish
+-- a read-only discovery alias after loading has finished: it points at this
+-- exact active mod record and exports table, is not appended to loader.order,
+-- and therefore cannot load, update, configure, or save the mod twice.
+function BattleStage.installLegacyAlias(owner, exports)
+  -- mods.loaded publishes the Loader itself; game.ready callers historically
+  -- passed Game. Accept both so the alias exists before StadiumBattleFX's
+  -- first compatibility refresh without breaking the later idempotent retry.
+  local loader = owner and owner.mods and owner.exports and owner
+    or (owner and owner.mods)
+  local mods = loader and loader.mods
+  local published = loader and loader.exports
+  if type(mods) ~= "table" or type(published) ~= "table" then return false end
+  if mods[BattleStage.LEGACY_MOD_ID] ~= nil then
+    return mods[BattleStage.LEGACY_MOD_ID] == mods[BattleStage.SOURCE_MOD_ID]
+  end
+  local current = mods[BattleStage.SOURCE_MOD_ID]
+  if not current then return false end
+  mods[BattleStage.LEGACY_MOD_ID] = current
+  published[BattleStage.LEGACY_MOD_ID] = exports
+  return true
 end
 
 return BattleStage

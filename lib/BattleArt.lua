@@ -200,7 +200,8 @@ end
 -- shape independently, so species routing never needs another mod's marker.
 function BattleArt.speciesFor(battler)
   local species = battler and (battler.__battleArtTransformed
-                               or (battler.mon and battler.mon.species)) or nil
+                               or (battler.mon and battler.mon.species)
+                               or battler.species) or nil
   return speciesAlias(species)
 end
 
@@ -520,11 +521,19 @@ function BattleArt.playerBackPathForOptions()
 end
 
 local function trainerKey(battle)
-  local id = battle and battle.oppClass
+  local model = battle and battle.battle
+  local id = battle and (battle.oppClass or battle.enemyTrainerClass)
+    or nil
+  if type(id) ~= "string" and model then
+    id = model.oppClass or (model.trainer
+      and (model.trainer.classId or model.trainer.class))
+  end
   if type(id) ~= "string" then return nil end
   -- Gen 2 stores the party choice on the battle itself (BattleState.partyIndex);
   -- the engine's own Jessie & James rule is the same OPP_ROCKET >= 42 test.
-  if id == "OPP_ROCKET" and (battle.partyIndex or 1) >= 42 then
+  local partyIndex = battle and battle.partyIndex
+    or model and model.partyIndex or 1
+  if id == "OPP_ROCKET" and partyIndex >= 42 then
     return "jessie-james"
   end
   return slug(id:gsub("^OPP_", ""))
@@ -545,14 +554,39 @@ local function replaceTrainerField(battle, field, img)
   end
 end
 
+local function replaceTrainerFieldWithColor(battle, field, img, trueColorField)
+  local rec = trainerOriginal[battle]
+  if not rec then rec = {}; trainerOriginal[battle] = rec end
+  local saved = field .. "Saved"
+  local savedColor = saved .. "TrueColor"
+  if img then
+    if not rec[saved] then
+      rec[field], rec[saved] = battle[field] or false, true
+      rec[savedColor] = battle[trueColorField]
+    end
+    battle[field], battle[trueColorField] = img, true
+  elseif rec[saved] then
+    battle[field] = rec[field] or nil
+    battle[trueColorField] = rec[savedColor]
+    rec[field], rec[saved], rec[savedColor] = nil, nil, nil
+  end
+end
+
 function BattleArt.applyTrainers(battle)
   if not battle then return end
   local enemy = battle.showEnemyTrainer and trainerKey(battle) or nil
-  replaceTrainerField(battle, "trainerPic",
-    enemy and BattleArt.trainerImage(enemy) or nil)
+  local gen2 = battle.showPlayerTrainer ~= nil
+  if gen2 then
+    replaceTrainerFieldWithColor(battle, "enemyTrainerImage",
+      enemy and BattleArt.trainerImage(enemy) or nil,
+      "enemyTrainerTrueColor")
+  else
+    replaceTrainerField(battle, "trainerPic",
+      enemy and BattleArt.trainerImage(enemy) or nil)
+  end
 
   local player, playerImage
-  if battle.showPlayerBack then
+  if battle.showPlayerBack or battle.showPlayerTrainer then
     local artMode = BattleArt.setting:get()
     if artMode == "rom" then
       -- A stale PLAYER ART selection must never leak a custom trainer back
@@ -575,8 +609,12 @@ function BattleArt.applyTrainers(battle)
       end
     end
   end
-  replaceTrainerField(battle, "playerBackPic",
-    playerImage)
+  if gen2 then
+    replaceTrainerFieldWithColor(battle, "playerBackImage", playerImage,
+                                 "playerBackTrueColor")
+  else
+    replaceTrainerField(battle, "playerBackPic", playerImage)
+  end
 end
 
 local function playerIsFemale(save)

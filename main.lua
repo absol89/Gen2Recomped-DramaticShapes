@@ -46,6 +46,77 @@ local mod = ...
 
 local V = { mod = mod, path = mod.path }
 
+-- Stadium2 Importer 0.10.7 still imports the old Gen 2 Unown helper at
+-- game.ready.  Engine 0.7.x keeps the mon fields that helper consumes, but
+-- some packaged builds no longer ship the module itself.  Supply only the
+-- three form helpers the importer uses, and leave a real engine module alone
+-- whenever it is present.  This has to happen while mods are loading: by the
+-- time game.ready reports the missing require, the importer's hook has already
+-- aborted and cannot install its battle scene.
+local function installLegacyEngineAliases()
+  local moduleName = "src.core.gen2.Unown"
+  local ok = pcall(require, moduleName)
+  if not ok and not package.preload[moduleName] then
+    package.preload[moduleName] = function()
+      local Unown = {
+        NUM_UNOWN = 26,
+        SPECIES = "UNOWN",
+        ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      }
+
+      function Unown.name(letter)
+        if type(letter) ~= "number" or letter < 1 or letter > 26 then return nil end
+        return Unown.ALPHABET:sub(letter, letter)
+      end
+
+      function Unown.index(letter)
+        if type(letter) == "number" then return letter end
+        if type(letter) ~= "string" or #letter ~= 1 then return nil end
+        return Unown.ALPHABET:find(letter:upper(), 1, true)
+      end
+
+      local function middleBits(dv)
+        return math.floor((tonumber(dv) or 0) / 2) % 4
+      end
+
+      function Unown.letterFromDVs(dvs)
+        if type(dvs) ~= "table" then return nil end
+        local packed = middleBits(dvs.attack) * 64
+          + middleBits(dvs.defense) * 16
+          + middleBits(dvs.speed) * 4
+          + middleBits(dvs.special)
+        return math.floor(packed / 10) + 1
+      end
+
+      return Unown
+    end
+  end
+
+  -- The unified 0.7.x battle presenter no longer constructs the old Gen 2
+  -- BattleAnimView. Importer 0.10.7 only needs its method table so it can
+  -- install optional projection wrappers; native animation objects are owned
+  -- by the current presenter/Battle FX path. A no-op compatibility table lets
+  -- the importer finish installing without taking animation ownership away.
+  moduleName = "src.ui.gen2.BattleAnimView"
+  ok = pcall(require, moduleName)
+  if not ok and not package.preload[moduleName] then
+    package.preload[moduleName] = function()
+      local View = {}
+      View.__index = View
+      function View.new()
+        return setmetatable({}, View)
+      end
+      function View:present(_runner, drawBackground)
+        if type(drawBackground) == "function" then return drawBackground() end
+      end
+      function View:drawObjects() end
+      return View
+    end
+  end
+end
+
+installLegacyEngineAliases()
+
 local function chunkFor(rel)
   local source = mod:read(rel)
   if not source then
@@ -101,6 +172,9 @@ local pumpPrebake
 local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
+local StadiumBackground = V.require("StadiumBackground")
+local BattleAuxUi = V.require("BattleAuxUi")
+local Gen2BattleAdapter = V.require("Gen2BattleAdapter")
 local BattleExit = V.require("BattleExit")
 local BattleArt = V.require("BattleArt")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
@@ -108,6 +182,7 @@ local InterfaceSprites = V.require("InterfaceSprites")
 local WorldUnderlay = V.require("WorldUnderlay")
 local UiBackplates = V.require("UiBackplates")
 local BattleStage = V.require("BattleStage")
+local StadiumBattleFxProvider = V.require("StadiumBattleFxProvider")
 local BattlePresentation = V.require("BattlePresentation")
 local DayNight = V.require("DayNight")
 local DayTint = V.require("DayTint")
@@ -130,6 +205,11 @@ local HordeSfx = V.require("HordeSfx")
 -- Persistent records are generated only from this immutable geometry source.
 mod.events:on("mods.loaded", function(payload)
   StaticGeometry.capture(payload and payload.data)
+  -- StadiumBattleFX 2.1.x discovers this Gen2 package through Battle Art's
+  -- historical id. Publish the read-only alias while the loader is supplied
+  -- by the lifecycle event, before its arena/effects provider can refresh.
+  BattleStage.installLegacyAlias(payload and payload.loader, mod.exports)
+  StadiumBattleFxProvider.register()
 end)
 
 -- Forward declaration: the voxel pipeline's update hook (registered below)
@@ -554,8 +634,14 @@ local SETTINGS = {
     when = function() return stagedBattles() end, full = true },
   { UiBackplates.arenaFill,
     "Choose the staged battle background: the voxel world, a flat white "
-    .. "field, or assets/battle/front-static/bosses/arena.png.",
+    .. "field, assets/battle/front-static/bosses/arena.png, or Stadium 2's "
+    .. "live contextual arena when its importer is ready. STADIUM2 falls "
+    .. "back safely when the provider is unavailable.",
     when = function() return stagedBattles() end, full = true },
+  { UiBackplates.stadiumCircle,
+    "Control Stadium's classic ground circle independently: full, smaller, "
+    .. "or hidden. Contextual STADIUM2 arenas ignore this circle setting.",
+    when = function() return StadiumBackground.installed() end, full = true },
   { UiBackplates.backdropOffset,
     "Crop the selected PNG arena downward in source-image pixels.",
     when = function()
@@ -1492,6 +1578,9 @@ end
 -- where the reasoning for each one is written down. Installed once, here,
 -- so this file keeps naming every engine seam the mod touches.
 OverworldBattle.install()
+StadiumBackground.install()
+BattleAuxUi.install()
+Gen2BattleAdapter.install()
 
 -- ------- the free-roam rungs' inputs and their walk
 --
@@ -1711,7 +1800,13 @@ end)
 -- save.created notification. game.ready is the first universal point where
 -- both existing and new saves have their final player identity.
 mod.events:on("game.ready", function(payload)
+  BattleStage.installLegacyAlias(payload and payload.game, mod.exports)
   pcall(BattleArt.seedPlayerDefaults, payload and payload.game)
+  -- Optional-mod publication order is not authoritative during hot reload.
+  -- Both installs are idempotent, so retry once the game and mod exports are
+  -- fully available without stacking wrappers.
+  pcall(StadiumBackground.install)
+  pcall(Gen2BattleAdapter.install)
 end)
 
 mod.events:on("save.loaded", function()
@@ -1725,7 +1820,18 @@ mod.events:on("save.loaded", function()
   applyPresentationDefaults()
 end)
 
-mod.events:on("save.created", function()
+mod.events:on("save.created", function(payload)
+  local save = payload and payload.save
+  local version = save and tostring(save.version or ""):lower() or ""
+  local gen2 = save and (tonumber(save.generation) == 2
+    or version == "gold" or version == "silver" or version == "crystal")
+  local opts = save and save.options
+  if gen2 and Voxel.seedOptions(opts) then
+    local Pipelines = require("src.render.Pipelines")
+    Pipelines.setLevel("voxel", Voxel.FULL_LEVEL)
+    Voxel.setLevel(Voxel.FULL_LEVEL)
+    Pipelines.syncOptions(opts)
+  end
   DayNight.restore()
   pcall(BattleArt.seedPlayerDefaults)
   pinEngineFx()
@@ -1743,7 +1849,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.5"
+mod.exports.version = "2.0.7"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,
