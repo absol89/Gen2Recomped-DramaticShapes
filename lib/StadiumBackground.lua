@@ -11,6 +11,7 @@ local Voxel3D = V.require("Voxel3D")
 local OverworldBattle = V.require("OverworldBattle")
 local BattleArt = V.require("BattleArt")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
+local StadiumModels = V.require("StadiumModels")
 
 local StadiumBackground = {}
 local unpack = table.unpack or unpack
@@ -19,6 +20,18 @@ local legacy = { installed=false, current=nil, eventsInstalled=false }
 local hostedDrawn = setmetatable({}, { __mode = "k" })
 local hostedReported = setmetatable({}, { __mode = "k" })
 local renderer, trainerMesh, trainerShader, catcherMesh, catcherShader
+local diagnostic = {}
+
+local function diagnose(key, message)
+  message = tostring(message)
+  if diagnostic[key] == message then return end
+  diagnostic[key] = message
+  local fs = love and love.filesystem
+  if fs and fs.append then
+    pcall(fs.append, "battle_art_stadium2_bridge.txt",
+      ("scene-%s %s\n"):format(tostring(key), message))
+  end
+end
 
 local function findMod(id)
   local find = V.mod and V.mod.find
@@ -249,15 +262,47 @@ end
 local function hostedCovers(sceneCtx, side)
   local scene = sceneCtx and sceneCtx.scene
   local host, screen = scene and scene.host, scene and scene.screen
-  if not (host and screen) then return false end
+  if not (host and screen) then
+    diagnose("cover-" .. side, "host=false screen=false result=false")
+    return false
+  end
   -- Trainer art belongs to Battle Art's existing billboard capture. It is a
   -- world-space, depth-tested card and follows the unified intro/end states;
   -- the old importer's trainer seam targets a different screen structure.
-  if trainerShowing(screen, side) then return false end
+  if trainerShowing(screen, side) then
+    diagnose("cover-" .. side, "trainer=true result=false")
+    return false
+  end
   -- An intentionally hidden Pokemon must not resurrect through fallback art.
-  if not pokemonReady(screen, side) then return true end
+  if not pokemonReady(screen, side) then
+    diagnose("cover-" .. side, "ready=false result=true")
+    return true
+  end
+  -- Scene API v1 has already prepared the host actor before Battle Art builds
+  -- its cards. Claim that side immediately when the renderer exists; waiting
+  -- for the previous frame's draw result leaves the native species sprite
+  -- permanently visible when 0.10.14 is the active provider.
+  if host.visualActor then
+    local ok, actor = pcall(host.visualActor, host, side, screen)
+    if ok and actor and actor.renderer then
+      local compat = StadiumModels.ensureRendererCompatibility(actor.renderer,
+        "hosted-cover-" .. side)
+      diagnose("cover-" .. side,
+        ("ready=true visual=true renderer=true compat=%s result=true")
+          :format(tostring(compat)))
+      return true
+    end
+    diagnose("cover-" .. side,
+      ("ready=true visual=%s actor=%s renderer=%s prior=pending")
+        :format(tostring(ok), tostring(actor ~= nil),
+          tostring(actor and actor.renderer ~= nil)))
+  end
   local prior = hostedDrawn[host]
-  return prior and prior[side] == true or false
+  local result = prior and prior[side] == true or false
+  diagnose("cover-" .. side,
+    ("ready=true fallbackPrior=%s result=%s")
+      :format(tostring(prior and prior[side]), tostring(result)))
+  return result
 end
 
 local function releaseHost()
@@ -387,6 +432,11 @@ local function drawHostedActors(sceneCtx, providerCtx)
         end
       end
       if actor and actor.renderer and host.modelMatrix then
+        local compat = StadiumModels.ensureRendererCompatibility(actor.renderer,
+          "hosted-draw-" .. side)
+        diagnose("draw-setup-" .. side,
+          ("actor=true renderer=true modelMatrix=true compat=%s tier=%s")
+            :format(tostring(compat), tostring(actor.renderer.shaderTier)))
         local callOk, ok, drawErr = pcall(function()
           local localModel, yaw = host:modelMatrix(side, actor)
           local model = api.matMul(worldFromStadium, localModel)
@@ -405,6 +455,9 @@ local function drawHostedActors(sceneCtx, providerCtx)
         end)
         if not callOk then ok, drawErr = false, ok end
         if pass == "opaque" then drawn[side] = ok == true end
+        diagnose("draw-" .. side .. "-" .. pass,
+          ("call=%s result=%s error=%s")
+            :format(tostring(callOk), tostring(ok), tostring(drawErr)))
         if ok ~= true and not report[side] then
           report[side] = true
           V.mod.log:warn("hosted Stadium %s model draw failed: %s", side,
@@ -510,13 +563,29 @@ function StadiumBackground.environment(next, ctx)
     end
     hostedBattle = battle
   end
-  local actors = {
-    covers = function(side) return hostedCovers(ctx, side) end,
-    draw = function(providerCtx)
-      drawHostedActors(ctx, providerCtx)
-      return true
-    end,
-  }
+  local scene = ctx and ctx.scene
+  local hostedReady = scene and scene.host and scene.screen
+  local actors
+  if hostedReady then
+    actors = {
+      covers = function(side) return hostedCovers(ctx, side) end,
+      draw = function(providerCtx)
+        drawHostedActors(ctx, providerCtx)
+        return true
+      end,
+    }
+  else
+    -- Some 0.10.14 calls reach this extension with only the public target,
+    -- camera and battle fields populated. Passing a nominal hosted owner in
+    -- that shape makes BattleScene skip its direct Stadium placements while
+    -- the owner has no actor it can draw. Nil deliberately selects the
+    -- direct-renderer path, which has the battler data and compatibility
+    -- shader needed to replace Battle Art's species cards.
+    diagnose("environment-route",
+      ("hosted=false host=%s screen=%s route=direct-renderer")
+        :format(tostring(scene and scene.host ~= nil),
+          tostring(scene and scene.screen ~= nil)))
+  end
   local canvas = OverworldBattle.providerRender(battle, actors,
     ctx.camera, ctx.shadow)
   if not drawCanvas(g, canvas, target) then
@@ -558,17 +627,13 @@ end
 
 function StadiumBackground.shadow(next, ctx)
   if effectiveMode(ctx) ~= "OFF" then return next(ctx) end
-  local host = ctx and ctx.scene and ctx.scene.host
-  local lightVP = ctx and ctx.shadow and ctx.shadow.viewProjection
-  if host and lightVP then
-    for _, side in ipairs({ "enemy", "player" }) do
-      local actor = host.visualActor and host:visualActor(side)
-      if actor and actor.renderer and host.modelMatrix then
-        actor.renderer:drawShadowMap(host:modelMatrix(side, actor), lightVP)
-      end
-    end
-  end
-  return next(ctx)
+  -- OFF embeds Battle Art's complete voxel scene, including its own sun map.
+  -- Do not also submit the importer's hosted actors to the importer's shadow
+  -- target.  That second, ungated caster path has no Gen 2 presentation
+  -- screen in 0.10.14's partial extension context, so it can show a player's
+  -- shadow before send-out and retain a defeated enemy after Battle Art has
+  -- removed the corresponding placement.
+  return true
 end
 
 local function updateLegacyTrainerArt(screen)
@@ -820,6 +885,10 @@ function StadiumBackground.install()
   if installed then return true end
   local handle = findMod("STADIUM2_IMPORTER")
   local scene = handle and handle.exports and handle.exports.scene
+  diagnose("install", ("version=%s scene=%s api=%s register=%s")
+    :format(tostring(handle and handle.version), tostring(scene ~= nil),
+      tostring(scene and (scene.VERSION or scene.apiVersion)),
+      tostring(type(scene and scene.register))))
   if not (scene and tonumber(scene.VERSION or scene.apiVersion) == 1
       and type(scene.register) == "function") then
     return installLegacy(handle)

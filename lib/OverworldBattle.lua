@@ -53,12 +53,24 @@ local UiBackplates = V.require("UiBackplates")
 local AnimatedBattleArt = V.require("AnimatedBattleArt")
 local StadiumModels = V.require("StadiumModels")
 local Voxel3D = V.require("Voxel3D")
+local Voxel = V.require("VoxelState")
 -- Event logger for the staged-battle path (engine log; plain print does not
 -- reach it in fused builds). Module-level so every seam in this file can use
 -- it, not just the ones below install().
 local TraceLog = pcall(require, "src.core.Logger") and require("src.core.Logger")
 local function trace(fmt, ...)
   if TraceLog then TraceLog.warn("[BATTLE_ART_VOXEL_GEN2] " .. fmt, ...) end
+end
+local transitionDiagnostic = {}
+local function transitionTrace(key, message)
+  message = tostring(message)
+  if transitionDiagnostic[key] == message then return end
+  transitionDiagnostic[key] = message
+  local fs = love and love.filesystem
+  if fs and fs.append then
+    pcall(fs.append, "battle_art_stadium2_bridge.txt",
+      ("transition-%s %s\n"):format(tostring(key), message))
+  end
 end
 local ChunkMesher = V.require("ChunkMesher")
 
@@ -303,11 +315,16 @@ end
 function OverworldBattle.textRects(battle)
   if not battle or battle.blankForAskName then return {} end
   local r = OverworldBattle.TEXT_RECT
-  local out = { box = r.box }
+  local dy = UiBackplates.textboxMode() == "HALF"
+    and UiBackplates.HALF_Y_OFFSET or 0
+  local function shifted(rect)
+    return { rect[1], rect[2] + dy, rect[3], rect[4] }
+  end
+  local out = { box = shifted(r.box) }
   if battle.phase == "moveSelect" then
-    out.moves = r.moves
+    out.moves = shifted(r.moves)
   elseif battle.phase == "mimicSelect" then
-    out.mimic = r.mimic
+    out.mimic = shifted(r.mimic)
   end
   return out
 end
@@ -353,28 +370,59 @@ function OverworldBattle.snapRects(shot)
   local e, p = OverworldBattle.HUD_RECT.enemy, OverworldBattle.HUD_RECT.player
   local sideInset = 2 * s
   -- Keep the large status furniture away from the title bar and the bottom
-  -- edge.  Horizontal and vertical insets deliberately differ: two logical
-  -- pixels makes the HUDs read as edge furniture, while eight keeps their
-  -- oversized Gen 2 lettering from feeling cropped above/below.
-  local verticalInset = 8 * s
+  -- edge. Horizontal and vertical insets deliberately differ: two logical
+  -- pixels makes the HUDs read as edge furniture; the foe receives ten at
+  -- the top and the player eight at the bottom so oversized Gen 2 lettering
+  -- cannot touch either window edge.
+  local enemyTopInset = 10 * s
+  local playerBottomInset = 8 * s
   local ex = sideInset - e[1] * s            -- foe: 2 logical px from left
   local px = shot.pw - sideInset - (p[1] + p[3]) * s
   local rects = {
-    enemy = { ex + e[1] * s, verticalInset, e[3] * s, e[4] * s },
-    player = { px + p[1] * s, shot.ph - verticalInset - p[4] * s,
+    enemy = { ex + e[1] * s, enemyTopInset, e[3] * s, e[4] * s },
+    player = { px + p[1] * s, shot.ph - playerBottomInset - p[4] * s,
                p[3] * s, p[4] * s },
   }
   return rects, { enemy = ex, player = px }
 end
 
--- A rect measured in the GB frame, in WORLD-canvas pixels: where the letterbox
--- blit will actually put it. The text box has not moved anywhere -- it is drawn
--- where it always was -- but its glass is laid into the world image alongside
--- the HUDs' (see snapHUDs), which is the surface that reaches the screen a
--- pixel to a pixel rather than magnified out of a 160x144 canvas.
-local function toWorld(rect, shot)
-  local s = shot.scale
-  return { shot.lx + rect[1] * s, shot.ly + rect[2] * s,
+-- The world shot and native UI do not always share a transform. BATTLE SIZE:
+-- FILL gives the UI a fractional scale derived from the window height, while
+-- the world keeps Renderer:fitScale()'s integer scale. Reproduce endFrame's
+-- actual UI presentation here so glass laid into the 1:1 world override lands
+-- under the separately composited frame at every window size.
+local function uiPresentation(shot)
+  local fallback = {
+    lx = shot.lx, ly = shot.ly, scale = shot.scale,
+    width = BattleScene.GB_W, height = BattleScene.GB_H,
+  }
+  local ok, Renderer = pcall(require, "src.render.Renderer")
+  if not (ok and Renderer and type(Renderer.uiSize) == "function") then
+    return fallback
+  end
+  local uiw, uih = Renderer:uiSize()
+  if not (tonumber(uiw) and tonumber(uih) and uiw > 0 and uih > 0) then
+    return fallback
+  end
+  local s
+  if Renderer.uiFill then
+    s = math.min(shot.ph / uih, shot.pw / uiw)
+  elseif type(Renderer.uiScale) == "function" then
+    local made, value = pcall(Renderer.uiScale, Renderer)
+    if made then s = tonumber(value) end
+  end
+  if not (s and s > 0) then s = shot.scale end
+  return {
+    lx = math.floor((shot.pw - uiw * s) / 2),
+    ly = math.floor((shot.ph - uih * s) / 2),
+    scale = s, width = uiw, height = uih,
+  }
+end
+
+local function toWorld(rect, presentation)
+  local s = presentation.scale
+  return { presentation.lx + rect[1] * s,
+           presentation.ly + rect[2] * s,
            rect[3] * s, rect[4] * s }
 end
 
@@ -383,6 +431,7 @@ end
 -- nil when no overworld battle is running. Never more than one: battles do
 -- not nest.
 local session = nil
+local entryTransitionClass = nil
 local lastHudBridgeReport = nil
 
 local function reportHudBridge(message)
@@ -393,6 +442,47 @@ local function reportHudBridge(message)
   if fs and fs.append then
     pcall(fs.append, "battle_art_stadium2_bridge.txt", "hud " .. message .. "\n")
   end
+end
+
+local function halfPanelRect(rect, scale)
+  local x, y, w, h = UiBackplates.halfRect(
+    rect[1], rect[2], rect[3], rect[4], scale)
+  return { x, y, w, h }
+end
+
+-- Build one connected HALF silhouette from all native box rectangles. The
+-- individual rectangles are still used to draw the L shape without covering
+-- its open top-right area, but adjustments apply only to exposed OUTER edges.
+-- Any native edges that touch share one exact seam, so TYPE/move/mimic panes
+-- cannot develop a transparent row or doubled-alpha row at a resize boundary.
+local function connectedHalfPanels(rects, scale)
+  local entries = {}
+  for key, raw in pairs(rects or {}) do
+    entries[#entries + 1] = {
+      key = key, raw = raw, panel = halfPanelRect(raw, scale),
+    }
+  end
+  table.sort(entries, function(a, b)
+    if a.raw[2] == b.raw[2] then return a.raw[1] < b.raw[1] end
+    return a.raw[2] < b.raw[2]
+  end)
+  local epsilon = math.max(0.001, (scale or 1) * 0.001)
+  for i = 1, #entries - 1 do
+    local upper, lower = entries[i], entries[i + 1]
+    local rawBottom = upper.raw[2] + upper.raw[4]
+    if math.abs(rawBottom - lower.raw[2]) <= epsilon then
+      -- Keep the full-width lower pane at its authored inset. Pulling that
+      -- pane up to the native edge painted a two-logical-pixel strip across
+      -- the open top-right of the L. Instead extend only the narrow TYPE /
+      -- mimic pane down to the lower pane's actual top. The two pieces still
+      -- share one exact seam, but no glass appears outside the L silhouette.
+      local seam = lower.panel[2]
+      upper.panel[4] = math.max(0, seam - upper.panel[2])
+    end
+  end
+  local out = {}
+  for _, entry in ipairs(entries) do out[entry.key] = entry.panel end
+  return out
 end
 
 -- Importer 0.10.7 attached its Gen 2 presentation to
@@ -530,7 +620,7 @@ function OverworldBattle.begin(state, battle)
   OverworldBattle.forceOG()
 
   session = { state = state, arena = arena, battle = battle, shot = nil,
-              armed = false, token = 0 }
+              armed = false, preBattle = true, token = 0 }
   cullCast(state)
   BattleCam.reset()
   return true
@@ -1226,6 +1316,23 @@ function OverworldBattle.sideTexture(battle, side)
            noMirror = playerNoMirror, worldSlide = worldSlide }
 end
 
+-- The entry transition still owns the screen.  Its palette and scanline
+-- effects were authored for the native tile renderer, not a lit 3D frame.
+-- The voxel pipeline reads this and declines only its visible overworld pass;
+-- update continues building the staged arena behind the transition so the
+-- first actual battle frame remains ready on time.
+function OverworldBattle.preBattle()
+  return session and session.preBattle == true or false
+end
+
+function OverworldBattle.entryTransitionActive()
+  if not entryTransitionClass then return false end
+  local ok, Game = pcall(require, "src.core.Game")
+  local stack = ok and Game and Game.stack
+  local top = stack and stack.top and stack:top() or nil
+  return top ~= nil and getmetatable(top) == entryTransitionClass or false
+end
+
 -- Native Gen 2 trainer-card capture. Its BattleState is a separate class from
 -- the compatibility battle wrapped above, but drawPic already resolves the
 -- configured player/trainer image and the importer's keyed transparency.
@@ -1334,6 +1441,126 @@ function OverworldBattle.install()
     OverworldState.dramaticShapeBattleHook = true
   end
 
+  -- Gen 2's encounter flash normally captures the finished overworld and
+  -- matches every pixel back to one of the map's eight GBC palettes before
+  -- applying rBGP.  A voxel frame contains lighting, shadows and filtered
+  -- texture colours that are not members of those palettes, so that exact
+  -- matcher turns the whole world into a blown-out patchwork.  Returning
+  -- false is BattleTransition's supported fallback: it draws the world once
+  -- and applies the equivalent brightness veil.  Keep the native remap for
+  -- flat encounters and only decline it while this mod has actually staged
+  -- a fight over an active voxel world.
+  local okTransition, BattleTransition = pcall(
+    require, "src.ui.gen2.BattleTransition")
+  local transitionRoute = "src.ui.gen2.BattleTransition"
+  local uiError = not okTransition and tostring(BattleTransition) or nil
+  if not okTransition then
+    okTransition, BattleTransition = pcall(
+      require, "src.render.BattleTransition")
+    transitionRoute = "src.render.BattleTransition"
+  end
+  if okTransition and type(BattleTransition) == "table" then
+    entryTransitionClass = BattleTransition
+  end
+  transitionTrace("install", ("route=%s require=%s module=%s draw=%s flash=%s wide=%s uiError=%s")
+    :format(transitionRoute, tostring(okTransition),
+      tostring(type(BattleTransition)),
+      tostring(type(BattleTransition and BattleTransition.draw)),
+      tostring(type(BattleTransition and BattleTransition.drawFlash)),
+      tostring(type(BattleTransition and BattleTransition.drawWidescreen)),
+      tostring(uiError)))
+  if okTransition and BattleTransition
+     and type(BattleTransition.drawFlash) == "function"
+     and not BattleTransition.dramaticShapeVoxelFlashHook then
+    local innerFlash = BattleTransition.drawFlash
+    function BattleTransition:drawFlash(w, h, pal)
+      local voxel = Voxel.active() and true or false
+      transitionTrace("flash", ("voxel=%s stage=%s session=%s phase=%s pal=%s")
+        :format(tostring(voxel), tostring(OverworldBattle.stage() ~= nil),
+          tostring(session ~= nil), tostring(self.phase), tostring(pal)))
+      if voxel then return false end
+      return innerFlash(self, w, h, pal)
+    end
+    BattleTransition.dramaticShapeVoxelFlashHook = true
+  end
+  -- A staged voxel frame cannot participate in Gen 2's palette-indexed
+  -- spin/sine/speckle compositor: those passes repeatedly reinterpret the
+  -- lit mesh canvas as tile colours. Present one ordinary world frame and a
+  -- monotonic black veil instead. This is an explicit fade (never the render
+  -- target's blue clear colour), and the actual battle takes ownership only
+  -- after the transition reaches its native black hold.
+  if okTransition and BattleTransition
+     and type(BattleTransition.drawWidescreen) == "function"
+     and not BattleTransition.dramaticShapeVoxelWideFadeHook then
+    local innerWide = BattleTransition.drawWidescreen
+    function BattleTransition:drawWidescreen(w, h)
+      local voxel = Voxel.active() and true or false
+      transitionTrace("wide", ("voxel=%s preBattle=%s session=%s phase=%s size=%sx%s world=%s map=%s")
+        :format(tostring(voxel), tostring(OverworldBattle.preBattle()),
+          tostring(session ~= nil), tostring(self.phase), tostring(w),
+          tostring(h), tostring(self.world ~= nil),
+          tostring(self.world and self.world.map ~= nil)))
+      -- The transition is pushed before battle.started creates our session.
+      -- Voxel.active is therefore the reliable ownership gate here.
+      if voxel then
+        local g = love.graphics
+        g.setShader()
+        g.setColor(1, 1, 1, 1)
+        if self.world and type(self.world.draw) == "function" then
+          self.world:draw()
+        else
+          g.setColor(0, 0, 0, 1)
+          g.rectangle("fill", 0, 0, w, h)
+        end
+        self.dramaticShapeFade = math.min(1,
+          (tonumber(self.dramaticShapeFade) or 0) + 1 / 12)
+        g.setShader()
+        g.setColor(0, 0, 0, self.dramaticShapeFade)
+        g.rectangle("fill", 0, 0, w, h)
+        g.setColor(1, 1, 1, 1)
+        return
+      end
+      return innerWide(self, w, h)
+    end
+    BattleTransition.dramaticShapeVoxelWideFadeHook = true
+  end
+
+  -- Gen2Recomped 0.7.33 packages the unified transition at
+  -- src.render.BattleTransition. It does not draw the world itself; draw()
+  -- submits screenVeil / battleWipe instructions to the renderer. Replace
+  -- those palette flashes and tile wipes with one monotonic black veil while
+  -- voxel mode owns the frozen overworld beneath it.
+  if okTransition and BattleTransition
+     and type(BattleTransition.draw) == "function"
+     and type(BattleTransition.drawWidescreen) ~= "function"
+     and not BattleTransition.dramaticShapeVoxelRenderFadeHook then
+    local innerDraw = BattleTransition.draw
+    function BattleTransition:draw()
+      local voxel = Voxel.active() and true or false
+      transitionTrace("render", ("voxel=%s phase=%s t=%s wipeLen=%s renderer=%s")
+        :format(tostring(voxel), tostring(self.phase), tostring(self.t),
+          tostring(self.wipeLen),
+          tostring(self.game and self.game.renderer ~= nil)))
+      if voxel then
+        self.dramaticShapeFade = math.min(1,
+          (tonumber(self.dramaticShapeFade) or 0) + 1 / 12)
+        local renderer = self.game and self.game.renderer
+        if renderer then
+          renderer.screenVeil = { 0, self.dramaticShapeFade }
+        else
+          local g = love.graphics
+          local w, h = g.getDimensions()
+          g.setColor(0, 0, 0, self.dramaticShapeFade)
+          g.rectangle("fill", 0, 0, w, h)
+          g.setColor(1, 1, 1, 1)
+        end
+        return
+      end
+      return innerDraw(self)
+    end
+    BattleTransition.dramaticShapeVoxelRenderFadeHook = true
+  end
+
   local BattleState = require("src.battle.BattleState")
   if BattleState.dramaticShapeBattleHook then return end
 
@@ -1398,6 +1625,11 @@ function OverworldBattle.install()
 
   local innerDraw = BattleState.draw
   function BattleState:draw()
+    -- This is the ownership boundary: once the battle state itself draws,
+    -- the native entry transition is over and the staged voxel/Stadium scene
+    -- may become visible.  Until this call main.lua leaves drawWorld to the
+    -- engine's ordinary flat renderer.
+    if session then session.preBattle = false end
     local shot = OverworldBattle.shot()
     -- AskName blanks the field on purpose (the nickname prompt is meant to
     -- sit on nothing); leave that one alone.
@@ -1522,7 +1754,10 @@ function OverworldBattle.install()
     local mode = UiBackplates.textboxMode()
     if mode == "WHITE" then return innerText(self) end
     local battle = self
-    local style = UiBackplates.textboxFillStyle()
+    -- HALF's one backplate is the frosted panel already composited into the
+    -- world by snapHUDs/drawHudPanels. Drawing its translucent black paper a
+    -- second time here multiplied the alpha across TYPE + move selection.
+    local style = mode ~= "HALF" and UiBackplates.textboxFillStyle() or nil
     if style then
       local g = love.graphics
       local old = { g.getColor() }
@@ -1534,7 +1769,14 @@ function OverworldBattle.install()
     end
     local dropShadow = mode == "OFF" or mode == "HALF"
     BattleHud.flipGlyphs(BattleScene.GB_W, BattleScene.GB_H, function()
-      withoutBoxFill(battle, innerText)
+      local g = love.graphics
+      if mode == "HALF" then
+        g.push()
+        g.translate(0, UiBackplates.HALF_Y_OFFSET)
+      end
+      local ok, err = pcall(withoutBoxFill, battle, innerText)
+      if mode == "HALF" then g.pop() end
+      if not ok then error(err, 0) end
     end, false, dropShadow, true)
   end
 
@@ -1734,11 +1976,14 @@ function OverworldBattle.snapHUDs(battle, shot)
   -- of the frame where the engine draws it -- only the HUDs were snapped out --
   -- so its GB rect is mapped into the letterbox rather than to an edge.
   local frostText = UiBackplates.textboxUsesFrost()
+  local textPanelRects = {}
+  local ui = uiPresentation(shot)
   for key, rect in pairs(OverworldBattle.textRects(battle)) do
-    local worldRect = toWorld(rect, shot)
+    local worldRect = toWorld(rect, ui)
     readable[key] = worldRect
-    if frostText then panels[key] = worldRect end
+    if frostText then textPanelRects[key] = worldRect end
   end
+  if frostText then panels = connectedHalfPanels(textPanelRects, ui.scale) end
   -- measured under the SNAPPED rects: the panels are over whatever the world
   -- shows at the window's edges now, which is not what was behind them in the
   -- middle of the frame. ONE verdict over all of them, HUDs and box together,
@@ -1797,10 +2042,12 @@ function OverworldBattle.drawHudPanels(battle)
   if enemy then readable.enemy = rect.enemy end
   if player then readable.player = rect.player end
   local frostText = UiBackplates.textboxUsesFrost()
+  local textPanelRects = {}
   for key, r in pairs(OverworldBattle.textRects(battle)) do
     readable[key] = r
-    if frostText then panels[key] = r end
+    if frostText then textPanelRects[key] = r end
   end
+  if frostText then panels = connectedHalfPanels(textPanelRects, 1) end
   if not next(readable) then return end
   local dark = not UiBackplates.hudUsesColor()
   battle.dramaticShapeDark = dark

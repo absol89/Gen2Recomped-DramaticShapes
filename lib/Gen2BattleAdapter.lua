@@ -115,7 +115,13 @@ local function withStyledPaper(fn)
       if style then
         local old = { g.getColor() }
         g.setColor(style[1], style[2], style[3], style[4])
-        local parts = mode == "HALF" and subtract(drawing) or { drawing }
+        local paper = drawing
+        if mode == "HALF" then
+          local x, y, w, h = UiBackplates.halfRect(
+            drawing.x, drawing.y, drawing.w, drawing.h, 1)
+          paper = { x=x, y=y, w=w, h=h }
+        end
+        local parts = mode == "HALF" and subtract(paper) or { paper }
         for _, p in ipairs(parts) do
           nativeRectangle("fill", p.x, p.y, p.w, p.h, ...)
           if mode == "HALF" then fills[#fills + 1] = p end
@@ -142,14 +148,6 @@ local HUD_RECT = {
   enemy={8,0,80,32}, player={72,56,80,40},
 }
 
-local function fillRect(g, rect)
-  local style = UiBackplates.textboxFillStyle()
-  if not style then return end
-  g.setColor(style[1], style[2], style[3], style[4])
-  g.rectangle("fill", rect[1], rect[2], rect[3], rect[4])
-  g.setColor(1, 1, 1, 1)
-end
-
 -- Version-neutral final placement. 0.10.7 already exposes layer/hudLayer/
 -- modalLayer, but its Hud.composite predates bottom anchoring, connected move
 -- panes, complete stats capture and the safe Yes/No slot. Compose those
@@ -163,7 +161,12 @@ local function composite(scene, screen, layer, hudLayer, modalLayer)
   if not (s and width and height) then return false end
   local inset = 2 * s
   local lowerY = box.ly + 96 * s
-  if width >= height then lowerY = math.max(0, height - 50 * s) end
+  -- The native lower box is 48 logical pixels high. Keep four pixels below
+  -- it in widescreen: the prior two-pixel margin put the captured frame two
+  -- pixels below the HALF frost plate, exposing the translucent slab outside
+  -- the white chrome. TYPE/move panes and auxiliary prompts derive from this
+  -- same anchor and remain attached when it moves.
+  if width >= height then lowerY = math.max(0, height - 52 * s) end
   local er, pr = HUD_RECT.enemy, HUD_RECT.player
   local enemyX, enemyY = inset, inset
   local playerX = width - pr[3] * s - inset
@@ -185,11 +188,9 @@ local function composite(scene, screen, layer, hudLayer, modalLayer)
 
   if screen.phase == "moves" then
     local y = lowerY - 32 * s
-    fillRect(g, {box.lx, y, 160*s, 80*s})
     local q = g.newQuad(0, 64, 160, 80, 160, 144)
     g.draw(modalLayer or layer, q, box.lx, y, 0, s, s)
   else
-    fillRect(g, {box.lx, lowerY, 160*s, 48*s})
     local q = g.newQuad(0, 96, 160, 48, 160, 144)
     g.draw(layer, q, box.lx, lowerY, 0, s, s)
   end
@@ -201,14 +202,12 @@ local function composite(scene, screen, layer, hudLayer, modalLayer)
     local left = (screen.phase=="ask-shift" or screen.phase=="ask-next-mon")
       and 8 or 112
     local x, y = box.lx, math.max(inset, lowerY - 40*s)
-    fillRect(g, {x, y, 48*s, 40*s})
     local q = g.newQuad(left, 56, 48, 40, 160, 144)
     g.draw(modalLayer or layer, q, x, y, 0, s, s)
   end
 
   if screen.phase == "stats-box" and screen.statsBoxMon then
     local x, y = box.lx, math.max(inset, lowerY - 96*s)
-    fillRect(g, {x, y, 88*s, 96*s})
     local q = g.newQuad(72, 0, 88, 96, 160, 144)
     g.draw(modalLayer or layer, q, x, y, 0, s, s)
   end

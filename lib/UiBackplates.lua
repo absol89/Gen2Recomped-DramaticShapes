@@ -153,6 +153,37 @@ UiBackplates.textboxFill = ModSetting.new("textboxFill", "TEXTBOX FILL",
   { "HALF", "WHITE", "BLACK", "OFF" },
   { "HALF", "WHITE", "BLACK", "OFF" })
 
+-- Gen 2's box capture covers the complete tile rectangle, while the visible
+-- white chrome begins two logical pixels inside it. HALF should surround that
+-- chrome by exactly one logical pixel, so its inset from the complete capture
+-- is 2 - 1 = 1. This is resolved before window scaling, keeping the same
+-- relationship at every resolution/aspect ratio.
+UiBackplates.HALF_CHROME_INSET = 2
+UiBackplates.HALF_FRAME_OUTSET = 1
+UiBackplates.HALF_INSET = UiBackplates.HALF_CHROME_INSET
+  - UiBackplates.HALF_FRAME_OUTSET
+
+-- Final plate tuning, expressed from the symmetric one-pixel-inset result:
+-- move down one and grow down one. Horizontally retain that symmetric inset,
+-- placing the glass one logical pixel inside each complete capture edge.
+-- Keeping this in logical units prevents window-size-specific drift.
+UiBackplates.HALF_ADJUST_X = 0
+UiBackplates.HALF_ADJUST_Y = 1
+UiBackplates.HALF_ADJUST_W = 0
+UiBackplates.HALF_ADJUST_H = 1
+
+function UiBackplates.halfRect(x, y, w, h, scale)
+  local s = scale or 1
+  local inset = UiBackplates.HALF_INSET * s
+  return x + inset + UiBackplates.HALF_ADJUST_X * s,
+         y + inset + UiBackplates.HALF_ADJUST_Y * s,
+         math.max(0, w - inset * 2 + UiBackplates.HALF_ADJUST_W * s),
+         math.max(0, h - inset * 2 + UiBackplates.HALF_ADJUST_H * s)
+end
+-- Match the established Gen 1 HALF layout: the complete lower window sits
+-- two logical pixels above the screen edge instead of being flush with it.
+UiBackplates.HALF_Y_OFFSET = -2
+
 -- ARENA FILL: WHITE keeps the latest-build presentation: black ink on opaque
 -- paper. On the 3D arena, the player's explicit textbox choice owns the box.
 function UiBackplates.textboxMode()
@@ -169,7 +200,9 @@ function UiBackplates.textboxFillStyle()
 end
 
 function UiBackplates.textboxUsesFrost()
-  return UiBackplates.textboxMode() ~= "OFF"
+  -- HALF is the glass mode. BLACK and WHITE own opaque paper themselves;
+  -- OFF deliberately has no backplate.
+  return UiBackplates.textboxMode() == "HALF"
 end
 
 function UiBackplates.textboxUsesWhiteInk()

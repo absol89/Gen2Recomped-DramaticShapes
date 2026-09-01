@@ -189,6 +189,10 @@ local function monMatrix(tex, x, groundY, z, mirror)
   local ox = -((tex.ax / BattleScene.GB_W) - 0.5) * w
   ox = ox + (tonumber(tex.worldSlide) or 0) * k
   local oy = -((BattleScene.GB_H - tex.ay) / BattleScene.GB_H) * h
+  -- Trainer art has shoes and outline pixels that extend slightly below the
+  -- native battle slot's nominal baseline. Lift trainer cards by two source
+  -- pixels so their visible feet, rather than that nominal row, meet ground.
+  if tex.trainer then oy = oy + 2 * k end
   local yaw = BattleBillboard.yawToward(x, z, Voxel3D.eye)
   local card = Mat4.mul(Mat4.translate(ox, oy, 0), Mat4.scale(w, h, 1))
   if mirror then card = Mat4.mul(Mat4.scale(-1, 1, 1), card) end
@@ -322,7 +326,7 @@ end
 -- -- goes in the signature; the terrain half of the answer would otherwise
 -- keep a stale pass alive and freeze the shadows in whatever pose they were
 -- first drawn in.
-local function shadowSignature(state, arena, terrain, nbMesh, token)
+local function shadowSignature(state, arena, terrain, nbMesh, stadium, token)
   local host = arena.map or state.map
   local parts = { "battle", host.id, arena.x, arena.y, arena.shape,
                   tostring(terrain), tostring(token or 0),
@@ -334,6 +338,23 @@ local function shadowSignature(state, arena, terrain, nbMesh, token)
                   math.floor(ShadowMap.KX * 128),
                   math.floor(ShadowMap.KZ * 128) }
   for i = 1, #nbMesh do parts[#parts + 1] = tostring(nbMesh[i]) end
+  -- Stadium actors animate and can enter/leave independently of the native
+  -- pic-change token.  Make both ownership and pose part of the cache key so
+  -- send-out/faint transitions recast (and, crucially, clear) the sun map.
+  for _, side in ipairs({ "enemy", "player" }) do
+    local placement = stadium and stadium[side]
+    local actor = placement and placement.actor
+    parts[#parts + 1] = side .. "=" .. tostring(placement ~= nil)
+    if actor then
+      parts[#parts + 1] = tostring(actor.dex)
+      parts[#parts + 1] = tostring(actor.context)
+      parts[#parts + 1] = tostring(actor.faintFinished == true)
+      parts[#parts + 1] = tostring(math.floor(actor.callbackFrame or 0))
+      for i = 1, #(placement.modelMatrix or {}) do
+        parts[#parts + 1] = string.format("%.4f", placement.modelMatrix[i])
+      end
+    end
+  end
   return table.concat(parts, ",")
 end
 
@@ -341,7 +362,7 @@ local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
                            atlasFor, cards, stadium, token, host, neighbors,
                            water, nbWater)
   if not ShadowMap.available() then return end
-  local sig = shadowSignature(state, arena, terrain, nbMesh, token)
+  local sig = shadowSignature(state, arena, terrain, nbMesh, stadium, token)
   if not ShadowMap.stale(sig) then return end
   if not ShadowMap.begin(cx, cy, vw, vh) then return end
 
@@ -609,7 +630,13 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     or StadiumModels.placements(arena, groundY, textures, modelSource)
   local spriteCards = {}
   for _, card in ipairs(cards) do
-    if not StadiumModels.uses(stadium, card.side) then
+    -- A hidden Stadium placement still owns its Pokemon slot. In particular,
+    -- the Gen 2 faint script retains a native species surface after HP reaches
+    -- zero; allowing ordinary card fallback here makes the defeated model turn
+    -- into an animated Battle Art sprite. Only trainer cards bypass coverage.
+    local modelOwns = not card.trainer
+      and StadiumModels.covers(textures, card.side)
+    if not modelOwns and not StadiumModels.uses(stadium, card.side) then
       spriteCards[#spriteCards + 1] = card
     end
   end

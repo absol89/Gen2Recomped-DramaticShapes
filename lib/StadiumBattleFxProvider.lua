@@ -6,7 +6,7 @@ local V = ...
 local OverworldBattle = V.require("OverworldBattle")
 local UiBackplates = V.require("UiBackplates")
 
-local Provider = { registered = false, fallback = nil }
+local Provider = { registered = false, fallback = nil, context = nil }
 
 local function available(context)
   -- STADIUM2 deliberately returns ownership to StadiumBattleFX's built-in
@@ -33,8 +33,23 @@ function Provider:arena(context)
 end
 
 function Provider:begin(context)
-  return OverworldBattle.providerBegin(context and context.battle)
-    or self.fallback
+  local accepted = OverworldBattle.providerBegin(context and context.battle)
+  if accepted then self.context = context end
+  return accepted or self.fallback
+end
+
+-- StadiumBattleFX deliberately skips its arena/model update while an external
+-- Battle Art owner supplies the visible world. Its hosted draw callback still
+-- owns the models, however, so skipping that update freezes model clips and
+-- leaves a queued faint in idle forever. Advance only that selected model
+-- provider from the same real-time pipeline tick that advances our arena.
+function Provider:update(dt)
+  if not (self.context and OverworldBattle.providerHosted()) then return end
+  local handle = findMod("STADIUM_BATTLE_FX")
+  local models = handle and handle.exports and handle.exports.modelProvider
+  if models and type(models.update) == "function" then
+    pcall(models.update, models, self.context, dt)
+  end
 end
 
 function Provider:render(context, arena, drawActors)
@@ -44,6 +59,7 @@ function Provider:render(context, arena, drawActors)
 end
 
 function Provider:finish()
+  self.context = nil
   OverworldBattle.providerFinish()
 end
 

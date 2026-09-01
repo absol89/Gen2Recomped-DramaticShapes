@@ -41,6 +41,22 @@ assert(settings.bossBg.values[1] == "OFF",
   "BOSS BG does not default to OFF")
 assert(settings.textboxFill.values[1] == "HALF",
   "TEXTBOX FILL does not default to HALF")
+assert(UiBackplates.textboxUsesFrost(),
+  "TEXTBOX FILL: HALF no longer owns its single glass backplate")
+assert(UiBackplates.HALF_CHROME_INSET == 2
+    and UiBackplates.HALF_FRAME_OUTSET == 1
+    and UiBackplates.HALF_INSET == 1,
+  "TEXTBOX FILL: HALF is not one logical pixel outside visible chrome")
+do
+  local x, y, w, h = UiBackplates.halfRect(0, 0, 160, 48, 1)
+  assert(x == 1 and y == 2 and w == 158 and h == 47,
+    "HALF plate is not horizontally inset and vertically tuned")
+end
+assert(UiBackplates.HALF_Y_OFFSET == -2,
+  "TEXTBOX FILL: HALF does not preserve the two-pixel bottom margin")
+settings.textboxFill:setIndex(3)
+assert(not UiBackplates.textboxUsesFrost(),
+  "TEXTBOX FILL: BLACK still stacks glass below opaque paper")
 settings.textboxFill:setIndex(4)
 assert(not UiBackplates.textboxUsesFrost(),
   "TEXTBOX FILL: OFF still requests frosted glass")
@@ -117,6 +133,18 @@ assert(overworld:find("not UiBackplates.hudUsesColor()", 1, true),
   "HUD COLOR is not connected to staged HUD rendering")
 assert(overworld:find("UiBackplates.textboxMode()", 1, true),
   "TEXTBOX FILL is not connected to battle text rendering")
+assert(overworld:find("UiBackplates.HALF_Y_OFFSET", 1, true),
+  "active Gen 2 HALF frame and panel offset is missing")
+assert(overworld:find("local function uiPresentation", 1, true)
+    and overworld:find("if Renderer.uiFill then", 1, true)
+    and overworld:find("shot.ph / uih", 1, true)
+    and overworld:find("ui = uiPresentation(shot)", 1, true)
+    and overworld:find("connectedHalfPanels(textPanelRects, ui.scale)", 1, true),
+  "snapped HALF plate does not use the engine's final UI presentation")
+assert(overworld:find("connectedHalfPanels", 1, true)
+    and overworld:find("local seam = lower.panel%[2%]")
+    and overworld:find("panels = connectedHalfPanels", 1, true),
+  "connected HALF boxes are not built from one gap-free outer silhouette")
 local frostChecks = 0
 for _ in overworld:gmatch("UiBackplates%.textboxUsesFrost%(%)") do
   frostChecks = frostChecks + 1
@@ -151,12 +179,15 @@ assert(gen2:find('require, "src.ui.gen2.BattleState"', 1, true)
     and gen2:find("getActiveBattleScene", 1, true),
   "native Gen 2 battle scene discovery is missing")
 assert(gen2:find("Hud.modalLayer", 1, true)
-    and gen2:find("height - 50 * s", 1, true)
+    and gen2:find("height - 52 * s", 1, true)
     and gen2:find("local inset = 2 * s", 1, true),
   "Gen 2 prompts/stats are not captured into the safe widescreen slot")
 assert(gen2:find("current", 1, true)
-    and gen2:find("subtract(drawing)", 1, true),
+    and gen2:find("subtract(paper)", 1, true)
+    and gen2:find("UiBackplates.halfRect", 1, true),
   "Gen 2 HALF box overlap protection is missing")
+assert(not gen2:find("fillRect(g,", 1, true),
+  "Gen 2 compatibility compositor still doubles captured box backplates")
 assert(gen2:find("self.animView.drawObjects", 1, true),
   "native Gen 2 attack objects are not composited over the model anchors")
 assert(gen2:find("local function composite(scene, screen", 1, true)

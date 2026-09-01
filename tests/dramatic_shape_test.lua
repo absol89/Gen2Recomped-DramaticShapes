@@ -2491,8 +2491,8 @@ T.check(hudRects.player[1] > hudShot.lx + hudRect.player[1] * hudShot.scale,
 
 -- Oversized Gen 2 glyphs need more breathing room from the horizontal edges
 -- than the chrome needs from the sides.
-T.eq(hudRects.enemy[2], 8 * hudShot.scale,
-  "the foe's block keeps eight logical pixels below the top")
+T.eq(hudRects.enemy[2], 10 * hudShot.scale,
+  "the foe's block keeps ten logical pixels below the top")
 T.eq(hudRects.player[2] + hudRects.player[4],
   hudShot.ph - 8 * hudShot.scale,
   "and the player's keeps the same room above the bottom")
@@ -2544,10 +2544,15 @@ end
 do
 local rects = Battles.textRects({ phase = "messages" })
 T.check(rects.box ~= nil, "there is always a box: drawTextArea opens with one")
-T.eq(rects.box[2] + rects.box[4], 144,
-  "and it reaches the bottom of the frame")
+T.eq(rects.box[2] + rects.box[4], 142,
+  "and leaves HALF's two-pixel screen-edge margin")
 T.eq(rects.box[3], 160, "full width, like Font.drawBox(0, 12, 20, 6)")
-T.eq(rects.box[2], 96, "starting on the row the player's mon stands on")
+T.eq(rects.box[2], 94,
+  "starting two pixels above the native row with the complete frame")
+local windowed = Battles.textRects({ phase = "messages" },
+  { scale = 5, ly = 24 })
+T.eq((windowed.box[2] - rects.box[2]) * 5, 5,
+  "snapped HALF glass caps window correction at one logical pixel")
 
 -- the menu the player picks FIGHT on is that same box, so nothing is added
 T.eq(Battles.textRects({ phase = "menu" }).moves, nil,

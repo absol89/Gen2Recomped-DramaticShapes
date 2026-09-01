@@ -308,6 +308,7 @@ mod.content.render_pipelines:register("voxel", {
     -- Pipelines.update unconditionally, so it survives the transition wipe
     -- and the whole battle. Ahead of the active() gate below, because a 3D
     -- battle does not require the free-roam mode to be switched on.
+    StadiumBattleFxProvider:update(dt)
     OverworldBattle.update(dt)
     -- The horde, on the same always-running tick and for the same reason:
     -- it owns no pass of the frame, it is a MODE over the overworld, and
@@ -351,6 +352,10 @@ mod.content.render_pipelines:register("voxel", {
     -- the palette closure, stashed for the VR frame: it renders from the
     -- update hook, where no ctx exists to carry one
     VR.paletteFor = ctx.paletteFor
+    -- Keep the palette-authored encounter transition over the engine's flat
+    -- overworld. A lit voxel frame is not valid input to its four-shade
+    -- palette machinery and produces the cyan/white geometry burst.
+    if OverworldBattle.entryTransitionActive() then return nil end
     -- With a headset running, the window's world pass becomes the MIRROR
     -- -- the left eye, fitted to the window -- rather than a third full
     -- render of the scene. Everything else about the frame (the UI the

@@ -68,10 +68,50 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords,
 #endif
 ]]
 
+-- Preserve every material feature in the live importer shader while changing
+-- only its fragment entry point. 0.10.11+ moved to void effect() and explicit
+-- love_PixelColor; that path reports successful draws on the packaged desktop
+-- runtime but writes no color into a foreign color+depth target. The classic
+-- effect return contract used by 0.10.10 works in both owned and shared
+-- targets. Transforming the live source retains 0.10.14's billboards, decal
+-- depth bias, UV wrapping, secondary textures and Manga lighting.
+local function portableColorSource(source)
+  if type(source) ~= "string" or source == "" then return nil end
+  local changed = 0
+  source = source:gsub("uniform Image MainTex;%s*", "", 1)
+  source, changed = source:gsub("void%s+effect%s*%(%s*%)%s*{",
+    "vec4 effect(vec4 color, Image texture, vec2 texture_coords, "
+      .. "vec2 screen_coords) {", 1)
+  if changed ~= 1 then return nil end
+  source = source:gsub("%s*vec4 color%s*=%s*VaryingColor;%s*", "\n", 1)
+  source = source:gsub(
+    "%s*STADIUM_FLOAT vec2 texture_coords%s*=%s*VaryingTexCoord%.st;%s*",
+    "\n", 1)
+  source = source:gsub(
+    "%s*STADIUM_FLOAT vec2 screen_coords%s*=%s*love_PixelCoord;%s*",
+    "\n", 1)
+  source = source:gsub("MainTex", "texture")
+  source = source:gsub(
+    "love_PixelColor%s*=%s*(vec4%b())%s*;%s*return%s*;",
+    "return %1;", 1)
+  source, changed = source:gsub(
+    "love_PixelColor%s*=%s*(vec4%b())%s*;", "return %1;", 1)
+  if changed ~= 1 then return nil end
+  return source
+end
+
 local function installCompatColorShader(renderer)
   if not (renderer and love and love.graphics
       and type(love.graphics.newShader) == "function") then return false end
-  local ok, shader = pcall(love.graphics.newShader, COMPAT_COLOR_SHADER)
+  if renderer.dramaticShapePortableColor then return true end
+  local source, route = nil, "fallback"
+  local okApi, api = pcall(require, "mods.STADIUM2_IMPORTER.lib.renderer")
+  if okApi and api then
+    source = portableColorSource(api.SHADER_SOURCE)
+    if source then route = "portable-live" end
+  end
+  source = source or COMPAT_COLOR_SHADER
+  local ok, shader = pcall(love.graphics.newShader, source)
   if not (ok and shader) then
     report("compat-shader", "compile-failed " .. tostring(shader))
     return false
@@ -79,10 +119,11 @@ local function installCompatColorShader(renderer)
   local previous = renderer.shader
   renderer.shader = shader
   renderer.shaderTier = "battle-art-compat"
+  renderer.dramaticShapePortableColor = route
   if previous and previous ~= shader and previous.release then
     pcall(previous.release, previous)
   end
-  report("compat-shader", "installed")
+  report("compat-shader", "installed route=" .. route)
   return true
 end
 
@@ -220,6 +261,37 @@ local function versionAtLeast(value, major, minor, patch)
   if a ~= major then return a > major end
   if b ~= minor then return b > minor end
   return c >= patch
+end
+
+-- Scene API v1 supplies its own BattleActor renderers; they are not the
+-- direct instances created by legacyApi below. Apply the exact same
+-- >=0.10.11 color-contract repair to those hosted renderers at the point
+-- where Battle Art is about to draw them into its shared color/depth target.
+function StadiumModels.ensureRendererCompatibility(renderer, route)
+  if not renderer then return false end
+  local handle = providerHandle or findMod("STADIUM2_IMPORTER")
+  local affected = versionAtLeast(handle and handle.version, 0, 10, 11)
+  if affected == false then return true end
+  local ok = installCompatColorShader(renderer)
+  local canvas = love and love.graphics and love.graphics.getCanvas
+    and { love.graphics.getCanvas() } or {}
+  local compare, write
+  if love and love.graphics and love.graphics.getDepthMode then
+    compare, write = love.graphics.getDepthMode()
+  end
+  local parts = renderer.parts and #renderer.parts or 0
+  local cw, ch = "none", "none"
+  if canvas[1] and canvas[1].getDimensions then
+    local got, w, h = pcall(canvas[1].getDimensions, canvas[1])
+    if got then cw, ch = tostring(w), tostring(h) end
+  end
+  report("renderer-contract-" .. tostring(route or "unknown"),
+    ("version=%s affected=%s compat=%s shaderTier=%s parts=%d canvas=%s depthAttachment=%s size=%sx%s depth=%s/%s")
+      :format(tostring(handle and handle.version), tostring(affected),
+        tostring(ok), tostring(renderer.shaderTier), parts,
+        tostring(canvas[1] ~= nil), tostring(canvas[2] ~= nil), cw, ch,
+        tostring(compare), tostring(write)))
+  return ok
 end
 
 local function legacyApi(exports, version)
@@ -454,6 +526,7 @@ local function syncSide(battle, side)
   actor.instance = instance
   actor.callbackFrame = side == "enemy" and 4 or 0
   actor.context = "idle"
+  actor.faintFinished = false
   actor.lastGrow, actor.lastFainted, actor.lastPicKind = false, false, nil
   playIdle(actor)
   report("renderer-" .. side, ("ready dex=%03d variant=%s")
@@ -480,11 +553,32 @@ local function updatePresentation(battle, side, actor)
   actor.lastGrow = grow and true or false
 
   local fainted = battler and battler.fainted and true or false
-  local faintFx = battler and safeCall(rules, "fxFaintActive", battler) or false
-  if (faintFx or fainted) and not actor.lastFainted then
-    playContext(actor, "faint", false)
+  local faintFx = battler and safeCall(battle, "fxFaintActive", battler)
+    or (battler and safeCall(rules, "fxFaintActive", battler)) or false
+  local shownHP = battler and tonumber(battler.shownHP)
+  local logicalHP = battler and tonumber(
+    battler.mon and battler.mon.hp or battler.hp)
+  -- Gen 2 starts the drain only after the move has landed. At that boundary
+  -- logical HP already contains the lethal result while shownHP is still
+  -- counting down, so Stadium can begin its collapse without waiting for the
+  -- bar. The terminal guard below prevents any late attack edge replacing it.
+  local lethalHit = battle and battle.draining
+    and logicalHP ~= nil and logicalHP <= 0
+  local shouldFaint = faintFx or fainted or lethalHit
+  if shouldFaint and not actor.lastFainted then
+    actor.faintFinished = false
+    local played = playContext(actor, "faint", false)
+    report("faint-" .. side,
+      ("triggered played=%s shownHP=%s logicalHP=%s draining=%s faintFx=%s fainted=%s context=%s")
+        :format(tostring(played), tostring(shownHP), tostring(logicalHP),
+          tostring(battle and battle.draining),
+          tostring(faintFx), tostring(fainted), tostring(actor.context)))
   end
-  actor.lastFainted = fainted or faintFx or false
+  -- Latch this for the lifetime of the actor. Gen 2 has a short hand-off
+  -- between lethal drain and fxFaintActive where both signals can be false;
+  -- clearing the edge there restarted the faint clip at the native slide and
+  -- made the model appear to stay idle before disappearing.
+  actor.lastFainted = actor.lastFainted or (shouldFaint and true or false)
 
   local picFx = battler and rules and rules.picFx and rules.picFx[battler] or nil
   local kind = picFx and picFx.kind or nil
@@ -506,10 +600,16 @@ function StadiumModels.update(battle, dt)
     local side = battle.animAttackerIsPlayer and "player" or "enemy"
     local actor = actors[side]
     local move = def and tonumber(def.index or def.number)
-    local ok = actor.instance and move
+    -- Faint is terminal for this actor. A late move-animation edge must not
+    -- replace it with attack (the visible symptom was an attack pose followed
+    -- by a mid-idle disappearance at the end of Gen 2's faint slide).
+    local terminal = actor.context == "faint" or actor.lastFainted
+    local ok = not terminal and actor.instance and move
       and safeCall(actor.instance, "playMove", move, false)
-    if actor.instance and not ok then playContext(actor, "attack", false) end
-    if ok then actor.context = "attack" end
+    if not terminal then
+      if actor.instance and not ok then playContext(actor, "attack", false) end
+      if ok then actor.context = "attack" end
+    end
   end
   StadiumModels.animWasPlaying = playing
 
@@ -528,9 +628,16 @@ function StadiumModels.update(battle, dt)
           ("Stadium 2 %s model update failed: %s; using Battle Art")
             :format(side, tostring(err)))
         failActor(actor)
-      elseif safeCall(actor.instance, "isFinished")
-          and actor.context ~= "idle" and actor.context ~= "faint" then
-        playIdle(actor)
+      else
+        local finished = safeCall(actor.instance, "isFinished") and true or false
+        if finished and actor.context == "faint" then
+          if not actor.faintFinished then
+            actor.faintFinished = true
+            report("faint-" .. side, "finished context=faint")
+          end
+        elseif finished and actor.context ~= "idle" then
+          playIdle(actor)
+        end
       end
     end
   end
@@ -570,6 +677,31 @@ local function modelMatrix(arena, groundY, battle, side, actor)
       Mat4.mul(Mat4.scale(k, k, k), Mat4.translate(0, -(floor - hover), 0))))
 end
 
+local function presentationReady(battle, side, battler, actor)
+  if type(battle) ~= "table" or not battler then return false end
+  -- The Stadium collapse owns both the color model and its caster until the
+  -- clip finishes. Slot coverage is broader still, so the native animated
+  -- species card remains suppressed both during and after this transition.
+  if actor and actor.context == "faint" then
+    return actor.faintFinished ~= true
+  end
+  if side == "player" then
+    if battle.showPlayerBack or battle.showPlayerTrainer or battle.sendingOut then
+      return false
+    end
+  elseif battle.showEnemyTrainer or battle.enemySendingOut then
+    return false
+  end
+  local faintFx = safeCall(battle, "fxFaintActive", battler) or false
+  if battler.fainted and not faintFx then return false end
+  if battle.picHidden and battle.picHidden[side] then return false end
+  if safeCall(battle, "fxHidden", battler) then return false end
+  if side == "enemy" and (battle.enemyHidden or battle.lockedBall) then
+    return false
+  end
+  return true
+end
+
 -- Return only sides that can replace a Pokemon card this frame. Trainer
 -- portraits and host-hidden sides remain on Battle Art's established path.
 function StadiumModels.placements(arena, groundY, textures, battle)
@@ -578,7 +710,8 @@ function StadiumModels.placements(arena, groundY, textures, battle)
   for _, side in ipairs({ "enemy", "player" }) do
     local texture = textures and textures[side]
     local actor = actors[side]
-    if texture and not texture.trainer and actor.instance then
+    local ready = presentationReady(battle, side, actor.battler, actor)
+    if texture and not texture.trainer and actor.instance and ready then
       local matrix = modelMatrix(arena, groundY, battle, side, actor)
       if matrix then
         out[side] = { side = side, actor = actor, instance = actor.instance,
@@ -591,6 +724,18 @@ function StadiumModels.placements(arena, groundY, textures, battle)
             tostring(textures and textures.player ~= nil),
             tostring(textures and textures.enemy ~= nil)))
   return out
+end
+
+-- Model ownership is deliberately broader than visible placement. Once a
+-- renderer exists for a Pokemon texture, Battle Art must not restore its
+-- species card during send-out hiding, faint hiding, returns, or other native
+-- presentation effects. Trainer textures are never claimed here and continue
+-- through Battle Art's depth-tested trainer billboard path.
+function StadiumModels.covers(textures, side)
+  local texture = textures and textures[side]
+  local actor = actors[side]
+  return texture ~= nil and not texture.trainer
+    and actor ~= nil and actor.instance ~= nil
 end
 
 function StadiumModels.draw(placement, context, pass)
