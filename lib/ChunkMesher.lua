@@ -56,6 +56,7 @@ local TileShape = V.require("TileShape")
 local Voxel3D = V.require("Voxel3D")
 local Budget = V.require("BuildBudget")
 local MeshDisk = V.require("VoxelMeshDisk")
+local MapAprons = V.require("MapAprons")
 
 local ffi = nil
 do
@@ -415,7 +416,25 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
     return onDrop and s.h or 0
   end
 
+  -- A root mesh may analyse terrain under a connected neighbour so AO and
+  -- edge classification remain stable, then suppress that terrain with a
+  -- body mask when emitting geometry. Face culling must use the same mask:
+  -- an invisible same-height column cannot hide the exposed side beside it.
+  local function maskedOpen(px0, pz0, px1, pz1)
+    if not masks then return false end
+    for _, mk in ipairs(masks) do
+      if px1 > mk[1] and px0 < mk[3] and pz1 > mk[2] and pz0 < mk[4] then
+        return true
+      end
+    end
+    return false
+  end
+
   local function heightAt(tx, ty)
+    if (tx < 0 or ty < 0 or tx >= tw or ty >= th)
+       and maskedOpen(tx * 8, ty * 8, tx * 8 + 8, ty * 8 + 8) then
+      return 0
+    end
     local k = keyOf(tx, ty)
     if S.skip[k] then return 0 end
     local run = S.runs[k]
@@ -618,19 +637,18 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
     push(c, { { u0, v1 }, { u1, v1 }, { u1, v0 }, { u0, v0 } }, shade)
   end
 
-  local r = bodyOnly and 0 or RING * 4
-
-  -- true when the (ring) position lies under a connected neighbour's body
-  local function masked(px0, pz0, px1, pz1)
-    if not masks then return false end
-    for _, mk in ipairs(masks) do
-      if px1 > mk[1] and px0 < mk[3] and pz1 > mk[2] and pz0 < mk[4] then
-        return true
-      end
+  local tx0, ty0, tx1, ty1 = 0, 0, tw - 1, th - 1
+  if not bodyOnly then
+    local r = RING * 4
+    tx0, ty0, tx1, ty1 = -r, -r, tw + r - 1, th + r - 1
+    local ax0, ay0, ax1, ay1 = MapAprons.tileBounds(map)
+    if ax0 then
+      tx0, ty0 = math.min(tx0, ax0), math.min(ty0, ay0)
+      tx1, ty1 = math.max(tx1, ax1), math.max(ty1, ay1)
     end
-    return false
   end
 
+  -- true when the (ring) position lies under a connected neighbour's body
   -- The inclusive variant for OBJECT quads: a quad TOUCHING a neighbour
   -- body counts as under it. The old test took the quad's center with
   -- strict bounds, and a quad whose center sat exactly on the body's
@@ -646,13 +664,14 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
     return false
   end
 
-  for ty = -r, th + r - 1 do
-    for tx = -r, tw + r - 1 do
+  for ty = ty0, ty1 do
+    for tx = tx0, tx1 do
       Budget.tick()
       local k = keyOf(tx, ty)
       local s, tile = S.shapeAt[k], S.tileAt[k]
       local inBody = tx >= 0 and ty >= 0 and tx < tw and ty < th
-      if not inBody and masked(tx * 8, ty * 8, tx * 8 + 8, ty * 8 + 8) then
+      if not inBody
+         and maskedOpen(tx * 8, ty * 8, tx * 8 + 8, ty * 8 + 8) then
         s = nil
       end
 
@@ -805,8 +824,16 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
         -- sides: 8px bands wherever the neighbour is lower. Band k spans
         -- heights [8k, 8k+8) and shows one full tile of art; a partial
         -- band crops the art rows to match, so nothing ever stretches.
+        local authoredVolume = MapAprons.containsTile(map, tx, ty)
         for _, side in ipairs(SIDES) do
-          local nh = heightAt(tx + side[1], ty + side[2])
+          local nx, ny = tx + side[1], ty + side[2]
+          -- An authored apron is a standalone render-only map. Its perimeter
+          -- owns a complete wall even where an adjacent real map happens to
+          -- classify an invisible/masked tile at the same height. Without
+          -- this rule the exposed side changes with the current map root.
+          local nh = authoredVolume
+                     and not MapAprons.containsTile(map, nx, ny)
+                     and 0 or heightAt(nx, ny)
           if nh < h then
             local d = side[3]
             -- the columns flanking this face, for the inside-corner term:

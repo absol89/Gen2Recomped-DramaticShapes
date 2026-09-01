@@ -49,6 +49,7 @@ local Map = require("src.world.Map")
 local Buildings = V.require("Buildings")
 local TileShape = V.require("TileShape")
 local Budget = V.require("BuildBudget")
+local MapAprons = V.require("MapAprons")
 
 local Structures = {}
 
@@ -258,8 +259,19 @@ function Structures.forMap(map)
 
   local def = map.def
   local tw, th = def.width * 4, def.height * 4
-  local x0, x1 = -RING, tw + RING - 1
-  local y0, y1 = -RING, th + RING - 1
+  -- Authored connectors may enlarge the analysis bounds, but the map's
+  -- generic border material still belongs only to this fixed rectangle.
+  -- Otherwise reaching a distant forest also stretches WATER across every
+  -- empty tile between the map body and that forest.
+  local ringX0, ringX1 = -RING, tw + RING - 1
+  local ringY0, ringY1 = -RING, th + RING - 1
+  local x0, x1 = ringX0, ringX1
+  local y0, y1 = ringY0, ringY1
+  local ax0, ay0, ax1, ay1 = MapAprons.tileBounds(map)
+  if ax0 then
+    x0, y0 = math.min(x0, ax0), math.min(y0, ay0)
+    x1, y1 = math.max(x1, ax1), math.max(y1, ay1)
+  end
 
   -- resolve the whole grid once: shape + tile per key. Ring positions use
   -- the same border override the 2D renderer draws with
@@ -309,6 +321,18 @@ function Structures.forMap(map)
       return map:tileAt(tx, ty)
     end
     if inShell(tx, ty) then return shell[(ty % 2) * 2 + (tx % 2) + 1] end
+    -- Some Gen 2 connection layouts leave a corner that belongs to neither
+    -- neighbour. A map-specific voxel apron gets first refusal there, before
+    -- the map's generic border block paints the entire remainder one material.
+    -- The returned tile still goes through every ordinary classifier below,
+    -- so tree blocks synthesize their green ground and use the same rounded
+    -- tree structures, lighting and shadows as trees inside the map body.
+    local apronTile = MapAprons.tileAt(map, tx, ty)
+    if apronTile ~= nil then return apronTile end
+    if not MapAprons.genericBorderAllowed(map, tx, ty) then return nil end
+    if tx < ringX0 or tx > ringX1 or ty < ringY0 or ty > ringY1 then
+      return nil
+    end
     -- and NOTHING past it.  An interior's borderBlock is the room's own
     -- floor on most Gen 2 maps, and a ring of it laid outside the shell
     -- shows over the top as a lawn of lino running off into the dark.
@@ -1575,6 +1599,11 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
       local s = (not grouped[ckey]) and S.shapeAt[k] or nil
       local near = cx * 2 >= -ROUND_RING and cx * 2 < tw + ROUND_RING
                and cy * 2 >= -ROUND_RING and cy * 2 < th + ROUND_RING
+               -- Explicit forest aprons are authored as continuous walls.
+               -- Letting the near-body pass carve their courses into round
+               -- trees creates holes at apron edges and makes the form change
+               -- when another map becomes the render root.
+               and not MapAprons.containsTile(map, cx * 2, cy * 2)
       if s and s.art == "canopy" and near then
         -- ONE 32px hull over the 2x2-cell drawing. The partner cells
         -- must be round-pinned too, or the drawing is partial (a map
