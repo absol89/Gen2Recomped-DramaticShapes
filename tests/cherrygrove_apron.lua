@@ -22,12 +22,12 @@ assert(structuresSource:find("tx < ringX0 or tx > ringX1", 1, true),
 assert(structuresSource:find("MapAprons.genericBorderAllowed(map, tx, ty)",
                              1, true),
   "Structures stopped applying Cherrygrove's rectangular water scope")
-assert(structuresSource:find("not MapAprons.containsTile(map, cx * 2, cy * 2)",
+assert(structuresSource:find("not MapAprons.continuousWallAt(map, cx * 2, cy * 2)",
                              1, true),
   "authored forests can be rounded into camera-dependent edge gaps again")
 
 local blocks = {}
-for id = 0, 5 do
+for id = 0, 0x35 do
   blocks[id + 1] = {}
   for i = 1, 16 do blocks[id + 1][i] = id * 16 + i - 1 end
 end
@@ -51,6 +51,10 @@ assert(MapAprons.containsTile(cherry, 15 * 4, -1),
   "the Pokecenter forest backdrop is not marked as authored terrain")
 assert(not MapAprons.containsTile(cherry, 14 * 4, -1),
   "the authored-forest marker leaked west of the Pokecenter backdrop")
+assert(MapAprons.continuousWallAt(cherry, 15 * 4, -1),
+  "the northeast forest lost its continuous-wall marker")
+assert(MapAprons.closesPerimeterAt(cherry, 15 * 4, -1),
+  "the northeast forest lost its closed-perimeter marker")
 
 local connector = assert(data.connectors.CHERRYGROVE_NORTHEAST_FOREST)
 assert(connector.width == 15 and connector.height == 36
@@ -60,6 +64,18 @@ local route29South = assert(data.connectors.ROUTE_29_SOUTH_FOREST)
 assert(route29South.width == 30 and route29South.height == 3
     and route29South.block == 0x05,
   "Route 29's shared southern forest is not a 30x3 tree strip")
+local westWater = assert(data.connectors.CHERRYGROVE_WEST_WATER)
+local southWater = assert(data.connectors.CHERRYGROVE_SOUTH_WATER)
+assert(westWater.width == 3 and westWater.height == 9
+    and westWater.block == 0x35,
+  "Cherrygrove's shared west water is not the yellow 3x9 strip")
+assert(southWater.width == 13 and southWater.height == 3
+    and southWater.block == 0x35,
+  "Cherrygrove's shared south water is not the yellow 13x3 strip")
+assert(not MapAprons.continuousWallAt(cherry, -12, 0),
+  "shared water was incorrectly classified as a continuous tree wall")
+assert(not MapAprons.closesPerimeterAt(cherry, -12, 0),
+  "shared water was incorrectly given forest perimeter sides")
 
 for by = -36, -1 do
   for bx = 15, 29 do
@@ -110,7 +126,7 @@ assert(MapAprons.blockAt(route30, 9, 24) == nil,
 assert(MapAprons.blockAt(route30, 10, 27) == nil,
   "Route 30 apron extended south into the connected map bodies")
 local x0, y0, x1, y1 = MapAprons.tileBounds(route30)
-assert(x0 == 40 and y0 == -36 and x1 == 179 and y1 == 155,
+assert(x0 == -32 and y0 == -36 and x1 == 179 and y1 == 155,
   "Route 30's explicit mesh extent does not cover both shared forests")
 
 -- Composing Route 30 -> Route 31 and Route 29 -> Route 46 connection
@@ -156,6 +172,25 @@ end
 assert(MapAprons.blockAt(cherry, 19, 9) == nil,
   "Route 29 south forest filled beneath Cherrygrove")
 
+for by = 0, 8 do
+  for bx = -3, -1 do
+    assert(MapAprons.blockAt(cherry, bx, by) == 0x35,
+      ("missing shared west water at Cherrygrove %d,%d"):format(bx, by))
+  end
+end
+for by = 9, 11 do
+  for bx = -3, 9 do
+    assert(MapAprons.blockAt(cherry, bx, by) == 0x35,
+      ("missing shared south water at Cherrygrove %d,%d"):format(bx, by))
+  end
+end
+assert(MapAprons.blockAt(cherry, 10, 9) == nil,
+  "shared water crossed into the grey area below Cherrygrove")
+assert(MapAprons.blockAt(route29, -23, 9) == 0x35,
+  "Route 29 root lost Cherrygrove's shared south water")
+assert(MapAprons.blockAt(route29, -10, 9) == nil,
+  "Route 29 view extended Cherrygrove water into the grey gap")
+
 local mesherFile = assert(io.open("lib/ChunkMesher.lua", "rb"))
 local mesherSource = assert(mesherFile:read("*a"))
 mesherFile:close()
@@ -165,7 +200,7 @@ assert(mesherSource:find("MapAprons.tileBounds(map)", 1, true),
   "ChunkMesher stopped extending FULL meshes to authored apron bounds")
 assert(mesherSource:find("and maskedOpen(tx * 8, ty * 8", 1, true),
   "masked neighbour terrain can suppress exposed apron faces again")
-assert(mesherSource:find("local authoredVolume = MapAprons.containsTile", 1,
+assert(mesherSource:find("local authoredVolume = MapAprons.closesPerimeterAt", 1,
                          true),
   "authored forest perimeters no longer force their exposed vertical faces")
 

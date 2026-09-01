@@ -824,7 +824,7 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
         -- sides: 8px bands wherever the neighbour is lower. Band k spans
         -- heights [8k, 8k+8) and shows one full tile of art; a partial
         -- band crops the art rows to match, so nothing ever stretches.
-        local authoredVolume = MapAprons.containsTile(map, tx, ty)
+        local authoredVolume = MapAprons.closesPerimeterAt(map, tx, ty)
         for _, side in ipairs(SIDES) do
           local nx, ny = tx + side[1], ty + side[2]
           -- An authored apron is a standalone render-only map. Its perimeter
@@ -832,7 +832,7 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
           -- classify an invisible/masked tile at the same height. Without
           -- this rule the exposed side changes with the current map root.
           local nh = authoredVolume
-                     and not MapAprons.containsTile(map, nx, ny)
+                     and not MapAprons.closesPerimeterAt(map, nx, ny)
                      and 0 or heightAt(nx, ny)
           if nh < h then
             local d = side[3]

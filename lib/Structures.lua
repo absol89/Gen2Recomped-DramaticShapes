@@ -1603,7 +1603,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                -- Letting the near-body pass carve their courses into round
                -- trees creates holes at apron edges and makes the form change
                -- when another map becomes the render root.
-               and not MapAprons.containsTile(map, cx * 2, cy * 2)
+               and not MapAprons.continuousWallAt(map, cx * 2, cy * 2)
       if s and s.art == "canopy" and near then
         -- ONE 32px hull over the 2x2-cell drawing. The partner cells
         -- must be round-pinned too, or the drawing is partial (a map

@@ -37,6 +37,8 @@ local function patchesFor(map)
         by1 = at.by + connector.height - 1,
         block = connector.block,
         southEdgeSourceRow = connector.southEdgeSourceRow,
+        continuousWall = connector.continuousWall == true,
+        closePerimeter = connector.closePerimeter == true,
       }
     end
   end
@@ -44,27 +46,34 @@ local function patchesFor(map)
   return patchCache[mapId] or nil
 end
 
-function MapAprons.blockAt(map, bx, by)
-  local patches = patchesFor(map)
-  if not patches then return nil end
-  for _, patch in ipairs(patches) do
+local function patchAt(map, bx, by)
+  for _, patch in ipairs(patchesFor(map) or {}) do
     if bx >= patch.bx0 and bx <= patch.bx1
        and by >= patch.by0 and by <= patch.by1 then
-      return patch.block
+      return patch
     end
   end
   return nil
 end
 
+function MapAprons.blockAt(map, bx, by)
+  local patch = patchAt(map, bx, by)
+  return patch and patch.block or nil
+end
+
 function MapAprons.containsTile(map, tx, ty)
   local bx, by = math.floor(tx / 4), math.floor(ty / 4)
-  for _, patch in ipairs(patchesFor(map) or {}) do
-    if bx >= patch.bx0 and bx <= patch.bx1
-       and by >= patch.by0 and by <= patch.by1 then
-      return true
-    end
-  end
-  return false
+  return patchAt(map, bx, by) ~= nil
+end
+
+function MapAprons.continuousWallAt(map, tx, ty)
+  local patch = patchAt(map, math.floor(tx / 4), math.floor(ty / 4))
+  return patch ~= nil and patch.continuousWall
+end
+
+function MapAprons.closesPerimeterAt(map, tx, ty)
+  local patch = patchAt(map, math.floor(tx / 4), math.floor(ty / 4))
+  return patch ~= nil and patch.closePerimeter
 end
 
 -- Inclusive tile bounds of every authored apron for this map. The ordinary
@@ -85,14 +94,7 @@ end
 
 function MapAprons.tileAt(map, tx, ty)
   local bx, by = math.floor(tx / 4), math.floor(ty / 4)
-  local patch
-  for _, candidate in ipairs(patchesFor(map) or {}) do
-    if bx >= candidate.bx0 and bx <= candidate.bx1
-       and by >= candidate.by0 and by <= candidate.by1 then
-      patch = candidate
-      break
-    end
-  end
+  local patch = patchAt(map, bx, by)
   if not patch then return nil end
   local block = map.tileset and map.tileset.blocks
     and map.tileset.blocks[patch.block + 1]
