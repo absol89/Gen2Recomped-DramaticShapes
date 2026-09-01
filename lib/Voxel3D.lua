@@ -28,6 +28,7 @@ local V = ...
 local Mat4 = V.require("Mat4")
 local Voxel = V.require("VoxelState")
 local ShadowMap = V.require("ShadowMap")
+local Shadows = V.require("Shadows")
 local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local Sky = V.require("Sky")
@@ -978,7 +979,7 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot, modelShadow)
     pcall(sh.send, sh, "modelSunMap", tex)
   end
   pcall(sh.send, sh, "modelSunDark",
-    external and (tonumber(external.sunDark) or 0) or 0)
+    external and not Shadows.off() and (tonumber(external.sunDark) or 0) or 0)
   pcall(sh.send, sh, "modelSunBias",
     external and (tonumber(external.sunBias) or 0) or 0)
   pcall(sh.send, sh, "modelSunTexel",

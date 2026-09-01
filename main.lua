@@ -174,6 +174,7 @@ local VoxelPrecache = V.require("VoxelPrecache")
 local VoxelPrecacheScreen = V.require("VoxelPrecacheScreen")
 local VoxelCacheRamScreen = V.require("VoxelCacheRamScreen")
 local VoxelMeshDisk = V.require("VoxelMeshDisk")
+local Shadows = V.require("Shadows")
 local StaticGeometry = V.require("StaticGeometry")
 local ModSetting = V.require("ModSetting")
 local RamPrecacheSetting = ModSetting.new(
@@ -676,6 +677,11 @@ local SETTINGS = {
     .. "shoreline, the trees and the buildings behind it; SKY is the sky, "
     .. "the sun and the moon alone, which is most of the look for a "
     .. "fraction of the cost." },
+  { Shadows.setting,
+    "Enable shadows. OFF removes both the real cast-shadow map and its flat "
+    .. "fallback from free roam and staged battles; UNLIT battle cards also "
+    .. "decline shadows even while this global switch is ON.",
+    full = true },
   -- `full` marks a row FULL does not take away. FULL owns the diorama's own
   -- knobs; what a battle is drawn over, and how it is framed, are not that.
   -- Off the OPTIONS menu while VR is on: the headset REQUIRES staged

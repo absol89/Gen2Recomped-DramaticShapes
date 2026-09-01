@@ -29,6 +29,7 @@ local V = ...
 
 local Mat4 = V.require("Mat4")
 local Voxel = V.require("VoxelState")
+local Shadows = V.require("Shadows")
 
 local ShadowMap = {}
 
@@ -267,6 +268,7 @@ end
 -- where the canvas cannot be made -- VoxelScene then keeps the flat decal
 -- shadows, which need nothing but a quad.
 function ShadowMap.available()
+  if Shadows.off() then return false end
   if not (love.graphics and love.graphics.newCanvas
           and love.graphics.setDepthMode) then
     return false
@@ -286,6 +288,7 @@ end
 
 -- True while the map holds a frame the main pass can read.
 function ShadowMap.active()
+  if Shadows.off() then return false end
   return ready and canvas ~= nil and canvas ~= false
 end
 
