@@ -102,7 +102,9 @@ local STATIC_PLAYTHROUGH = "bavc_g2_static_mesh_v1"
 -- Gold and Silver share a mod but not map payloads. Both the modern key space
 -- and the <=0.1.83 legacy filesystem therefore include the selected version.
 -- CACHE_REVISION changes only when emitted geometry or the binary format does.
-Disk.CACHE_REVISION = 3
+-- Revision 4 stops AO treating a connection's hidden border ring as a raised
+-- neighbour, changing baked vertex shades along every connected map seam.
+Disk.CACHE_REVISION = 4
 Disk.CACHE_FAMILY = "g2r-v1"
 local BASE_DIRECTORY = "cache/static-mesh-g2-v1"
 local LOGICAL_DIRECTORY = BASE_DIRECTORY .. "/unbound"

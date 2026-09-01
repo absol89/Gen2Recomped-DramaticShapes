@@ -666,6 +666,9 @@ local SETTINGS = {
     .. "system RAM but reduce first-entry disk reads on mobile.",
     full = true },
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
+  { VoxelScene.silhouetteSetting,
+    "Draw silhouettes for characters hidden behind voxel geometry. "
+    .. "OFF disables the silhouette pass completely." },
   { WorldCurve.setting,
     "Bend the world down over the horizon, Animal Crossing style." },
   { Water.setting,
@@ -1890,7 +1893,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.0.6"
+mod.exports.version = "2.0.8"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,
