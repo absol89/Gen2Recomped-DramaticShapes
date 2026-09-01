@@ -158,13 +158,18 @@ local VoxelPrecache = V.require("VoxelPrecache")
 local VoxelPrecacheScreen = V.require("VoxelPrecacheScreen")
 local VoxelCacheRamScreen = V.require("VoxelCacheRamScreen")
 local VoxelMeshDisk = V.require("VoxelMeshDisk")
+local Shadows = V.require("Shadows")
 local StaticGeometry = V.require("StaticGeometry")
 local ModSetting = V.require("ModSetting")
 local RamPrecacheSetting = ModSetting.new(
   "ramPrecacheMb", "RAM PRECACHE MB",
-  { 256, 512, 1024, 1536, 2048, 2560, 3172, 0 },
-  { "256", "512", "1024", "1536", "2048", "2560", "3172", "FULL" },
-  3)
+  { 3072, 0, 1 },
+  { "3072", "FULL", "OFF" },
+  1)
+-- These are needed by the pipeline update hook above their implementations.
+-- The downstream integration already assigned stored value 1 to OFF because
+-- value 0 means FULL on this branch; keep that mapping stable.
+local ramPrecacheEnabled, applyRamPrecacheBudget
 -- Forward declaration: the prebake pass is set up far below (it needs the
 -- options schema first) but the update hook that drives it is written above
 -- that, and a closure cannot capture a local that does not exist yet.
@@ -341,7 +346,9 @@ mod.content.render_pipelines:register("voxel", {
       -- Warm only direct warp/connection destinations during play. Any cache
       -- miss is encoded into dirty RAM; disk writes remain an explicit
       -- CACHE / SAVE action.
-      pcall(VoxelPrecache.update, Game)
+      if ramPrecacheEnabled() then
+        pcall(VoxelPrecache.update, Game)
+      end
     end
     ChunkMesher.pump(Game and Game.stack
                      and Game.stack:top() ~= ow)
@@ -527,22 +534,34 @@ local function stagedBattles()
   return OverworldBattle.enabled()
 end
 
-local function applyRamPrecacheBudget()
+ramPrecacheEnabled = function()
+  return RamPrecacheSetting:get() ~= 1
+end
+
+applyRamPrecacheBudget = function()
   local megabytes = RamPrecacheSetting:get()
-  if megabytes == 0 then
+  local enabled = ramPrecacheEnabled()
+  VoxelMeshDisk.setRamPrecacheEnabled(enabled)
+  if not enabled then
+    VoxelMeshDisk.setRamBudget(0)
+  elseif megabytes == 0 then
     VoxelMeshDisk.setRamBudget(0)
   else
     VoxelMeshDisk.setRamBudget(megabytes * 1024 * 1024)
   end
+  return enabled
 end
 
 local SETTINGS = {
   { RamPrecacheSetting,
     "Compressed voxel cache retained for CONTINUE and nearby-area loading. "
-    .. "Choose FULL to retain every precached record; larger values use more "
-    .. "system RAM but reduce first-entry disk reads on mobile.",
+    .. "Choose FULL to retain every precached record. OFF skips eager loading "
+    .. "and reads cached maps only when they are actually needed.",
     full = true },
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
+  { VoxelScene.silhouetteSetting,
+    "Draw silhouettes for characters hidden behind voxel geometry. "
+    .. "OFF disables the silhouette pass completely." },
   { WorldCurve.setting,
     "Bend the world down over the horizon, Animal Crossing style." },
   { Water.setting,
@@ -550,6 +569,11 @@ local SETTINGS = {
     .. "shoreline, the trees and the buildings behind it; SKY is the sky, "
     .. "the sun and the moon alone, which is most of the look for a "
     .. "fraction of the cost." },
+  { Shadows.setting,
+    "Enable shadows. OFF removes both the real cast-shadow map and its flat "
+    .. "fallback from free roam and staged battles; UNLIT battle cards also "
+    .. "decline shadows even while this global switch is ON.",
+    full = true },
   -- `full` marks a row FULL does not take away. FULL owns the diorama's own
   -- knobs; what a battle is drawn over, and how it is framed, are not that.
   -- Off the OPTIONS menu while VR is on: the headset REQUIRES staged
@@ -1310,6 +1334,11 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
       local continue = item.onSelect
       item.onSelect = function()
         VoxelMeshDisk.beginSession()
+        local preload = applyRamPrecacheBudget()
+        if not preload then
+          continue()
+          return
+        end
         -- A mobile RAM budget cannot retain a complete Gen2 cache. Start with
         -- the saved location and its visible neighbours so CONTINUE enters 3D
         -- immediately rather than spending the budget alphabetically.
@@ -1323,7 +1352,6 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
           end
           continue()
         else
-          applyRamPrecacheBudget()
           local names = select(1, VoxelMeshDisk.ramPlan(priorityMaps))
           if names and #names > 0 and not VoxelMeshDisk.ramReady(names) then
             game.stack:push(VoxelCacheRamScreen.new(game, continue, priorityMaps))
@@ -1339,10 +1367,9 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         newGame()
         VoxelMeshDisk.bind(game, false)
         VoxelMeshDisk.beginSession()
-        if VoxelMeshDisk.eagerLoadAllowed() then
+        local preload = applyRamPrecacheBudget()
+        if preload and VoxelMeshDisk.eagerLoadAllowed() then
           VoxelMeshDisk.setRamBudget(0)
-        else
-          applyRamPrecacheBudget()
         end
       end
     end

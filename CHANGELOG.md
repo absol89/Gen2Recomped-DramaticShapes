@@ -4,6 +4,23 @@
 
 ### Fixed
 
+- **The shared Cherrygrove forest could appear only from Cherrygrove.** Older
+  Gen2Recomp data names the routes `ROUTE29`, `ROUTE30`, `ROUTE31`, and
+  `ROUTE46`, while the port's authored apron data used the newer underscored
+  names. Apron lookup now canonicalizes both ID forms, its placements
+  participate in each affected map's cache key, and closed authored forest
+  cells no longer get erased by overlapping real-neighbour body masks on
+  Routes 29, 30, and 31. The cache revision forces all five render roots to
+  rebuild with the same forest and coastal geometry.
+
+- **RAM PRECACHE OFF still eagerly loaded cached terrain.** The displayed OFF
+  choice stored the numeric sentinel `1`, but startup treated that as a one-MB
+  budget and still opened the loading screen (and warmed nearby records during
+  play). OFF is now a real policy: CONTINUE starts immediately, proactive map
+  and warp-destination reads are skipped, and clean compressed records are
+  read only on demand without being retained. Newly generated dirty records
+  remain available for the explicit CACHE -> SAVE action.
+
 - **Nothing indoors had a shape.** Not one of Generation 2's twenty-odd
   interior tilesets carried a pin of any kind, so every room in the game
   came out of the fallback as a field of identical 16px cubes: a Centre's

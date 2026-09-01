@@ -25,6 +25,9 @@ function V.require(name)
   if name == "StaticGeometry" then
     return { source = function(map) return map end, record = function() end }
   end
+  if name == "MapAprons" then
+    return { cacheTag = function() return "" end }
+  end
   error(name)
 end
 local Disk = assert(loadfile("lib/VoxelMeshDisk.lua"))(V)
@@ -45,14 +48,29 @@ assert(Disk.saveAux(map, { grass = record(), flowers = { n = 0 }, figures = {} }
 local names = Disk.ramPlan()
 assert(#names == 2, "test cache did not persist both map products")
 
+-- OFF is a policy, not a tiny positive budget: it must prevent both the
+-- CONTINUE plan and neighbourhood preloads while leaving on-demand reads
+-- available through loadTerrain/loadAux.
+Disk.beginSession()
+Disk.setRamPrecacheEnabled(false)
+assert(#Disk.ramPlan() == 0, "RAM PRECACHE OFF still planned eager reads")
+assert(not Disk.loadIntoRam(names[1]), "RAM PRECACHE OFF accepted an eager read")
+assert(Disk.preload(map, false) == 0,
+  "RAM PRECACHE OFF warmed a neighbourhood record")
+assert(Disk.loadTerrain(map, "full", {}),
+  "RAM PRECACHE OFF disabled ordinary on-demand cache reads")
+assert(Disk.ramStats().files == 0,
+  "RAM PRECACHE OFF retained a clean on-demand container")
+Disk.setRamPrecacheEnabled(true)
+
 -- Capped mobile CONTINUE must begin with the resumed map rather than cache
 -- records from alphabetical earlier locations.
 bytes[Disk.DIRECTORY .. "/A_FAR/full-terrain"] = "far"
 bytes[Disk.DIRECTORY .. "/Z_RESUME/full-terrain"] = "resume"
-local prioritized = Disk.ramPlan({ "Z_RESUME", "TEST_MAP" })
+local prioritized = Disk.ramPlan({ "Z_RESUME", "STREAM_TEST" })
 assert(prioritized[1] == Disk.DIRECTORY .. "/Z_RESUME/full-terrain",
   "RAM plan did not prioritize the resumed map")
-assert(prioritized[2]:find("/TEST_MAP/", 1, true),
+assert(prioritized[2]:find("/STREAM_TEST/", 1, true),
   "RAM plan did not retain preferred-map order")
 
 DETECT = { os = "Windows", console = false, mobile = false }

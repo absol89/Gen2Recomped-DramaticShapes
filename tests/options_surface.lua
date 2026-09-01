@@ -7,19 +7,26 @@ end
 
 local main = source("main.lua")
 local ramSetting = assert(main:find('"ramPrecacheMb", "RAM PRECACHE MB"', 1, true))
-local ramSettingEnd = assert(main:find('local function applyRamPrecacheBudget',
-                                        ramSetting, true))
+local ramSettingEnd = assert(main:find(
+  'local ramPrecacheEnabled, applyRamPrecacheBudget', ramSetting, true))
 local ramChoices = main:sub(ramSetting, ramSettingEnd - 1)
-for _, choice in ipairs({ "256", "512", "1024", "1536", "2048",
-                          "2560", "3172", "FULL" }) do
+for _, choice in ipairs({ "3072", "FULL", "OFF" }) do
   assert(ramChoices:find('"' .. choice .. '"', 1, true),
     "RAM PRECACHE MB is missing " .. choice)
 end
-assert(ramChoices:find("},\n  3)", 1, true),
-  "RAM PRECACHE MB no longer defaults to 1024 MB")
+assert(ramChoices:find("{ 3072, 0, 1 }", 1, true),
+  "RAM PRECACHE OFF no longer preserves its downstream stored value")
+assert(ramChoices:find("},\n  1)", 1, true),
+  "RAM PRECACHE MB no longer defaults to 3072 MB")
+assert(main:find("local ramPrecacheEnabled, applyRamPrecacheBudget", 1, true),
+  "RAM PRECACHE policy is not available to the update hook")
+assert(main:find("if not preload then", 1, true),
+  "RAM PRECACHE OFF does not bypass the CONTINUE loading screen")
 assert(main:find("VoxelMeshDisk.sizeText(after.bytes)", 1, true),
   "CACHE SAVE does not report the selected RAM size in the shared formatter")
-assert(ramChoices:find("full = true", 1, true),
+local ramEntry = assert(main:find("{ RamPrecacheSetting,", ramSettingEnd, true))
+local ramEntryEnd = assert(main:find("{ VoxelGrid.setting", ramEntry, true))
+assert(main:sub(ramEntry, ramEntryEnd - 1):find("full = true", 1, true),
   "RAM PRECACHE MB disappears when VOXEL is FULL")
 assert(main:find('dropRow(out, "pipeline:tiltshift")', 1, true),
   "existing T-SHIFT pipeline row is not removed before reinsertion")

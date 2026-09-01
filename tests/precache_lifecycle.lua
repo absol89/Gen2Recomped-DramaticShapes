@@ -43,6 +43,8 @@ function V.require(name)
     return { check = function() end }
   elseif name == "StaticGeometry" then
     return StaticGeometry
+  elseif name == "MapAprons" then
+    return { cacheTag = function() return "" end }
   end
   error("unexpected module " .. tostring(name))
 end

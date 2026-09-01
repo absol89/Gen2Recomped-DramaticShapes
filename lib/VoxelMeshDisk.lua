@@ -15,6 +15,7 @@ local V = ...
 
 local Budget = V.require("BuildBudget")
 local StaticGeometry = V.require("StaticGeometry")
+local MapAprons = V.require("MapAprons")
 local Version = require("src.core.Version")
 local Platform = require("src.core.Platform")
 
@@ -29,6 +30,7 @@ local ramFiles, sessionActive = {}, false
 local ramDirty, ramRejected = {}, {}
 local ramBytes = 0
 local ramOrder = {}
+local ramPrecacheEnabled = true
 -- Zero is intentionally unbounded for desktop eager-load. Console/mobile
 -- sessions set a finite budget and stream compressed map containers on demand.
 local ramBudget = 0
@@ -95,12 +97,12 @@ Disk.DIRECTORY = BASE_DIRECTORY .. "/unbound"
 
 -- Bump only when emitted geometry or this binary record format changes. Public
 -- mod patch releases which do neither continue using the existing cache.
--- Revision 3 stops AO treating a connection's hidden border ring as a raised
--- neighbour, changing baked vertex shades along every connected map seam.
 -- Revision 2 includes the PR #28 roof-surface correction. The canonical map
 -- fingerprint cannot see either authored geometry rule, so the explicit
 -- revision prevents old roof caps or seam-darkened water from being reloaded.
-Disk.CACHE_REVISION = 3
+-- Revision 7 canonicalizes compact v0.7.x route ids and keeps closed authored
+-- forests from being erased by overlapping real-neighbour body masks.
+Disk.CACHE_REVISION = 7
 Disk.CACHE_FAMILY = "g2r-v1"
 Disk.PRECACHE_FAILURE_FILE =
   "mod-derived/BATTLE_ART_VOXEL_FORK/precache-failures.tsv"
@@ -521,6 +523,8 @@ function Disk.fingerprint(map, slot, masks, kind)
     local okTR, TileRenderer = pcall(require, "src.render.TileRenderer")
     parts[#parts + 1] = "void"
     parts[#parts + 1] = tostring(okTR and TileRenderer.voidFill or "trees")
+    parts[#parts + 1] = "aprons"
+    parts[#parts + 1] = MapAprons.cacheTag(map)
   end
   parts[#parts + 1] = "blocks"
   addList(parts, def.blocks)
@@ -601,7 +605,7 @@ end
 -- before the saved map is reached. `preferredMapIds` puts the resumed map and
 -- its immediate visible neighbours at the front instead.
 function Disk.ramPlan(preferredMapIds)
-  if not available() then return {}, 0 end
+  if not available() or not ramPrecacheEnabled then return {}, 0 end
   local names, bytes = {}, 0
   local ok, listed = pcall(storage.list, storage, Disk.DIRECTORY)
   if not ok then return names, bytes end
@@ -644,7 +648,7 @@ function Disk.beginPrecache()
 end
 
 function Disk.loadIntoRam(name)
-  if not sessionActive or type(name) ~= "string"
+  if not ramPrecacheEnabled or not sessionActive or type(name) ~= "string"
      or name:sub(1, #Disk.DIRECTORY + 1) ~= Disk.DIRECTORY .. "/" then
     return false, 0
   end
@@ -670,7 +674,8 @@ end
 -- find its precached terrain without waiting for a filesystem read during the
 -- first visible frame.
 function Disk.preload(map, bodyOnly)
-  if not sessionActive or not available() or not Disk.staticEligible(map) then
+  if not ramPrecacheEnabled or not sessionActive
+     or not available() or not Disk.staticEligible(map) then
     return 0
   end
   local slot = bodyOnly and "body" or "full"
@@ -703,6 +708,22 @@ function Disk.ramStats()
   end
   return { enabled = sessionActive, files = files, bytes = ramBytes,
            dirty = dirty, dirtyBytes = dirtyBytes }
+end
+
+-- RAM PRECACHE OFF means no proactive reads and no retention of clean disk
+-- containers. Runtime cache misses remain in RAM because they are dirty data
+-- awaiting the explicit CACHE -> SAVE action; disabling preload must not make
+-- that action lose the geometry generated during play.
+function Disk.setRamPrecacheEnabled(enabled)
+  ramPrecacheEnabled = enabled ~= false
+  if ramPrecacheEnabled then return end
+  for path in pairs(ramFiles) do
+    if not ramDirty[path] then discard(path, false) end
+  end
+end
+
+function Disk.ramPrecacheEnabled()
+  return ramPrecacheEnabled
 end
 
 -- Whole-cache preload is safe only on desktop-class systems. Switch, mobile,
@@ -951,7 +972,7 @@ local function readValidated(path, fp, map)
     if not ok or not loaded then return nil end
     blob = loaded
     knownSizes[path] = #blob
-    if sessionActive then
+    if sessionActive and ramPrecacheEnabled then
       ramFiles[path] = blob
       ramBytes = ramBytes + #blob
       ramNote(path)

@@ -140,8 +140,24 @@ assert(mesher:find("local function flushConnection(tx, ty)", 1, true)
     and mesher:find("local n = crowds(tx, ty - 1, h)", 1, true)
     and mesher:find("local se = crowds(tx + 1, ty + 1, h)", 1, true),
   "connected edges still AO-shade against their hidden border ring")
-assert(meshDisk:find("Disk.CACHE_REVISION = 3", 1, true),
+assert(meshDisk:find("Disk.CACHE_REVISION = 7", 1, true)
+    and meshDisk:find("MapAprons.cacheTag(map)", 1, true),
   "the connection-AO vertex change did not invalidate persistent meshes")
+local voxelScene = source("lib/VoxelScene.lua")
+assert(voxelScene:find("VoxelScene.silhouetteSetting = ModSetting.new", 1, true)
+    and voxelScene:find("VoxelScene.GHOST_RADIUS_CELLS = 15", 1, true)
+    and voxelScene:find("for _, p in ipairs(posed) do", 1, true)
+    and main:find("{ VoxelScene.silhouetteSetting,", 1, true),
+  "the all-character silhouette option is not completely integrated")
+local shadows = source("lib/Shadows.lua")
+local shadowMap = source("lib/ShadowMap.lua")
+assert(shadows:find('ModSetting.new("shadowQuality", "SHADOWS"', 1, true)
+    and shadowMap:find("if Shadows.off() then return false end", 1, true)
+    and voxel3d:find("external and not Shadows.off()", 1, true)
+    and voxelScene:find("if Shadows.enabled() and not Voxel3D.shadowsActive()",
+                        1, true)
+    and main:find("{ Shadows.setting,", 1, true),
+  "the global shadow toggle is not completely integrated")
 assert(overworld:find("UiBackplates.HALF_Y_OFFSET", 1, true),
   "active Gen 2 HALF frame and panel offset is missing")
 assert(overworld:find("local function uiPresentation", 1, true)
