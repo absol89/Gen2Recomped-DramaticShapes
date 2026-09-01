@@ -95,10 +95,12 @@ Disk.DIRECTORY = BASE_DIRECTORY .. "/unbound"
 
 -- Bump only when emitted geometry or this binary record format changes. Public
 -- mod patch releases which do neither continue using the existing cache.
+-- Revision 3 stops AO treating a connection's hidden border ring as a raised
+-- neighbour, changing baked vertex shades along every connected map seam.
 -- Revision 2 includes the PR #28 roof-surface correction. The canonical map
--- fingerprint cannot see changes to authored voxel-profile rules, so keeping
--- revision 1 would silently reload the old black-cap roof meshes forever.
-Disk.CACHE_REVISION = 2
+-- fingerprint cannot see either authored geometry rule, so the explicit
+-- revision prevents old roof caps or seam-darkened water from being reloaded.
+Disk.CACHE_REVISION = 3
 Disk.CACHE_FAMILY = "g2r-v1"
 Disk.PRECACHE_FAILURE_FILE =
   "mod-derived/BATTLE_ART_VOXEL_FORK/precache-failures.tsv"

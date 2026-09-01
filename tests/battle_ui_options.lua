@@ -129,10 +129,19 @@ local voxel3d = source("lib/Voxel3D.lua")
 assert(voxel3d:find("modelSunlight(vModelSun)", 1, true),
   "voxel terrain does not receive the Stadium model shadow map")
 local overworld = source("lib/OverworldBattle.lua")
+local mesher = source("lib/ChunkMesher.lua")
+local meshDisk = source("lib/VoxelMeshDisk.lua")
 assert(overworld:find("not UiBackplates.hudUsesColor()", 1, true),
   "HUD COLOR is not connected to staged HUD rendering")
 assert(overworld:find("UiBackplates.textboxMode()", 1, true),
   "TEXTBOX FILL is not connected to battle text rendering")
+assert(mesher:find("local function flushConnection(tx, ty)", 1, true)
+    and mesher:find("local function crowds(tx, ty, h)", 1, true)
+    and mesher:find("local n = crowds(tx, ty - 1, h)", 1, true)
+    and mesher:find("local se = crowds(tx + 1, ty + 1, h)", 1, true),
+  "connected edges still AO-shade against their hidden border ring")
+assert(meshDisk:find("Disk.CACHE_REVISION = 3", 1, true),
+  "the connection-AO vertex change did not invalidate persistent meshes")
 assert(overworld:find("UiBackplates.HALF_Y_OFFSET", 1, true),
   "active Gen 2 HALF frame and panel offset is missing")
 assert(overworld:find("local function uiPresentation", 1, true)

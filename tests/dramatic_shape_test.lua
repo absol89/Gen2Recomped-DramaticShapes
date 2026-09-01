@@ -2048,6 +2048,55 @@ local _, _, dryLand, _, _, dryWet = ChunkMesher.geometry(pondMap, true, nil,
 T.check(dryLand > 0, "a map with no water still meshes its ground")
 T.eq(dryWet, 0, "and hands back no water surface at all")
 
+-- A connection suppresses the border ring beneath the neighbouring map body.
+-- The corner-AO probe must suppress that same phantom wall or each map darkens
+-- its own water edge, producing a symmetric band across an otherwise
+-- continuous sea. A closed edge remains shaded.
+local seamMap = {
+  id = "DS_TEST_SEAM_AO",
+  tileset = { id = "DS_TEST_SEAM_SET",
+              image = "gfx/tilesets/ds_test_seam.png",
+              tilesPerRow = 16, imageWidth = 128, imageHeight = 48,
+              blocks = {}, grassTile = -1 },
+  def = { width = 2, height = 2, tileset = "DS_TEST_SEAM_SET",
+          connections = { east = { map = "DS_TEST_SEAM_EAST", offset = 0 } } },
+  walkable = {}, waterTiles = { [WATER_TILE] = true }, doorTiles = {},
+  tileAt = function() return WATER_TILE end,
+  cellTile = function() return WATER_TILE end,
+  isWaterCell = function() return true end,
+  isWalkableCell = function() return false end,
+  inBounds = function(_, cx, cy)
+    return cx >= 0 and cy >= 0 and cx < 4 and cy < 4
+  end,
+}
+Structures.invalidate(seamMap.id)
+local _, _, _, seamWater = ChunkMesher.geometry(seamMap, true, nil, true)
+local east, west, span = 64, 0, 64
+local eastLit, eastDark, westDark, worst = 0, 0, 0, 1
+for _, v in ipairs(seamWater) do
+  local x, z, shade = v[1], v[3], v[6]
+  if z > 0 and z < span then
+    if x == east then
+      if shade < 1 then
+        eastDark, worst = eastDark + 1, math.min(worst, shade)
+      else
+        eastLit = eastLit + 1
+      end
+    elseif x == west and shade < 1 then
+      westDark, worst = westDark + 1, math.min(worst, shade)
+    end
+  end
+end
+T.check(eastLit > 0, "the connected edge carries water corners")
+T.eq(eastDark, 0,
+  "a connected water edge is not AO-shaded against its hidden border ring")
+T.check(westDark > 0,
+  "a genuinely closed water edge retains border-ring occlusion")
+T.check(worst > 0.56 and worst < 0.58,
+  "the closed edge retains the established two-crowder AO step")
+Structures.invalidate(seamMap.id)
+ChunkMesher.invalidate(seamMap.id)
+
 -- ------- and the pairing
 --
 -- The terrain mesh and the water lifted out of it are ONE answer: they came
