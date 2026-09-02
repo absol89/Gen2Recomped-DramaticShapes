@@ -179,9 +179,9 @@ local StaticGeometry = V.require("StaticGeometry")
 local ModSetting = V.require("ModSetting")
 local RamPrecacheSetting = ModSetting.new(
   "ramPrecacheMb", "RAM PRECACHE MB",
-  { 256, 512, 1024, 1536, 2048, 2560, 3172, 0 },
-  { "256", "512", "1024", "1536", "2048", "2560", "3172", "FULL" },
-  3)
+  { 3072, false, 0 },
+  { "3072", "OFF", "FULL" },
+  1)
 local PipelineCanvas = V.require("PipelineCanvas")
 local WorldCanvasOrientation = V.require("WorldCanvasOrientation")
 local VoxelGrid = V.require("VoxelGrid")
@@ -604,9 +604,20 @@ local function stagedBattles()
 end
 
 local function applyRamPrecacheBudget()
-  local megabytes = RamPrecacheSetting:get()
-  VoxelMeshDisk.setRamBudget(megabytes == 0 and 0
-    or megabytes * 1024 * 1024)
+  local value = RamPrecacheSetting:get()
+  if value == false then
+    -- OFF: disable precache entirely, no preload, no RAM limit
+    VoxelMeshDisk.setRamPrecacheEnabled(false)
+    return false
+  end
+  VoxelMeshDisk.setRamPrecacheEnabled(true)
+  if value == 0 then
+    -- FULL: no RAM budget cap, eager whole-world load
+    VoxelMeshDisk.setRamBudget(0)
+  else
+    VoxelMeshDisk.setRamBudget(tonumber(value) * 1024 * 1024)
+  end
+  return true
 end
 
 -- Gen 2 does not build render-pipeline rows for either of its options
@@ -1329,6 +1340,12 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
       end
       if continue then item.onSelect = function(_, menu)
         VoxelMeshDisk.beginSession()
+        -- OFF disables precache entirely: no preload, no RAM limit
+        local preload = applyRamPrecacheBudget()
+        if not preload then
+          continue(game, menu)
+          return
+        end
         -- Mobile RAM budgets are smaller than a complete Gen2 cache. Start
         -- with the saved area and its connected neighbours so CONTINUE enters
         -- the 3D world immediately instead of spending the budget on an
@@ -1351,7 +1368,6 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
           -- Streaming platform: retain the user's selected compressed-cache
           -- budget. The loader screen fills that budget before continuing so
           -- the first visible area does not pay the disk-read cost.
-          applyRamPrecacheBudget()
           local names = select(1, VoxelMeshDisk.ramPlan(priorityMaps))
           local resume = function() continue(game, menu) end
           if not names or #names == 0 or VoxelMeshDisk.ramReady(names) then
@@ -1373,10 +1389,9 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         newGame(game, menu)
         VoxelMeshDisk.bind(game, false)
         VoxelMeshDisk.beginSession()
-        if VoxelMeshDisk.eagerLoadAllowed() then
+        local preload = applyRamPrecacheBudget()
+        if preload and VoxelMeshDisk.eagerLoadAllowed() then
           VoxelMeshDisk.setRamBudget(0)
-        else
-          applyRamPrecacheBudget()
         end
       end end
     end

@@ -37,6 +37,22 @@ local ramOrder = {}
 -- memory-constrained devices a non-zero budget caps how much stays resident
 -- between disk streaming reads.
 local ramBudget = 0
+local ramPrecacheEnabled = true
+
+function Disk.setRamPrecacheEnabled(enabled)
+  ramPrecacheEnabled = enabled ~= false
+  if ramPrecacheEnabled then return end
+  for path in pairs(ramFiles) do
+    if not ramDirty[path] then
+      ramBytes = ramBytes - #ramFiles[path]
+      ramFiles[path] = nil
+    end
+  end
+end
+
+function Disk.isRamPrecacheEnabled()
+  return ramPrecacheEnabled
+end
 
 local function ramNote(name)
   for i = #ramOrder, 1, -1 do
@@ -631,7 +647,7 @@ end
 -- before the map in the save file is reached. `preferredMapIds` puts the
 -- current map and its immediate visible neighbours at the front instead.
 function Disk.ramPlan(preferredMapIds)
-  if not available() then return {}, 0 end
+  if not available() or not ramPrecacheEnabled then return {}, 0 end
   local names, bytes = {}, 0
   local ok, listed = pcall(storage.list, storage, Disk.DIRECTORY)
   if not ok then return names, bytes end
@@ -674,7 +690,7 @@ function Disk.beginPrecache()
 end
 
 function Disk.loadIntoRam(name)
-  if not sessionActive or type(name) ~= "string"
+  if not ramPrecacheEnabled or not sessionActive or type(name) ~= "string"
      or name:sub(1, #Disk.DIRECTORY + 1) ~= Disk.DIRECTORY .. "/" then
     return false, 0
   end
