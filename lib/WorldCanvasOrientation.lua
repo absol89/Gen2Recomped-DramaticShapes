@@ -12,12 +12,21 @@ local targets = {}
 
 function Orientation.needsFlip(generation)
   if tonumber(generation) ~= 2 then return false end
-  if not (love and love.system and love.system.getOS
-          and love.system.getOS() == "iOS" and love.getVersion) then
+  if not (love and love.graphics and love.graphics.getRendererInfo) then
     return false
   end
-  local major = love.getVersion()
-  return type(major) == "number" and major >= 12
+  -- LÖVE 12's Metal path (iOS and macOS) presents the completed world
+  -- Canvas upside-down. Detect Metal directly rather than by OS so macOS
+  -- gets the same correction as iOS.
+  local RendererOrientation = V.require("RendererOrientation")
+  if RendererOrientation.metalRenderer() then return true end
+  -- Pre-12 iOS/Metal fallback for engines without getRendererInfo.
+  if love.system and love.system.getOS
+      and love.system.getOS() == "iOS" and love.getVersion then
+    local major = love.getVersion()
+    return type(major) == "number" and major >= 12
+  end
+  return false
 end
 
 local function targetFor(slot, w, h)
