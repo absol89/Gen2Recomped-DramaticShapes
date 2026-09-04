@@ -510,6 +510,7 @@ end
 -- and STATIC uses PLAYER ART. Named selections resolve to their corresponding
 -- back-static/<name>player.png file and fall back to player.png if missing.
 function BattleArt.playerBackPathForOptions()
+  if BattleArt.setting:get() == "rom" then return nil end
   local animated = BattleArt.setting:get() == "animated"
   local selected = animated and BattleArt.playerAnimationSetting:get()
     or BattleArt.playerArtSetting:get()
@@ -602,13 +603,9 @@ function BattleArt.applyTrainers(battle)
       local art = BattleArt.playerArtSetting:get()
       local anim = BattleArt.playerAnimationSetting:get()
       local chosen = artMode == "animated" and anim or art
-      -- In ANIMATED mode a named generation is a multi-frame player-back atlas
-      -- owned by the animated manager (updatePlayerTrainer). Writing a static
-      -- prepared frame here every frame would clobber that animation and pin
-      -- the engine's ROM gender sprite, so leave playerBackPic to the manager.
-      -- Only PNG (static fallback) and ROM (engine portrait) resolve to a value
-      -- in animated mode; the flat STATIC/ROM modes keep the prepared still.
-      if artMode == "animated" and chosen ~= "png" and chosen ~= "rom" then
+      -- The animation manager owns both atlases and its PNG fallback. Restore
+      -- any static replacement before it captures the original engine image.
+      if artMode == "animated" then
         playerImage = nil
       else
         playerImage = (chosen == "rom") and nil

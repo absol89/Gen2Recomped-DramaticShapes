@@ -68,11 +68,12 @@ assert(BattleArt.playerBackPathForOptions() == PNG_PATH,
 stored.playerArtSet = nil
 stored.playerAnimatedSet = nil
 
--- A named generation (gen2) on either row -> engine back, not player.png.
+-- STATIC resolves the selected named file, not the generic PNG or ROM.
 stored.playerArtSet = "gen2"
 stored.battleArt = "static"
-assert(BattleArt.playerBackPathForOptions() == nil,
-  "gen2 player art should not be rewritten to player.png")
+assert(BattleArt.playerBackPathForOptions()
+  == "RESOLVED/assets/battle/back-static/gen2player.png",
+  "STATIC must resolve the selected gen2 player art")
 stored.playerArtSet = nil
 
 -- ROM on either row restores the engine portrait.
@@ -89,7 +90,8 @@ stored.battleArt = "animated"
 assert(BattleArt.playerBackPathForOptions() == PNG_PATH,
   "ANIMATED did not honor PLAYER ANIM PNG")
 stored.battleArt = "static"
-assert(BattleArt.playerBackPathForOptions() == nil,
+assert(BattleArt.playerBackPathForOptions()
+  == "RESOLVED/assets/battle/back-static/gen2player.png",
   "inactive PLAYER ANIM PNG leaked into STATIC mode")
 stored.playerArtSet = nil
 stored.playerAnimatedSet = nil

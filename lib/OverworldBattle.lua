@@ -661,10 +661,14 @@ end
 -- unbinds to the screen when it is done cannot do that in the middle of
 -- someone else's frame without putting the frame back itself.
 function OverworldBattle.update(dt)
-  if not session then return end
-
   local g = game()
   local top = g and g.stack and g.stack:top()
+  if not session then
+    -- This tick also runs with 3D-BTL off. Trainer selection must not depend
+    -- on an arena existing; leave species art with the ordinary renderer.
+    if isGen2BattleState(top) then AnimatedBattleArt.updateTrainer(top) end
+    return
+  end
   local ow = g and (g.overworld or g.world)
   -- A battle that ended without saying so (a script tearing the state down,
   -- a path that never emits battle.ended) would otherwise leave the cast

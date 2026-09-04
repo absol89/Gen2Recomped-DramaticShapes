@@ -50,6 +50,7 @@ local Buildings = V.require("Buildings")
 local TileShape = V.require("TileShape")
 local Budget = V.require("BuildBudget")
 local MapAprons = V.require("MapAprons")
+local TreeOverrides = V.require("TreeOverrides")
 
 local Structures = {}
 
@@ -1717,6 +1718,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
         else
           for i = 0, L - 2 do
             local crownCY = cy + i
+            local treeScale = TreeOverrides.scale(map, cx, crownCY + 1)
             if data then
               local ids = {}
               for _, ccy in ipairs({ crownCY, footCY }) do
@@ -1726,7 +1728,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                   end
                 end
               end
-              local sig = tsid .. "|tree32|"
+              local sig = tsid .. "|tree32|scale=" .. treeScale .. "|"
                           .. (planterTreeCrown and "crown|" or "")
                           .. gsig .. "|"
                           .. table.concat(ids, ":")
@@ -1737,6 +1739,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                                               planterSpray, nil, nil, nil,
                                               nil, { crownCY, footCY },
                                               planterTreeCrown)
+                tq = TreeOverrides.scaleQuads(tq, treeScale)
                 tpl = { quads = tq, bg = tbg }
                 roundCache[sig] = tpl
               end

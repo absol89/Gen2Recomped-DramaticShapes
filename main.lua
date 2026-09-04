@@ -1931,16 +1931,16 @@ InterfaceSprites.install()
 -- ANY player (boy or girl, Gold or Kris) without touching fronts, intros or
 -- the engine's own generation/ROM backs when the option is ROM.
 mod.hooks:wrap("player.sprite", function(next, path, ctx)
-  local out = next(path, ctx)
+  local out, trueColor = next(path, ctx)
   if out == nil then return nil end
   -- Only the in-battle BACK slot is ours; fronts/intros stay engine-owned.
   if not ctx or ctx.side ~= "back"
      or (ctx.kind and ctx.kind ~= "battle") then
-    return out
+    return out, trueColor
   end
   local png = BattleArt.playerBackPathForOptions()
-  if png then return png end
-  return out
+  if png then return png, true end
+  return out, trueColor
 end)
 
 -- exposed so a companion mod can pin its own tiles' shapes or read the

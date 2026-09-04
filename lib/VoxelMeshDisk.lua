@@ -120,8 +120,8 @@ local STATIC_PLAYTHROUGH = "bavc_g2_static_mesh_v1"
 -- CACHE_REVISION changes only when emitted geometry or the binary format does.
 -- Revision 4 stops AO treating a connection's hidden border ring as a raised
 -- neighbour, changing baked vertex shades along every connected map seam.
--- Revision 20 keeps Cherrygrove's scoped water stable from adjacent roots.
-Disk.CACHE_REVISION = 20
+-- Revision 21 shortens the two Route 32 trees northwest of the Pokemon Center.
+Disk.CACHE_REVISION = 21
 Disk.CACHE_FAMILY = "g2r-v1"
 local BASE_DIRECTORY = "cache/static-mesh-g2-v1"
 local LOGICAL_DIRECTORY = BASE_DIRECTORY .. "/unbound"

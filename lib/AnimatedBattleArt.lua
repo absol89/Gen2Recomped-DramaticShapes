@@ -189,6 +189,7 @@ local function playerTrainerSurface(battle)
 end
 
 local function updateStaticPlayerTrainer(battle, mode)
+  local showField, imageField, trueColorField = playerTrainerSurface(battle)
   local image = BattleArt.namedImage("player", "back")
   local state = trainerStates[battle]
   if state and (state.kind ~= "static" or state.mode ~= mode
@@ -196,20 +197,22 @@ local function updateStaticPlayerTrainer(battle, mode)
     restoreTrainer(battle)
     state = nil
   end
-  if not image or not battle.playerBackPic then
+  if not battle[showField] or not image or not battle[imageField] then
     restoreTrainer(battle)
     return
   end
   if not state then
-    state = { kind = "static", mode = mode, original = battle.playerBackPic,
-              image = image }
+    state = { kind = "static", mode = mode, original = battle[imageField],
+              image = image, field = imageField, trueColorField = trueColorField,
+              originalTrueColor = trueColorField and battle[trueColorField] }
     trainerStates[battle] = state
-  elseif battle.playerBackPic ~= state.image
-     and battle.playerBackPic ~= state.original then
+  elseif battle[imageField] ~= state.image
+     and battle[imageField] ~= state.original then
     trainerStates[battle] = nil
     return
   end
-  battle.playerBackPic = state.image
+  battle[imageField] = state.image
+  if trueColorField then battle[trueColorField] = true end
 end
 
 -- Five authored poses are tied to SlideTrainerPicOffScreen rather than to a
@@ -445,10 +448,22 @@ local function updateFront(battler, generation, dt, mode)
   end
 end
 
+-- Ordinary battles need trainer selection too, without species overrides.
+function AnimatedBattleArt.updateTrainer(battle)
+  if not battle then return end
+  if BattleArt.setting:get() ~= "animated" then
+    restoreTrainer(battle)
+    BattleArt.applyTrainers(battle)
+    return
+  end
+  BattleArt.applyTrainers(battle)
+  updatePlayerTrainer(battle, BattleArt.displayMode())
+end
+
 function AnimatedBattleArt.update(battle, dt, trainerBattle)
   if not battle then return end
   if BattleArt.setting:get() ~= "animated" then
-    AnimatedBattleArt.finish(battle)
+    AnimatedBattleArt.finish(battle, trainerBattle)
     return
   end
   local mode = BattleArt.displayMode()
@@ -456,8 +471,7 @@ function AnimatedBattleArt.update(battle, dt, trainerBattle)
   -- Restore a static PLAYER ART replacement before the animation manager
   -- captures the engine portrait, then leave managed animation frames alone.
   trainerBattle = trainerBattle or battle
-  BattleArt.applyTrainers(trainerBattle)
-  updatePlayerTrainer(trainerBattle, mode)
+  AnimatedBattleArt.updateTrainer(trainerBattle)
   local frontGeneration = BattleArt.frontAnimationSetting:get()
   updateFront(battle.enemy, frontGeneration, dt, mode)
   local playerSide = BattleArt.playerSide()
