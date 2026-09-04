@@ -1,5 +1,5 @@
 -- Gold/Silver/Crystal's integrated world compositor draws a pipeline Canvas
--- directly.  On LÖVE 12's iOS/Metal path that leaves the completed world
+-- directly.  On LÖVE 12's affected renderer path that leaves the completed world
 -- image upside-down.  Gen 1 goes through Renderer:endFrame instead, which
 -- already owns its iOS correction, so this compatibility copy is deliberately
 -- generation-gated rather than engine-version-gated.
@@ -12,21 +12,10 @@ local targets = {}
 
 function Orientation.needsFlip(generation)
   if tonumber(generation) ~= 2 then return false end
-  if not (love and love.graphics and love.graphics.getRendererInfo) then
-    return false
-  end
-  -- LÖVE 12's Metal path (iOS and macOS) presents the completed world
-  -- Canvas upside-down. Detect Metal directly rather than by OS so macOS
-  -- gets the same correction as iOS.
+  -- Runtime first, renderer second. LÖVE 11 Macs must not receive this copy
+  -- merely because their renderer/device description mentions Metal.
   local RendererOrientation = V.require("RendererOrientation")
-  if RendererOrientation.metalRenderer() then return true end
-  -- Pre-12 iOS/Metal fallback for engines without getRendererInfo.
-  if love.system and love.system.getOS
-      and love.system.getOS() == "iOS" and love.getVersion then
-    local major = love.getVersion()
-    return type(major) == "number" and major >= 12
-  end
-  return false
+  return RendererOrientation.metalRenderer()
 end
 
 local function targetFor(slot, w, h)

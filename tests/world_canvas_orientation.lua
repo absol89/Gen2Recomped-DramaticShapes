@@ -1,9 +1,11 @@
 local draws, made = {}, 0
+local major = 12
+local renderer = { "Metal", "3.1", "Apple", "Apple GPU" }
 local current
 love = {
-  getVersion = function() return 12, 0, 0 end,
-  system = { getOS = function() return "iOS" end },
+  getVersion = function() return major, 0, 0 end,
   graphics = {
+    getRendererInfo = function() return unpack(renderer) end,
     getCanvas = function() return current end,
     setCanvas = function(c) current = c end,
     getBlendMode = function() return "alpha", "alphamultiply" end,
@@ -17,6 +19,10 @@ love = {
   },
 }
 
+setmetatable(love, { __index = function(_, key)
+  if key == "system" then error("love.system is blocked for mods") end
+end })
+
 local function canvas(w, h)
   return {
     getDimensions = function() return w, h end,
@@ -27,6 +33,9 @@ end
 
 local V = {
   require = function(name)
+    if name == "RendererOrientation" then
+      return assert(loadfile("lib/RendererOrientation.lua"))()
+    end
     assert(name == "PixelCanvas")
     return { new = function(w, h)
       made = made + 1
@@ -49,10 +58,14 @@ assert(d[1] == source and d[2] == 0 and d[3] == 640
 
 assert(Orientation.present(source, "world", 1) == source,
   "Gen 1 did not receive its original Canvas")
-love.system.getOS = function() return "Android" end
+renderer = { "OpenGL ES", "3.0", "Qualcomm", "Adreno" }
 assert(not Orientation.needsFlip(2), "Android was mistaken for Metal/iOS")
-love.system.getOS = function() return "iOS" end
-love.getVersion = function() return 11, 5, 0 end
-assert(not Orientation.needsFlip(2), "LÖVE 11 iOS was incorrectly flipped")
+renderer = { "Metal", "3.1", "Apple", "Apple GPU" }
+major = 11
+assert(not Orientation.needsFlip(2), "LÖVE 11 Metal was incorrectly flipped")
+local count = #draws
+assert(Orientation.present(source, "world", 2) == source,
+  "LÖVE 11 Mac world must pass through without a canvas flip")
+assert(#draws == count, "LÖVE 11 must not draw a correction copy")
 
 print("world canvas orientation regression: ok")
