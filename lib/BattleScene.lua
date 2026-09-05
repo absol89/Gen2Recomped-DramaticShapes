@@ -322,6 +322,19 @@ function BattleScene.fxCard(arena, groundY, anchors)
            0, 0, 0, 1 }
 end
 
+-- Map both native attack anchors onto the actual projected battler slots.
+-- A similarity transform preserves round sprites and avoids the old world
+-- billboard's perspective/terrain deformation and approximate vertical fit.
+function BattleScene.fxTransform(anchors, player, enemy)
+  local ax = anchors.enemy[1] - anchors.player[1]
+  local ay = anchors.enemy[2] - anchors.player[2]
+  local bx, by = enemy[1] - player[1], enemy[2] - player[2]
+  local a2, b2 = ax * ax + ay * ay, bx * bx + by * by
+  if a2 < 1 or b2 < 1e-8 then return nil end
+  return { scale = math.sqrt(b2 / a2),
+    angle = math.atan2(by, bx) - math.atan2(ay, ax) }
+end
+
 -- The sun has to see the mons too, or they stand on the ground without
 -- putting anything on it. They are the one thing in this scene that MOVES,
 -- so `token` -- a counter the caller bumps whenever a pic could have changed
@@ -742,13 +755,6 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     end
     if unlit then setUnlit(false) end
     if flashing then Voxel3D.flatten(nil) end
-    local fxModel = animTex and animAnchors
-                    and BattleScene.fxCard(arena, groundY, animAnchors)
-    if fxModel then
-      Voxel3D.draw(BattleBillboard.mesh(), animTex, fxModel,
-                   BattleBillboard.PULL + 6)
-      animInWorld = true
-    end
     Voxel3D.glass(true)
     Voxel3D.seams(true)
     -- grass and flowers ride the same camera-ward pull the free-roam pass
@@ -783,6 +789,28 @@ function BattleScene.render(state, arena, textures, token, battle, animTex,
     end
     local canvas = AntiAlias.resolve(Voxel3D.endScene(), pw, ph, "battle")
     if not canvas then return end
+    if animTex and animAnchors then
+      local px, py = BattleScene.toGB(Voxel3D.vp,
+        arena.player[1], groundY, arena.player[2], 0, 0, 1, pw, ph)
+      local ex, ey = BattleScene.toGB(Voxel3D.vp,
+        arena.enemy[1], groundY, arena.enemy[2], 0, 0, 1, pw, ph)
+      local transform = px and ex and BattleScene.fxTransform(animAnchors,
+        { px, py }, { ex, ey })
+      if transform then
+        local g = love.graphics
+        g.push("all")
+        g.setCanvas(canvas)
+        g.origin()
+        g.setShader()
+        g.setDepthMode("always", false)
+        g.setBlendMode("alpha", "premultiplied")
+        g.setColor(1, 1, 1, 1)
+        g.draw(animTex, px, py, transform.angle, transform.scale,
+          transform.scale, animAnchors.player[1], animAnchors.player[2])
+        g.pop()
+        animInWorld = true
+      end
+    end
 
     local vp = Voxel3D.vp
     local pmx, pmy = BattleScene.toGB(vp, arena.player[1], groundY,

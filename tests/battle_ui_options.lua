@@ -37,15 +37,18 @@ assert(UiBackplates.arenaStadium2() and not UiBackplates.arenaArt(),
 settings.arenaFill:setIndex(1)
 assert(not UiBackplates.arenaStadium2() and not UiBackplates.arenaArt(),
   "ARENA FILL: OFF no longer retains the voxel battlefield")
-assert(table.concat(settings.stadiumCircle.values, ",") == "ON,OFF,HALF"
-    and UiBackplates.stadiumCircleScale() == 1,
+assert(table.concat(settings.stadiumCircle.values, ",") == "OFF,HALF,ON"
+    and UiBackplates.stadiumCircleScale() == 0,
   "STADIUM CIRCLE does not expose the full/two-size platform control")
-settings.stadiumCircle:setIndex(3)
+settings.stadiumCircle:setIndex(2)
 assert(math.abs(UiBackplates.stadiumCircleScale() - 2 / 3) < 1e-9,
   "STADIUM CIRCLE: HALF is not two-thirds size")
-settings.stadiumCircle:setIndex(2)
+settings.stadiumCircle:setIndex(1)
 assert(UiBackplates.stadiumCircleScale() == 0,
   "STADIUM CIRCLE: OFF still requests visible platform geometry")
+settings.stadiumCircle:setIndex(3)
+assert(UiBackplates.stadiumCircleScale() == 1,
+  "STADIUM CIRCLE: ON does not use full size")
 assert(settings.backdropOffset.values[1] == 100,
   "BG Y-OFFSET does not default to 100 PX")
 assert(settings.bossBg.values[1] == "OFF",

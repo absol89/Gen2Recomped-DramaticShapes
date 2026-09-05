@@ -46,7 +46,7 @@ assert(overworld:find("if shot.animInWorld then return end", 1, true),
 local gen2Install = assert(overworld:find(
   'V.require("Gen2BattleAdapter").install', 1, true))
 local gen2AnimCapture = assert(overworld:find(
-  "innerAnim = drawGen2AnimObjects", 1, true))
+  "innerAnim = BattleState.drawAnimLayer or drawGen2AnimObjects", 1, true))
 assert(gen2AnimCapture < gen2Install,
   "Gen 2 returns from installation before enabling attack-object capture")
 local objectDraw = assert(overworld:find(
@@ -94,10 +94,34 @@ assert(stagedPics > restorePics and pinPics < uiDraw and uiDraw < restorePics,
 local scene = source("lib/BattleScene.lua")
 assert(scene:find("groundY %- %(tex.sink or 0%)", 1),
   "Gen 2 faint progress does not lower the world billboard")
-local effect = assert(scene:find("BattleScene.fxCard", 1, true))
-local effectDraw = assert(scene:find("BattleBillboard.PULL + 6", effect, true))
-local finish = assert(scene:find("Voxel3D.endScene", effectDraw, true))
-assert(effect < effectDraw and effectDraw < finish,
-  "the animation plane is not part of the world scene")
+local hostedActors = assert(scene:find("drawActorPass({", 1, true))
+local finish = assert(scene:find("Voxel3D.endScene()", hostedActors, true))
+local effectDraw = assert(scene:find("g.draw(animTex, px, py", finish, true))
+assert(hostedActors < finish and finish < effectDraw,
+  "attacks are not composited after the completed voxel and battler scene")
+assert(scene:sub(finish, effectDraw):find('g.setShader()', 1, true)
+    and scene:sub(finish, effectDraw):find('setDepthMode("always", false)', 1, true),
+  "attack overlay inherits world shader or depth")
 
-print("battle layer-order regression: ok")
+-- Execute the production anchor transform at translated, rotated and zoomed
+-- screen positions. Both native slot centers must land exactly on battlers.
+local first = assert(scene:find('function BattleScene.fxTransform', 1, true))
+local last = assert(scene:find('-- The sun has to see', first, true))
+local env = setmetatable({BattleScene={}}, {__index=_G})
+local chunk = assert(loadstring(scene:sub(first, last-1)))
+setfenv(chunk, env); chunk()
+local anchors = {player={26,96}, enemy={124,56}}
+for _, points in ipairs({
+  {{100,200},{450,70}}, {{730,510},{200,250}},
+  {{50,90},{50,400}}, {{800,600},{810,603}},
+}) do
+  local p,e = points[1],points[2]
+  local t = assert(env.BattleScene.fxTransform(anchors,p,e))
+  local dx,dy = 98,-40
+  local x = p[1]+t.scale*(dx*math.cos(t.angle)-dy*math.sin(t.angle))
+  local y = p[2]+t.scale*(dx*math.sin(t.angle)+dy*math.cos(t.angle))
+  assert(math.abs(x-e[1])<1e-8 and math.abs(y-e[2])<1e-8,
+    'attack anchor misses projected battler')
+end
+assert(not env.BattleScene.fxTransform(anchors,{0,0},{0,0}))
+print("battle layer-order and attack anchors regression: ok")

@@ -347,9 +347,44 @@ local function drawHostedActors(sceneCtx, providerCtx)
   return drawn
 end
 
-local function stadiumActorPasses(sceneCtx)
+-- Submit the classic stage into the voxel attachment, using the same
+-- Stadium-to-world translation as the models. The host's environment fallback
+-- closes over its original camera, so calling it here would use the wrong VP.
+local function drawHostedStage(sceneCtx, providerCtx)
+  local host = sceneCtx.scene and sceneCtx.scene.host
+  local stage = host and host.Stage
+  local renderer = rendererApi()
+  local origin = providerCtx.origin
+  if UiBackplates.stadiumCircleScale() <= 0 then return sceneCtx.marks end
+  if not (stage and stage.draw and renderer and origin) then return sceneCtx.marks end
+  local frame = {}
+  for key, value in pairs(sceneCtx.camera or {}) do frame[key] = value end
+  frame.vp = renderer.matMul(providerCtx.vp,
+    translate(origin[1], origin[2], origin[3]))
+  local g, target = sceneCtx.graphics, sceneCtx.target
+  -- The importer's stage normally sinks below its empty floor. Voxel terrain
+  -- has a real depth-writing floor, so place the decal just above that floor.
+  local sink = stage.sink
+  stage.sink = -0.02
+  g.push("all")
+  local ok, marks = pcall(drawCircleStage, function()
+    -- Stage uses these dimensions for returned UI marks, not rasterization.
+    -- The importer subtracts its logical letterbox from those marks later;
+    -- supersampled target pixels here multiply the attack-anchor position.
+    return stage.draw(g, target.logicalWidth or target.width,
+      target.logicalHeight or target.height, frame, host.actors,
+      sceneCtx.shadow, sceneCtx.environment or host.environment)
+  end, sceneCtx)
+  g.pop()
+  stage.sink = sink
+  if not ok then error(marks, 0) end
+  return marks or sceneCtx.marks
+end
+
+local function stadiumActorPasses(sceneCtx, result)
   return {
     draw = function(providerCtx)
+      result.marks = drawHostedStage(sceneCtx, providerCtx)
       drawHostedActors(sceneCtx, providerCtx)
       return true
     end,
@@ -442,6 +477,10 @@ end
 
 function StadiumBackground.environment(next, ctx)
   local mode = UiBackplates.arenaFill:get()
+  if mode == "STADIUM2" then
+    -- Circle already drawn in background hook; just run the normal env path
+    return next(ctx)
+  end
   if mode ~= "OFF" then
     releaseVoxelHost()
     -- A contextual Stadium arena is the selected ARENA FILL itself, not a
@@ -462,13 +501,16 @@ function StadiumBackground.environment(next, ctx)
     end
     hostedBattle = battle
   end
+  local result = {}
   local canvas = OverworldBattle.providerRender(battle,
-    stadiumActorPasses(ctx), ctx.camera, ctx.shadow)
+    stadiumActorPasses(ctx, result), ctx.camera, ctx.shadow)
   if not drawCanvas(g, canvas, target) then
     releaseVoxelHost()
     return drawCircleStage(next, ctx)
   end
-  return drawCircleStage(next, ctx)
+  -- The resolved color canvas no longer carries voxel depth. Never submit
+  -- ground geometry here: it would paint over both terrain and battlers.
+  return result.marks or ctx.marks
 end
 
 function StadiumBackground.install()

@@ -72,7 +72,7 @@ UiBackplates.arenaFill = ModSetting.new("arenaFill", "ARENA FILL",
 -- exposed only when a scene provider advertises it (see main.lua), so this
 -- saved preference is inert without the Stadium importer.
 UiBackplates.stadiumCircle = ModSetting.new("stadiumCircle", "STADIUM CIRCLE",
-  { "ON", "OFF", "HALF" }, { "ON", "OFF", "HALF" })
+  { "OFF", "HALF", "ON" }, { "OFF", "HALF", "ON" })
 
 function UiBackplates.stadiumCircleScale()
   local value = UiBackplates.stadiumCircle:get()

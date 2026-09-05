@@ -906,9 +906,9 @@ function OverworldBattle.animTexture(battle)
     innerAnim(battle, false)
     g.pop()
   end)
-  if not ok then pcall(g.pop, g) end
-  if prevCanvas then pcall(g.setCanvas, g, prevCanvas)
-  else pcall(g.setCanvas, g) end
+  if not ok then pcall(g.pop) end
+  if prevCanvas then pcall(g.setCanvas, prevCanvas)
+  else pcall(g.setCanvas) end
   return ok and animLayer or nil
 end
 
@@ -1346,7 +1346,7 @@ function OverworldBattle.install()
     -- so initialize the animation capture seam here. Leaving innerAnim nil
     -- makes animTexture() return nil every frame: the adapter then suppresses
     -- the native panel animation, but there is no world copy to replace it.
-    innerAnim = drawGen2AnimObjects
+    innerAnim = BattleState.drawAnimLayer or drawGen2AnimObjects
     V.require("Gen2BattleAdapter").install(OverworldBattle)
     BattleState.dramaticShapeBattleHook = true
     return
@@ -1569,12 +1569,11 @@ function OverworldBattle.install()
   -- give them. They ride the average, which is where the pair's centre went
   -- -- a few pixels at most, and it keeps a hit landing on the mon it is
   -- aimed at instead of drifting off it.
-  -- Gold/Silver's battle state has no drawAnimLayer (that is Gen 2Recomp's
-  -- seam): its move effects draw through the animation view's object
-  -- pass -- OAM sprites over the baked panel. Capture exactly that pass:
-  -- objects only, so the canvas holds move sprites on transparency and the
-  -- fxCard can stand them in the world over the mons.
-  innerAnim = drawGen2AnimObjects
+  -- Gen2Recomped exposes its attack sprites through drawAnimLayer. Capture
+  -- that original method before wrapping it: animView belongs to the older
+  -- Gold/Silver compositor and may not exist at all on this engine.
+  -- Only that older compositor needs the object-only fallback.
+  innerAnim = BattleState.drawAnimLayer or drawGen2AnimObjects
   function BattleState:drawAnimLayer(colorized)
     local shot = self.dramaticShapeShot
     if not shot then return innerAnim(self, colorized) end
