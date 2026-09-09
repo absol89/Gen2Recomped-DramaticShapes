@@ -327,15 +327,19 @@ local function leanAngle()
   return VoxelScene.spriteLean or V.require("VoxelState").angle
 end
 
+-- Scoped to the planar water pass; preserve Gen 2 variable-width anchors.
+local reflectPlane = nil
 local function billboardMatrix(px, py, y, mirror, half)
   half = half or 8
   local b = FirstPerson.cardBlend()
+  if reflectPlane then y = 2 * reflectPlane - y + Water.CAST_RAISE end
   local m = Mat4.translate(px + half, y, py + half)
   if b > 0 then
     m = Mat4.mul(m, Mat4.rotateY(FirstPerson.cardYaw(px + half, py + half) * b))
   end
   m = Mat4.mul(m, Mat4.rotateX((leanAngle() - math.pi / 2) * (1 - b)))
   if mirror then m = Mat4.mul(m, Mat4.scale(-1, 1, 1)) end
+  if reflectPlane then m = Mat4.mul(m, Mat4.scale(1, -1, 1)) end
   return Mat4.mul(m, Mat4.translate(-half, 0, 0))
 end
 
@@ -675,7 +679,16 @@ local function drawCast(state, posed, atlasFor)
   Voxel3D.glass(true)
   -- Figures after the walkers, so a player standing in front of the couch
   -- wins the overlap -- the order the flat game draws them in.
+  --
+  -- Left out of a REFLECTION pass: a figure is not a card, it is a mesh in
+  -- its own local space placed by Mat4.figure, so the card flip above does
+  -- not reach it -- and it is a person drawn INTO a piece of furniture,
+  -- indoors, which is not somewhere water is.
   local figPull = billboardPull()
+  if reflectPlane then
+    Voxel3D.seams(true)
+    return
+  end
   eachFigure(state.map, 0, 0, function(mesh, model, caster)
     Voxel3D.draw(mesh, atlasFor(state.map), model, figPull,
                  ShadowMap.snug(caster))
@@ -762,11 +775,23 @@ function VoxelScene.drawWater(draws, cast)
     end
   end
   local plain = not curved
+  local castTex
+  if #draws > 0 and cast and Water.enabled() and Water.CAST_ALPHA > 0
+     and Voxel3D.depthReadable() then
+    castTex = Voxel3D.beginCast()
+    if castTex then
+      reflectPlane = (TileShape.heights() or {}).water or 0
+      local ok = pcall(cast)
+      reflectPlane = nil
+      Voxel3D.endCast()
+      if not ok then castTex = nil end
+    end
+  end
   if Water.enabled() and Voxel3D.depthReadable() then
     local mirror, depth = Voxel3D.beginWater(cast)
     local w, h = Voxel3D.size()
     local ok = mirror and depth and Water.begin({
-      reflect = mirror, depth = depth,
+      reflect = mirror, depth = depth, cast = castTex,
       vp = Voxel3D.vp, eye = Voxel3D.eye, curve = { Voxel3D.curveX or 0,
                                                     Voxel3D.curveZ or 0,
                                                     Voxel3D.curveK or 0 },

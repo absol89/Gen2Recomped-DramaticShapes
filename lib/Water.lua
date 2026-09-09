@@ -357,6 +357,45 @@ Water.WAVE_SLOPE = 3.5
 -- the same tilt on its way past (see LEAN_FROM)
 Water.WAVE_SLOPE_LEAN = 1.5
 
+-- ------- the cast, reflected in the plane rather than marched for
+--
+-- See Voxel3D.beginCast. The cast is drawn a second time through a camera
+-- mirrored about the water plane, and this composites that canvas at each
+-- fragment's OWN screen position, which is exactly where a flat mirror
+-- would put it.
+--
+-- Composited AFTER the fresnel mix rather than into the reflection before
+-- it, and that is deliberate. Fresnel is smallest looked straight down at,
+-- so folding a person into `refl` would fade them out at precisely the
+-- camera this exists to serve -- which is the same mistake the march made
+-- by handing its ray to the horizon lean.
+Water.CAST_ALPHA = 0.55
+-- How far the wave normal drags the lookup, in screen widths. Small: this
+-- ripples a reflection along with the surface carrying it, and much more
+-- than a few thousandths tears the figure apart rather than disturbing it.
+Water.CAST_WOBBLE = 0.006
+
+-- How far the reflection is lifted from where a true mirror would put it,
+-- in world pixels, toward the surface.
+--
+-- An honest mirror leaves a gap, and surfing is where it shows. Water is a
+-- recessed class and groundAt does not lower what stands on a recessed one,
+-- so a surfing player floats at ground level, two pixels over a surface
+-- drawn at -2. Mirrored, the reflection sits two pixels under it, and the
+-- four between them are open water: correct, and it reads as a reflection
+-- floating loose rather than one belonging to anybody.
+--
+-- Worse than the four, and the reason this is a dial rather than a fix: a
+-- sprite's art does not sit flush with the bottom of its card. Whatever
+-- empty space it carries there appears ABOVE the card upright and BELOW the
+-- anchor flipped, so the visible gap is the geometric one plus twice the
+-- padding, and no amount of correct arithmetic closes it.
+--
+--   0   a true mirror
+--   2   the reflection hangs from the waterline
+--   4   joined at the character's own feet
+Water.CAST_RAISE = 6
+
 -- THE MARCH. Steps are in world pixels and lengthen as they go: near the
 -- surface the reflection needs precision (a shoreline is a few pixels), far
 -- from it reach matters more than accuracy, and a geometric ramp gets both
@@ -488,6 +527,10 @@ uniform Image reflectTex;
 uniform LOVE_HIGHP_OR_MEDIUMP Image depthTex;
 
 uniform float rays;          // 0 = sky only, 1 = march the screen too
+uniform LOVE_HIGHP_OR_MEDIUMP Image castTex;
+uniform float castOn;
+uniform float castAlpha;
+uniform float castWobble;
 uniform vec3 lookFlat;       // the way the horizon lies from this camera
 uniform float lean;          // and how far the reflection tilts toward it
 uniform float leanElev;      // the elevation it aims at, in radians
@@ -932,15 +975,36 @@ vec2 waveUV(vec2 tc, vec2 col) {
   return org + (mod(col, 8.0) + 0.5) * texel;
 }
 
-// The float parameters are pinned to mediump BECAUSE the stage default is
-// not: LOVE's own header forward-declares effect() under its default, and
-// at least one mobile compiler (Samsung's Xclipse, in so many words) holds
-// that a definition whose parameter precisions differ from its prototype's
-// is a second function of the same name, and refuses the pair. The params
-// can afford it -- the colour is a colour, and tc/sc arrived through
-// LOVE's mediump plumbing whatever this signature says -- and the maths
-// below runs on the stage default the moment the values touch a local.
-vec4 effect(mediump vec4 color, Image tex, mediump vec2 tc, mediump vec2 sc) {
+// The float parameters are pinned BECAUSE the stage default is not: LOVE's
+// own header forward-declares effect() under its default, and at least one
+// mobile compiler (Samsung's Xclipse, in so many words) holds that a
+// definition whose parameter precisions differ from its prototype's is a
+// second function of the same name, and refuses the pair. The params can
+// afford it -- the colour is a colour, and tc/sc arrived through LOVE's
+// mediump plumbing whatever this signature says -- and the maths below runs
+// on the stage default the moment the values touch a local.
+//
+// THE RETURN TYPE IS PINNED THE SAME WAY, and for a while it was not, which
+// is what put this whole pass on the flat fallback on Mali. The stage lifts
+// its float default to highp a few hundred lines up, so a bare return type
+// is a HIGHP one, against a prototype whose default return is mediump --
+// and Mali's compiler calls that what it is:
+//
+//   0:563: S0023: Function 'effect' redeclared with a different
+//   precision qualifier on the return type
+//
+// Matching the parameters is not enough on its own; the return has to agree
+// too. Read off a Pixel 9 (Mali-G715) in logcat, which is why it is quoted
+// rather than described.
+//
+// WHICH precision it must be is not ours to know, so it is a define the Lua
+// side fills in, and Water.shader compiles the pinned form first and the
+// bare one only if that is refused. LOVE 12 forward-declares effect() under
+// a different default, and pins that match 11's prototype are the mismatch
+// there -- the same refusal from the other side. Whichever prototype a
+// runtime brought, one of the two agrees with it.
+EFFECT_PREC vec4 effect(EFFECT_PREC vec4 color, Image tex, EFFECT_PREC vec2 tc,
+                        EFFECT_PREC vec2 sc) {
   // THE DEPTH TEST, done here because the buffer that would have done it is
   // detached for the length of this pass so it can be READ (see the header).
   // Same comparison, same buffer, same result: a building in front of a pond
@@ -1077,6 +1141,25 @@ vec4 effect(mediump vec4 color, Image tex, mediump vec2 tc, mediump vec2 sc) {
             + (fresnelCeil - fresnelFloor) * pow(1.0 - ct, fresnelPower);
   vec3 rgb = mix(base, refl, clamp(f, 0.0, 1.0));
 
+  // THE CAST, mirrored in this plane (see CAST_ALPHA). Read at this
+  // fragment's own place on the screen, because that is where the mirrored
+  // camera has already put it -- nothing here has to work out where a
+  // reflection belongs, which is the whole reason this is drawn with a
+  // camera rather than by nudging sprites about.
+  //
+  // The uv is LOVE's own screen size for the same reason the depth test
+  // above uses it: `sc` arrives in canvas pixels, and on a highdpi surface
+  // that is not the same count as `screen`, which is measured in units.
+  //
+  // Dragged by the wave normal so a figure ripples with the surface holding
+  // it rather than lying flat on top of it, and the canvas's ALPHA decides
+  // where there is anything to composite at all.
+  if (castOn > 0.5) {
+    vec2 cuv = sc / love_ScreenSize.xy + n.xz * castWobble;
+    vec4 person = Texel(castTex, cuv);
+    rgb = mix(rgb, person.rgb, clamp(person.a * castAlpha, 0.0, 1.0));
+  }
+
 #ifdef VOXEL_GRID
   rgb *= 1.0 - gridDark * columnSeam(hit, sheet, axis);
 #endif
@@ -1133,13 +1216,14 @@ end
 
 Water._trainSource = trainSource       -- named for the suite
 
-local function source(grid)
+local function source(grid, bare)
   local src = SHADER_SRC:gsub("//@CRATERS", (craterSource():gsub("%%", "%%%%")))
   src = src:gsub("//@TRAINS", (trainSource():gsub("%%", "%%%%")))
   local head = ("#define RAY_STEPS %d\n#define RAY_REFINE %d\n"
                 .. "#define WAVE_STEPS %d\n#define WAVE_STRIDE %.1f\n")
     :format(Water.RAY_STEPS, Water.RAY_REFINE, Water.WAVE_STEPS,
             Water.WAVE_STRIDE)
+  head = head .. (bare and "#define EFFECT_PREC\n" or "#define EFFECT_PREC mediump\n")
   if grid then head = head .. "#define VOXEL_GRID 1\n" end
   return head .. src
 end
@@ -1159,6 +1243,10 @@ function Water.shader(grid)
       shaders[grid] = false
     else
       local ok, sh = pcall(love.graphics.newShader, source(grid))
+      if not ok then
+        local bareOk, bareSh = pcall(love.graphics.newShader, source(grid, true))
+        if bareOk then ok, sh = bareOk, bareSh end
+      end
       if not ok and V and V.mod and V.mod.log then
         -- once, where it can be read: the fallback is flat water, which is
         -- easy to look at and impossible to diagnose without this line
@@ -1245,6 +1333,11 @@ function Water.begin(ctx)
   local texel = 1 / ShadowMap.res
   send("sunTexel", { texel, texel })
   send("dayTint", Voxel3D.tint or { 1, 1, 1 })
+  -- Always bind the sampler, including the unavailable-canvas fallback.
+  send("castTex", ctx.cast or ctx.reflect)
+  send("castOn", ctx.cast and Water.CAST_ALPHA > 0 and 1 or 0)
+  send("castAlpha", Water.CAST_ALPHA)
+  send("castWobble", Water.CAST_WOBBLE)
 
   send("rays", level >= 2 and 1 or 0)
   -- the horizon lean, and the direction it leans toward (see Water.lean)

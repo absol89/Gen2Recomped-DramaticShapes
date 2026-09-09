@@ -75,7 +75,7 @@ local map = {
 }
 
 local packed = love.data.pack("string", "<ffffff", 1, 2, 3, 0, 0, 1)
-local function record() return { n = 1, chunks = { packed } } end
+local function record() return { n = 1, chunks = { packed }, spans = {0, 1, 8, 8} } end
 local function aux()
   return { grass = record(), flowers = { n = 0 }, figures = {} }
 end
@@ -110,6 +110,14 @@ assert(Disk.ramReady(names), "CONTINUE did not finish the RAM preload")
 local loaded = Disk.loadTerrain(map, "full", {})
 assert(loaded and loaded.terrain and loaded.terrain.n == 1,
   "RAM-preloaded terrain did not decode")
+assert(#loaded.spans == 4 and loaded.spans[1] == 0
+  and loaded.spans[2] == 1 and loaded.spans[3] == 8 and loaded.spans[4] == 8,
+  "preloaded terrain lost the prop ranges needed for immediate Cut")
+local loadedAux = assert(Disk.loadAux(map))
+assert(#loadedAux.grass.spans == 4 and loadedAux.grass.spans[2] == 1,
+  "auxiliary grass lost its Cut ownership in the cache round trip")
+assert(#loadedAux.flowers.spans == 0,
+  "empty auxiliary streams must retain an empty ownership list")
 
 -- Gameplay replacements remain dirty until explicit CACHE / SAVE.
 assert(Disk.saveTerrain(map, "body", nil, record(), { n = 0 }))

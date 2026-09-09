@@ -1130,6 +1130,14 @@ local OFF = {
 
 -- Render one side's pics layer into its canvas and report where the pic's
 -- feet ended up, in canvas coordinates.
+function OverworldBattle.gen2EnemyAnchorY(image)
+  -- Gen 2 drawPic top-pins oversized fronts instead of bottom-aligning them
+  -- to row 56. Keep the atlas's transparent foot margin and animated motion;
+  -- anchoring each opaque pose would make flying mons stand on the floor.
+  local _, height = image:getDimensions()
+  return math.max(56, height)
+end
+
 function OverworldBattle.sideTexture(battle, side)
   if not battle then return nil end
   local gen2 = isGen2BattleState(battle)
@@ -1281,6 +1289,19 @@ function OverworldBattle.sideTexture(battle, side)
   -- authored facing the foe, so BattleScene must not mirror it a second time.
   local playerNoMirror = side == "player"
                          and not BattleArt.mirrorsPlayerSprite()
+  if gen2 and side == "enemy" and not trainer then
+    local anim = battle.animPicState and battle:animPicState(side)
+    local substitute = anim and anim.pic
+    if substitute == nil then
+      substitute = mon and mon.volatile and (mon.volatile.substitute or 0) > 0
+    else
+      substitute = substitute == "substitute"
+    end
+    if not substitute then
+      local image = battle:pic(mon, false)
+      if image then ay = OverworldBattle.gen2EnemyAnchorY(image) end
+    end
+  end
   return { canvas = canvas, ax = ax, ay = ay, trainer = trainer,
            noMirror = playerNoMirror, sink = sink,
            worldSlide = worldSlide }

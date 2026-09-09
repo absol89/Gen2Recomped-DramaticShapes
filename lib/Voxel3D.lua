@@ -393,7 +393,7 @@ end
 -- water pass reads (see beginWater); it is only ever made if something asks
 -- for one, so a session that never sees a lake never pays for it.
 local function releaseSlot(slotHeld)
-  for _, key in ipairs({ "canvas", "depth", "mirror" }) do
+  for _, key in ipairs({ "canvas", "depth", "mirror", "cast" }) do
     local obj = slotHeld[key]
     if obj and obj.release then pcall(obj.release, obj) end
     slotHeld[key] = nil
@@ -1235,6 +1235,75 @@ function Voxel3D.beginWater(paint)
     return nil
   end
   return held.mirror, held.depth
+end
+
+-- ------- the cast's PLANAR reflection
+--
+-- The other way to get people into the water, and the one that works at the
+-- camera this game is played at.
+--
+-- beginWater paints the cast into the reflection COPY, where the screen-space
+-- march has to go and find it. That works when a ray reaches them, and at a
+-- steep camera it largely does not: the horizon lean aims rays at the
+-- distance, and a sprite is not in the depth buffer anyway, so what a ray
+-- does find is smeared along whatever terrain stands behind the sprite.
+--
+-- This is the other half. The cast is drawn a SECOND time, reflected in the
+-- water plane, into a canvas of its own, and the water shader samples that
+-- canvas at each fragment's own screen position -- which is the right place
+-- to look, because the reflection was drawn to exactly the place a mirror
+-- would put it. There is no offset to tune and no correspondence to keep in
+-- step.
+--
+-- The reflecting is done by VoxelScene, in WORLD space, one card at a time.
+-- Not by mirroring the camera, which is the obvious way and is wrong here: a
+-- character is a billboard leaning back to face the camera, so a mirrored
+-- camera catches it leaning away and lands a foreshortened sliver in the
+-- water. See billboardMatrix, where the position is reflected and the card
+-- is flipped about its own feet instead.
+--
+-- Masking is free. The water shader runs on water fragments and nothing
+-- else, so the reflection is confined to water exactly, with no stencil --
+-- which matters, because DEPTH_FORMATS prefers a depth buffer with no
+-- stencil in it and most drivers hand one over.
+--
+-- COLOUR ONLY, and no depth attachment: what would be tested against is the
+-- world's depth, and this canvas holds a mirrored world that shares none of
+-- it. The water shader's own depth test has already decided which water
+-- fragments survive, and a reflection only ever lands on those.
+--
+-- Returns the canvas, or nil where one could not be made -- in which case
+-- the water draws exactly as it did before this existed.
+function Voxel3D.beginCast()
+  if not (active and canvas and held) then return nil end
+  if not held.cast then
+    local ok, c = PixelCanvas.new(held.w, held.h)
+    if not (ok and c) then return nil end
+    pcall(c.setFilter, c, "nearest", "nearest")
+    pcall(c.setWrap, c, "clamp", "clamp")
+    held.cast = c
+  end
+  if not pcall(love.graphics.setCanvas, held.cast) then
+    pcall(love.graphics.setCanvas, depthTarget())
+    return nil
+  end
+  -- transparent, because the ALPHA is what tells the water shader where the
+  -- reflection actually is; everywhere else it must leave the water alone
+  love.graphics.clear(0, 0, 0, 0)
+  -- nothing to test against on a canvas with no depth
+  love.graphics.setDepthMode("always", false)
+  return held.cast
+end
+
+-- Put the frame back. Safe after a beginCast that failed.
+function Voxel3D.endCast()
+  if not active then return end
+  pcall(love.graphics.setCanvas, depthTarget())
+  pcall(love.graphics.setDepthMode, "lequal", true)
+  love.graphics.setColor(1, 1, 1, 1)
+  if activeShader then love.graphics.setShader(activeShader) end
+  Voxel3D.glass(true)
+  Voxel3D.seams(true)
 end
 
 -- Put the frame back: depth reattached, depth test and the scene shader as

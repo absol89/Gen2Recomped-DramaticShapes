@@ -118,9 +118,36 @@ end
 -- skipping ~a million short-lived Lua tables per route and LOVE's slow
 -- table-by-table vertex upload.
 
+local function newSpans(count)
+  local runs, first, cx, cz = {}, nil, 0, 0
+  local function close()
+    if not first then return end
+    local n = count() - first
+    if n > 0 then
+      runs[#runs + 1] = first
+      runs[#runs + 1] = n
+      runs[#runs + 1] = cx
+      runs[#runs + 1] = cz
+    end
+    first = nil
+  end
+  return {
+    own = function(x0, z0, x1, z1)
+      close()
+      if x0 == nil then return end
+      first, cx, cz = count(), (x0 + x1) / 2, (z0 + z1) / 2
+    end,
+    close = close,
+    runs = function() close() return runs end,
+  }
+end
+
 local function newTableSink()
   local verts, indices, quads = {}, {}, 0
+  local spans = newSpans(function() return #verts end)
   return {
+    own = spans.own,
+    spans = spans.runs,
     push = function(c, uv, shade)
       local flat = type(shade) ~= "table"
       for i = 1, 4 do
@@ -132,9 +159,11 @@ local function newTableSink()
       quads = quads + 1
     end,
     results = function()
+      spans.close()
       return verts, indices, quads
     end,
     finish = function()
+      spans.close()
       return Voxel3D.newMesh(verts, indices)
     end,
   }
@@ -152,6 +181,7 @@ local PACKED_QUADS_PER_CHUNK = 4096
 local function newPackedSink()
   local chunks, parts, values = {}, {}, {}
   local quads, n = 0, 0
+  local spans = newSpans(function() return n end)
 
   local function flush()
     if #parts == 0 then return end
@@ -160,6 +190,8 @@ local function newPackedSink()
   end
 
   return {
+    own = spans.own,
+    spans = spans.runs,
     push = function(c, uv, shade)
       local flat = type(shade) ~= "table"
       local at = 1
@@ -177,6 +209,7 @@ local function newPackedSink()
       if quads % PACKED_QUADS_PER_CHUNK == 0 then flush() end
     end,
     finish = function()
+      spans.close()
       if n == 0 then return nil end
       flush()
       local ok, mesh = pcall(function()
@@ -197,7 +230,7 @@ local function newPackedSink()
     end,
     raw = function()
       flush()
-      return { chunks = chunks, n = n }
+      return { chunks = chunks, n = n, spans = spans.runs() }
     end,
   }
 end
@@ -206,8 +239,11 @@ local function newFfiSink()
   local cap = 4096 * 6
   local buf = ffi.new("float[?]", cap * 6)
   local n = 0
+  local spans = newSpans(function() return n end)
   local sink
   sink = {
+    own = spans.own,
+    spans = spans.runs,
     push = function(c, uv, shade)
       if n + 6 > cap then
         local grown = ffi.new("float[?]", cap * 2 * 6)
@@ -230,6 +266,7 @@ local function newFfiSink()
       n = n + 6
     end,
     finish = function()
+      spans.close()
       if n == 0 then return nil end
       -- upload in slices with budget ticks between: a route-sized mesh
       -- is ~10-20MB and one atomic setVertices was the last remaining
@@ -255,7 +292,7 @@ local function newFfiSink()
       return ok and mesh or nil
     end,
     raw = function()
-      return { ptr = buf, n = n }
+      return { ptr = buf, n = n, spans = spans.runs() }
     end,
   }
   return sink
@@ -959,7 +996,62 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
     return scUV
   end
 
-  for _, q in ipairs(S.objectQuads) do
+  -- Ownership for the prop passes (see the span header). A prop's quads
+  -- arrive cell by cell, so consecutive quads landing in the same 16px cell
+  -- share one run -- fine enough to name a felled tree, coarse enough that a
+  -- route's props cost a few hundred runs and not tens of thousands. Quads
+  -- routed to a visual-object sidecar are not the main mesh's to drop, so
+  -- they claim nothing.
+  -- Only the body is worth recording. Runs are selected by block edits,
+  -- block coordinates are body coordinates, so a ring tree's runs could
+  -- never be picked and would just add weight to the cached record.
+  local own = sink.own
+  local ownedCell = nil
+  local function inBodyPx(cx, cz)
+    return cx >= 0 and cx < tw * 8 and cz >= 0 and cz < th * 8
+  end
+  local function ownCell(x0, z0, x1, z1)
+    if not own then return end
+    local ccx = math.floor((x0 + x1) / 32)
+    local ccz = math.floor((z0 + z1) / 32)
+    if not inBodyPx(ccx * 16 + 8, ccz * 16 + 8) then
+      ownedCell = nil
+      own() -- Do not attach border geometry to a body prop.
+      return
+    end
+    local cell = ccz * 4096 + ccx
+    if cell == ownedCell then return end
+    ownedCell = cell
+    own(ccx * 16, ccz * 16, ccx * 16 + 16, ccz * 16 + 16)
+  end
+
+  -- Emit the object quads cell by cell instead of in the order the producers
+  -- appended them.
+  --
+  -- The producers interleave, so consecutive quads kept changing cell and a
+  -- run opened for nearly every one: 18596 runs for a body of 1440 cells on
+  -- Cerulean, about 300KB of record per slot, and a cut that needed hundreds
+  -- of small uploads. Grouped, that is 449 runs and one or two uploads.
+  --
+  -- Reordering is safe here. These are opaque triangles drawn against a
+  -- depth buffer, and water and the visual sidecars have their own sinks.
+  local objectOrder = {}
+  for i = 1, #S.objectQuads do objectOrder[i] = i end
+  do
+    local keys = {}
+    for i, q in ipairs(S.objectQuads) do
+      local cx = math.floor((q[1][1] + q[3][1]) / 32)
+      local cz = math.floor((q[1][3] + q[3][3]) / 32)
+      keys[i] = cz * 4096 + cx
+    end
+    table.sort(objectOrder, function(a, b)
+      if keys[a] ~= keys[b] then return keys[a] < keys[b] end
+      return a < b            -- stable: producers' own order inside a cell
+    end)
+  end
+
+  for _, qi in ipairs(objectOrder) do
+    local q = S.objectQuads[qi]
     Budget.tick()
     local x0 = math.min(q[1][1], q[2][1], q[3][1], q[4][1])
     local x1 = math.max(q[1][1], q[2][1], q[3][1], q[4][1])
@@ -972,6 +1064,7 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
     -- the neighbour will ever draw that geometry
     if q.own or outwardOnEdge(q, x0, z0, x1, z1)
        or keepQuad(x0, z0, x1, z1) then
+      ownCell(x0, z0, x1, z1)
       push({ q[1], q[2], q[3], q[4] }, quadUV(q), groundShades(q, q.shade))
     end
   end
@@ -1011,6 +1104,16 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
       skipAll = not overBody and containedInMask(sx0, sz0, sx1, sz1)
     end
     if not skipAll then
+      -- a stamp is one prop whatever it spans, so it owns its whole
+      -- footprint in one run: the 2x2-cell canopy groups are exactly a
+      -- block, which is exactly what Cut swaps
+      if own and inBodyPx(mx, mz) then
+        own(sx0, sz0, sx1, sz1)
+        ownedCell = nil
+      elseif own then
+        own()
+        ownedCell = nil
+      end
       for _, q in ipairs(st.quads) do
         Budget.tick()
         for i = 1, 4 do
@@ -1065,11 +1168,41 @@ function ChunkMesher.build(map, bodyOnly, masks, split)
   local sink = newSink()
   local waterSink = split and newSink() or nil
   runGeometry(map, bodyOnly, masks, sink, waterSink)
-  return sink.finish(), waterSink and waterSink.finish() or nil
+  return sink.finish(), waterSink and waterSink.finish() or nil, sink.spans()
+end
+
+local function quadListSpans(quads, perQuad)
+  local spans, first, cellKey, cellX, cellZ = {}, nil, nil, 0, 0
+  local at = 0
+  perQuad = perQuad or 6
+  for _, q in ipairs(quads or {}) do
+    local qx = math.floor((q[1][1] + q[3][1]) / 32)
+    local qz = math.floor((q[1][3] + q[3][3]) / 32)
+    local key = qz * 4096 + qx
+    if key ~= cellKey then
+      if first and at > first then
+        spans[#spans + 1] = first
+        spans[#spans + 1] = at - first
+        spans[#spans + 1] = cellX
+        spans[#spans + 1] = cellZ
+      end
+      cellKey, cellX, cellZ = key, qx * 16 + 8, qz * 16 + 8
+      first = at
+    end
+    at = at + perQuad
+  end
+  if first and at > first then
+    spans[#spans + 1] = first
+    spans[#spans + 1] = at - first
+    spans[#spans + 1] = cellX
+    spans[#spans + 1] = cellZ
+  end
+  return spans
 end
 
 local function quadsMesh(quads)
   if #quads == 0 then return nil end
+  local spans = quadListSpans(quads, 4)
   local verts, indices, n = {}, {}, 0
   for _, q in ipairs(quads) do
     for i = 1, 4 do
@@ -1080,7 +1213,7 @@ local function quadsMesh(quads)
     Voxel3D.pushQuad(indices, n)
     n = n + 1
   end
-  return Voxel3D.newMesh(verts, indices)
+  return Voxel3D.newMesh(verts, indices), spans
 end
 
 -- Flatten auxiliary quads into the same unindexed CPU stream as terrain so
@@ -1101,7 +1234,7 @@ local function rawQuads(quads)
       end
       Budget.tick()
     end
-    return { ptr = buf, n = n }
+    return { ptr = buf, n = n, spans = quadListSpans(quads) }
   end
   local chunks, parts, values = {}, {}, {}
   for _, q in ipairs(quads) do
@@ -1122,7 +1255,7 @@ local function rawQuads(quads)
     Budget.tick()
   end
   if #parts > 0 then chunks[#chunks + 1] = table.concat(parts) end
-  return { chunks = chunks, n = n }
+  return { chunks = chunks, n = n, spans = quadListSpans(quads) }
 end
 
 local function buildRawAux(map)
@@ -1159,7 +1292,9 @@ local function meshesFromRawAux(aux)
       }
     end
   end
-  return meshFromRaw(aux.grass), meshFromRaw(aux.flowers), figures
+  return meshFromRaw(aux.grass), meshFromRaw(aux.flowers), figures,
+         aux.grass and aux.grass.spans or nil,
+         aux.flowers and aux.flowers.spans or nil
 end
 
 -- The tall-grass rows as their own mesh: VoxelScene draws it AFTER the
@@ -1251,6 +1386,7 @@ local function releaseEntry(c)
     local mesh = c[slot]
     if mesh and mesh.release then pcall(mesh.release, mesh) end
     c[slot] = nil
+    c[slot .. "Spans"] = nil
   end
   releaseFigures(c.figures)
   c.figures = nil
@@ -1302,7 +1438,7 @@ local function runJob(job)
   end
   if c.grass == nil or c.flowers == nil or c.figures == nil
      or (c.stale and c.stale.aux) then
-    local grass, flowers, figures
+    local grass, flowers, figures, grassSpans, flowerSpans
     if MeshDisk.available() then
       local aux = MeshDisk.loadAux(map)
       if not aux then
@@ -1315,14 +1451,16 @@ local function runJob(job)
         end
         if not current() then return end
       end
-      grass, flowers, figures = meshesFromRawAux(aux)
+      grass, flowers, figures, grassSpans, flowerSpans = meshesFromRawAux(aux)
     else
-      local okG, builtGrass = pcall(buildGrassMesh, map)
-      local okF, builtFlowers = pcall(buildFlowerMesh, map)
+      local okG, builtGrass, builtGrassSpans = pcall(buildGrassMesh, map)
+      local okF, builtFlowers, builtFlowerSpans = pcall(buildFlowerMesh, map)
       local okX, builtFigures = pcall(buildFigureMeshes, map)
       grass = (okG and builtGrass) or false
       flowers = (okF and builtFlowers) or false
       figures = (okX and builtFigures) or false
+      grassSpans = okG and builtGrassSpans or nil
+      flowerSpans = okF and builtFlowerSpans or nil
     end
     if not current() then
       if grass and grass.release then pcall(grass.release, grass) end
@@ -1332,22 +1470,26 @@ local function runJob(job)
     end
     swapSlot(c, "grass", grass or false)
     swapSlot(c, "flowers", flowers or false)
+    c.grassSpans = grass and grassSpans or nil
+    c.flowersSpans = flowers and flowerSpans or nil
     releaseFigures(c.figures)
     c.figures = figures or false
     if c.stale then c.stale.aux = nil end
   end
 
-  local mesh, water
+  local mesh, water, spans
   local cached = MeshDisk.loadTerrain(map, job.slot, job.masks)
   if cached then
     mesh = meshFromRaw(cached.terrain)
     water = meshFromRaw(cached.water)
+    spans = cached.spans
   else
     local sink, waterSink = newSink(), newSink()
     runGeometry(map, job.slot == "body", job.masks, sink, waterSink)
     local terrainRaw = sink.raw and sink.raw() or nil
     local waterRaw = waterSink.raw and waterSink.raw() or nil
     mesh, water = sink.finish(), waterSink.finish()
+    spans = sink.spans()
     if not current() then
       if mesh and mesh.release then pcall(mesh.release, mesh) end
       if water and water.release then pcall(water.release, water) end
@@ -1370,6 +1512,7 @@ local function runJob(job)
   end
   swapSlot(c, job.slot, mesh or false)
   swapSlot(c, waterSlot(job.slot), water or false)
+  c[job.slot .. "Spans"] = mesh and spans or nil
   if c.stale then
     c.stale[job.slot] = nil
     if not (c.stale.full or c.stale.body or c.stale.aux) then
@@ -1494,14 +1637,16 @@ function ChunkMesher.get(map, bodyOnly, masks)
   local slot = bodyOnly and "body" or "full"
   local c = entry(map.id)
   if c.grass == nil or c.flowers == nil or (c.stale and c.stale.aux) then
-    local okG, grass = pcall(buildGrassMesh, map)
-    local okF, flowers = pcall(buildFlowerMesh, map)
+    local okG, grass, grassSpans = pcall(buildGrassMesh, map)
+    local okF, flowers, flowerSpans = pcall(buildFlowerMesh, map)
     swapSlot(c, "grass", (okG and grass) or false)
     swapSlot(c, "flowers", (okF and flowers) or false)
+    c.grassSpans = (okG and grass) and grassSpans or nil
+    c.flowersSpans = (okF and flowers) and flowerSpans or nil
     if c.stale then c.stale.aux = nil end
   end
   if c[slot] == nil or (c.stale and c.stale[slot]) then
-    local ok, mesh, water = pcall(ChunkMesher.build, map, bodyOnly, masks,
+    local ok, mesh, water, spans = pcall(ChunkMesher.build, map, bodyOnly, masks,
                                   true)
     if not ok then
       print("[warn] voxel mesh build failed for " .. tostring(map.id)
@@ -1509,6 +1654,7 @@ function ChunkMesher.get(map, bodyOnly, masks)
     end
     swapSlot(c, slot, (ok and mesh) or false)
     swapSlot(c, waterSlot(slot), (ok and water) or false)
+    c[slot .. "Spans"] = (ok and mesh) and spans or nil
     if c.stale then
       c.stale[slot] = nil
       if not (c.stale.full or c.stale.body or c.stale.aux) then
@@ -1562,18 +1708,144 @@ function ChunkMesher.figures(map)
   return (type(list) == "table") and list or nil
 end
 
+-- ------- taking one prop out of a mesh that is already on screen
+--
+-- Zeroing a run's vertices leaves degenerate triangles, which draw nothing.
+-- The ground stays, because it comes from the tile loop and owns no runs.
+-- The spans ride the disk cache too, so a precached map can do this without
+-- having run the geometry pass this session.
+--
+-- This only removes what a build already placed. Anything an edit adds, and
+-- the shading corrections around it, still wait for the rebuild.
+
+-- position/uv/shade, six floats (Voxel3D.FORMAT)
+local BLANK_VERTEX_BYTES = 6 * 4
+
+-- The vertex ranges owned by props inside a world-pixel rect, merged where
+-- they are adjacent so one tree costs one upload.
+--
+-- A run belongs to the rect when the center of its footprint does. Testing
+-- for overlap instead pulled in the neighbouring tree every time, because
+-- the 2x2-cell canopy groups are a whole block wide.
+function ChunkMesher.blockRanges(spans, px0, pz0, px1, pz1)
+  local out = {}
+  if type(spans) ~= "table" then return out end
+  local i, n = 1, #spans
+  local function inRect(k)
+    local cx, cz = spans[k + 2], spans[k + 3]
+    return cx >= px0 and cx < px1 and cz >= pz0 and cz < pz1
+  end
+  while i <= n do
+    if inRect(i) then
+      local first = spans[i]
+      local last = first + spans[i + 1]
+      local j = i + 4
+      while j <= n and spans[j] == last and inRect(j) do
+        last = spans[j] + spans[j + 1]
+        j = j + 4
+      end
+      out[#out + 1] = { first, last - first }
+      i = j
+    else
+      i = i + 4
+    end
+  end
+  return out
+end
+
+local zeroCache = ""
+local function zeroBytes(n)
+  if #zeroCache < n then zeroCache = string.rep(string.char(0), n) end
+  return zeroCache:sub(1, n)
+end
+
+local function blankMesh(mesh, spans, px0, pz0, px1, pz1)
+  if not (mesh and mesh.setVertices and spans
+          and love and love.data and love.data.newByteData) then
+    return 0
+  end
+  local dropped = 0
+  for _, r in ipairs(ChunkMesher.blockRanges(spans, px0, pz0, px1, pz1)) do
+    local ok, data = pcall(love.data.newByteData,
+                           zeroBytes(r[2] * BLANK_VERTEX_BYTES))
+    if ok and data then
+      -- setVertices takes a 1-based start vertex; runs are recorded 0-based
+      if pcall(mesh.setVertices, mesh, data, r[1] + 1) then
+        dropped = dropped + r[2]
+      end
+      pcall(data.release, data)
+    end
+  end
+  return dropped
+end
+
+-- The part of a block a swap actually changed, in world pixels, rounded out
+-- to whole 16px cells because that is what a prop is owned by.
+--
+-- Cut swaps a whole block id but the two ids usually differ in one cell.
+-- Cerulean's cuttable block is a single tree in the middle of a hedge, and
+-- dropping the block's props wholesale took the hedge down with it.
+--
+-- nil when nothing changed. The whole block when the tileset cannot answer,
+-- which leaves the caller with the old behaviour.
+function ChunkMesher.changedRect(map, bx, by, before)
+  local px0, pz0 = bx * 32, by * 32
+  local blocks = map and map.tileset and map.tileset.blocks
+  local a = before and blocks and blocks[before + 1]
+  local b = blocks and map.blockAt and blocks[map:blockAt(bx, by) + 1]
+  if not (a and b) then return px0, pz0, px0 + 32, pz0 + 32 end
+  local x0, z0, x1, z1 = math.huge, math.huge, -math.huge, -math.huge
+  for i = 1, 16 do
+    if a[i] ~= b[i] then
+      local tx, tz = (i - 1) % 4, math.floor((i - 1) / 4)
+      x0 = math.min(x0, px0 + tx * 8)
+      x1 = math.max(x1, px0 + tx * 8 + 8)
+      z0 = math.min(z0, pz0 + tz * 8)
+      z1 = math.max(z1, pz0 + tz * 8 + 8)
+    end
+  end
+  if x1 < x0 then return nil end
+  -- out to cell boundaries: a prop is owned by the 16px cell it stands in,
+  -- and a rect cutting a cell in half excludes that cell's own center
+  return math.floor(x0 / 16) * 16, math.floor(z0 / 16) * 16,
+         math.ceil(x1 / 16) * 16, math.ceil(z1 / 16) * 16
+end
+
+-- Drop the props on the changed part of a block from whatever this map is
+-- drawing now. Returns how many vertices were zeroed, which is 0 when the
+-- block held nothing the prop passes owned. Walls and ledges come from the
+-- tile loop, so those still wait for the rebuild.
+--
+-- `before` is the block id that was there. Without it the whole block goes.
+function ChunkMesher.dropBlock(mapId, bx, by, map, before)
+  local c = mapId and cache[mapId]
+  if not (c and bx and by) then return 0 end
+  local px0, pz0, px1, pz1 = ChunkMesher.changedRect(map, bx, by, before)
+  if not px0 then return 0 end
+  local n = 0
+  for _, slot in ipairs({ "full", "body" }) do
+    n = n + blankMesh(c[slot], c[slot .. "Spans"], px0, pz0, px1, pz1)
+  end
+  -- tufts and billboards are meshes of their own, so a cut through tall
+  -- grass has to reach them as well
+  n = n + blankMesh(c.grass, c.grassSpans, px0, pz0, px1, pz1)
+  n = n + blankMesh(c.flowers, c.flowersSpans, px0, pz0, px1, pz1)
+  return n
+end
+
 -- Rebuild a map's meshes IN PLACE: the stale meshes keep drawing while
 -- replacements cook, and each slot swaps as its build lands. This is
 -- the block-edit path (a cut tree, a door stamp) -- invalidate() drops
 -- the mesh outright, and until the async rebuild landed the scene fell
 -- to the flat 2D path, a whole-world blink for a one-block edit.
-function ChunkMesher.refresh(mapId)
+function ChunkMesher.refresh(mapId, bx, by, map, before)
   if not mapId then return ChunkMesher.invalidate() end
   local c = cache[mapId]
   -- nothing drawable cached: the plain drop costs nothing visible
   if not (c and (c.full or c.body)) then
     return ChunkMesher.invalidate(mapId)
   end
+  ChunkMesher.dropBlock(mapId, bx, by, map, before)
   Structures.invalidate(mapId)
   gen[mapId] = (gen[mapId] or 0) + 1
   for i = #jobs, 1, -1 do

@@ -30,6 +30,32 @@ InterfaceSprites.setting = ModSetting.new("interfaceSprites",
   { "battle_art", "off", "modded" },
   { "BATTLE ART", "OFF", "MODDED" })
 
+InterfaceSprites.scalingSetting = ModSetting.new("interfaceScaling",
+  "INTERFACE SCALING", { "fit", "full" }, { "FIT", "FULL" }, 1)
+
+-- Separate caches let the setting change live without resetting playback.
+local function screenFrames(state)
+  local native = InterfaceSprites.scalingSetting:get() == "full"
+  local key = native and "nativeFrames" or "fittedFrames"
+  if not state[key] then
+    state[key] = BattleArt.fitPreparedFrames
+      and BattleArt.fitPreparedFrames(state.frames, 56, 56, native) or state.frames
+  end
+  return state[key]
+end
+
+local function firstFrameTop(state, boxHeight, centered)
+  local first = screenFrames(state)[1]
+  local _, height = first:getDimensions()
+  local y0 = 0
+  local metric = BattleArt.metrics and BattleArt.metrics(first)
+  if metric then y0, height = metric.y0, metric.y1 - metric.y0 + 1 end
+  local space = boxHeight - height
+  local top = centered and math.floor(space / 2) or space
+  -- Dex centers oversized poses too; Summary keeps its requested top clamp.
+  return (centered and top or math.max(0, top)) - y0
+end
+
 local function active()
   return InterfaceSprites.setting:get() == "battle_art"
 end
@@ -402,6 +428,7 @@ function InterfaceSprites.install()
   InterfaceSprites.installTitle()
   InterfaceSprites.installDexList()
   InterfaceSprites.installDex()
+  InterfaceSprites.installGen2()
 end
 
 -- SummaryMenu already draws the canonical shaped HP gauge through
@@ -453,12 +480,7 @@ function InterfaceSprites.installSummary()
       self and self.mon and summarySources[self.mon]
         or (self and self.__battleArtOriginalSprite))
     if state then
-      if not state.summaryFrames then
-        state.summaryFrames = BattleArt.fitPreparedFrames
-          and BattleArt.fitPreparedFrames(state.frames, 56, 56)
-          or state.frames
-      end
-      self.sprite = state.summaryFrames[state.frame]
+      self.sprite = screenFrames(state)[state.frame]
       self.spriteTrueColor = true
       -- SummaryMenu otherwise prefers its native Crystal picAnim over sprite.
       self.picAnim = nil
@@ -469,7 +491,8 @@ function InterfaceSprites.installSummary()
     end
     local preserveAuthored = state and BattleArt.flipsPlayerFront
       and not BattleArt.flipsPlayerFront()
-    if not (preserveAuthored and love and love.graphics
+    local full = state and InterfaceSprites.scalingSetting:get() == "full"
+    if not ((preserveAuthored or full) and love and love.graphics
             and type(love.graphics.draw) == "function") then
       return originalDraw(self, ...)
     end
@@ -479,8 +502,28 @@ function InterfaceSprites.installSummary()
     -- and the engine's ROM fallback on its native path.
     local sprite = self.sprite
     local originalGraphicsDraw = love.graphics.draw
+    local P, originalMark, oldY, width, height, left, top
+    if full then
+      width, height = sprite:getDimensions()
+      oldY = math.max(0, 56 - height)
+      left = math.max(0, math.floor((72 - width) / 2))
+      -- Bottom-align the FIRST visible pose, not the PNG or animation union.
+      -- Every subsequent frame keeps this same offset and authored movement.
+      top = firstFrameTop(state, 56, false)
+      P = require("src.render.PaletteFX")
+      originalMark = P.markTrueColor
+      P.markTrueColor = function(x, y, w, h)
+        if x == 8 and y == oldY and w == width and h == height then
+          x, y = left, top
+        end
+        return originalMark(x, y, w, h)
+      end
+    end
     love.graphics.draw = function(drawable, x, y, rotation, scaleX, scaleY, ...)
-      if drawable == sprite and type(x) == "number"
+      if full and drawable == sprite and type(x) == "number" then
+        x, y = x + left - 8, top
+      end
+      if preserveAuthored and drawable == sprite and type(x) == "number"
           and (tonumber(scaleX) or 1) < 0 then
         local width = drawable.getWidth and drawable:getWidth() or nil
         if not width and drawable.getDimensions then
@@ -496,6 +539,7 @@ function InterfaceSprites.installSummary()
     end
     local ok, result = pcall(originalDraw, self, ...)
     love.graphics.draw = originalGraphicsDraw
+    if P then P.markTrueColor = originalMark end
     if not ok then error(result, 0) end
     return result
   end
@@ -609,15 +653,110 @@ function InterfaceSprites.installDex()
       species and dexSources[species]
         or (self and self.__battleArtOriginalSprite))
     if state then
-      self.sprite = state.frames[state.frame]
+      self.sprite = screenFrames(state)[state.frame]
       self.spriteTrueColor = true
     elseif self and self.__battleArtOriginalCaptured then
       self.sprite = self.__battleArtOriginalSprite
       self.spriteTrueColor = self.__battleArtOriginalTrueColor
     end
+    if state and InterfaceSprites.scalingSetting:get() == "full" then
+      local sprite = self.sprite
+      local w, h = sprite:getDimensions()
+      local oldX = 8 + math.floor((8 - w / 8) / 2) * 8
+      local oldY = 64 - h
+      local top = firstFrameTop(state, 72, true)
+      local graphics = love.graphics
+      local P = require("src.render.PaletteFX")
+      local draw, mark = graphics.draw, P.markTrueColor
+      graphics.draw = function(image, x, y, ...)
+        if image == sprite then y = top end
+        return draw(image, x, y, ...)
+      end
+      P.markTrueColor = function(x, y, width, height)
+        if x == oldX and y == oldY and width == w and height == h then y = top end
+        return mark(x, y, width, height)
+      end
+      local ok, result = pcall(originalDraw, self, ...)
+      graphics.draw, P.markTrueColor = draw, mark
+      if not ok then error(result, 0) end
+      return result
+    end
     return originalDraw(self, ...)
   end
   dexInstalled = true
+end
+
+-- Gold/Silver/Crystal use portrait methods, not the Gen 1 sprite field.
+-- Hook below drawPanel so normal and widescreen layouts share this adapter.
+local gen2Installed = {}
+local gen2SummaryStates = setmetatable({}, { __mode = "k" })
+local gen2DexStates = setmetatable({}, { __mode = "k" })
+
+local function drawGen2Portrait(state, x, y, colors, summary)
+  local G = love.graphics
+  local Palette = require("src.render.GbcPalette")
+  local P = require("src.render.PaletteFX")
+  local image = screenFrames(state)[state.frame]
+  local w = image:getWidth()
+  local top = InterfaceSprites.scalingSetting:get() == "full"
+    and firstFrameTop(state, 56, not summary) or 0
+  local left = math.floor((56 - w) / 2)
+  local blank = colors and Palette.color(colors, 1) or {255, 255, 255}
+  G.push("all")
+  local ok, err = pcall(function()
+    G.setShader()
+    G.setColor(blank[1] / 255, blank[2] / 255, blank[3] / 255, 1)
+    G.rectangle("fill", x, y, 56, 56)
+    G.setColor(1, 1, 1, 1)
+    G.draw(image, x + left, y + top)
+    local iw, ih = image:getDimensions()
+    P.markTrueColor(x + left, y + top, iw, ih)
+  end)
+  G.pop()
+  if not ok then error(err, 0) end
+end
+
+function InterfaceSprites.installGen2()
+  for _, spec in ipairs({
+    {"src.ui.gen2.SummaryMenu", gen2SummaryStates, true},
+    {"src.ui.gen2.PokedexMenu", gen2DexStates, false},
+  }) do
+    local path, states, summary = spec[1], spec[2], spec[3]
+    local ok, Menu = pcall(require, path)
+    if ok and Menu and Menu.drawPic and not gen2Installed[path] then
+      local draw, update = Menu.drawPic, Menu.update
+      Menu.drawPic = function(self, row, tx, ty, ownColors)
+        local species = summary and self.mon and self.mon.species
+          or (not summary and row and row.seen and row.species)
+        local def = species and self.pokemon and self.pokemon[species]
+        -- Preserve native Unown forms and unseen entries.
+        local state = species ~= "UNOWN" and selectedPlayback(self, states,
+          species, def and def.spriteFront) or nil
+        if not state then
+          states[self] = nil
+          return draw(self, row, tx, ty, ownColors)
+        end
+        local Palettes = require("src.world.gen2.Palettes")
+        local colors
+        if summary or ownColors then
+          colors = self.palettes and Palettes.monColors(self.palettes, species,
+            summary and self.mon.shiny)
+        else
+          colors = self.gfx and self.gfx.questionMarkPalette
+        end
+        return drawGen2Portrait(state, summary and 0 or tx * 8,
+          summary and 0 or ty * 8, colors, summary)
+      end
+      if update then
+        Menu.update = function(self, dt, ...)
+          local result = update(self, dt, ...)
+          advance(states[self], dt)
+          return result
+        end
+      end
+      gen2Installed[path] = true
+    end
+  end
 end
 
 return InterfaceSprites

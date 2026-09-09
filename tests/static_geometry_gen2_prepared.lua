@@ -72,4 +72,13 @@ assert(live.renderer.image ~= canonical.renderer.image,
 assert(StaticGeometry.source(live) == canonical,
   "prepared gameplay map could not reuse title-precache geometry")
 
+def.blocks[1] = 2
+assert(StaticGeometry.source(live) == nil,
+  "Cut geometry must not overwrite the immutable precache record")
+assert(canonical.def.blocks[1] == 1,
+  "the title-precache snapshot must retain the uncut block")
+def.blocks[1] = 1
+assert(StaticGeometry.source(live) == canonical,
+  "regrowth must reuse the original precache geometry")
+
 print("static geometry prepared Gen2 reuse regression: ok")

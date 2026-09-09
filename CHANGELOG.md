@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.1.1
+
+- Center oversized FULL Dex poses vertically without clamping their top edge;
+  retain Summary alignment. Anchor oversized Gen 2 opponent battle canvases at
+  their actual bottom instead of row 56, preserving airborne animation margins.
+- Connect interface artwork to the actual Gen 2 Summary and Pokedex portrait
+  methods, including widescreen paths. Preserve native unseen entries and Unown
+  forms. Keep battle cards one world pixel above both battlers' terrain heights.
+- Add FIT/FULL interface scaling for Summary and Dex battle artwork. FIT remains
+  the default. FULL preserves native pixels and bottom-aligns the first visible
+  Summary pose, keeping the same offset throughout animation so small Pokemon
+  sit lower without jitter. Dex centers the first pose vertically.
+- Import Gen 4 tight-frame dimensions for regular and shiny front animations.
+  Select tight or original cells from exact atlas dimensions, preserving paths,
+  frame counts, timing, and compatibility with mixed asset installations.
+- Port immediate Cut prop removal from Gen 1 PR #42 to Gen 2's
+  `World:replaceBlock` path. Retain drawable terrain and neighboring map caches
+  while the edited map rebuilds in the background. Preserve the engine's block
+  edits, collision updates, and regrowth bookkeeping.
+- Store prop ownership with cached terrain, grass and flowers. Cache revision
+  22 requires one initial rebuild; runtime Cut edits do not overwrite the
+  immutable precache geometry.
+- Port PR #40's water shader return/parameter precision fix, with a bare-signature
+  fallback for runtimes whose shader prototype differs.
+- Port PR #38's player/NPC water reflections, preserving Gen 2's variable-width
+  sprite anchors and the existing water OFF/unsupported-renderer fallbacks.
+
 ## Unreleased
 
 ### Fixed

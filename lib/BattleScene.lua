@@ -406,13 +406,19 @@ local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
 end
 
 -- The height of the arena floor: the ground the two mons stand on. Both
--- cells are open, so they are normally the same; take the player's, which is
--- the one nearer the camera and therefore the one a mismatch would show up
--- against.
+-- cells can have different terrain heights. Keep the shared battle floor
+-- above both so neither card intersects its supporting terrain.
 function BattleScene.groundY(map, arena)
-  local ok, h = pcall(VoxelScene.groundAt, map,
-                      arena.playerCell[1], arena.playerCell[2])
-  return (ok and h) or 0
+  local height = 0
+  for _, cell in ipairs({ arena.playerCell, arena.enemyCell }) do
+    if cell then
+      local ok, h = pcall(VoxelScene.groundAt, map, cell[1], cell[2])
+      if ok and type(h) == "number" then height = math.max(height, h) end
+    end
+  end
+  -- Share one floor across cards and effects, clear of both occupied cells.
+  -- A world-pixel clearance prevents the lowest sprite row fighting terrain.
+  return height + 1
 end
 
 -- Where a world point lands in GB frame coordinates under `vp`, or nil when

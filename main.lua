@@ -810,6 +810,11 @@ local SETTINGS = {
     .. "DUPLICATE FIX (which owns only battle pictures). "
     .. "MODDED leaves the interfaces to another sprite mod or the ROM.",
     full = true },
+  { InterfaceSprites.scalingSetting,
+    "FIT keeps Summary and Dex artwork within 56x56. FULL keeps native pixels "
+    .. "and can overlap the UI. Summary aligns the first pose at the bottom; "
+    .. "Dex centers it. Animation timing and movement are preserved.",
+    full = true },
   { WorldUnderlay.setting,
     "Choose the solid outdoor world beneath terrain holes and beyond map edges: "
     .. "CYAN or BLACK. OFF/KFP leaves the underlay to Kanto First Person. "
@@ -1537,54 +1542,8 @@ end)
 -- tree that is no longer there.  The 2D tile renderer invalidates its own
 -- caches off the same edit.
 
--- refresh, not invalidate: the stale mesh keeps drawing while the
--- replacement builds in the background, so a one-block edit (Cut, a
--- door stamp, the tree regrowing on re-entry) repopulates in place
--- instead of blinking the whole scene down to the flat 2D path
-mod.events:on("world.block_replaced", function(payload)
-  local mapId = payload and (payload.mapId or (payload.map and payload.map.id))
-  if mapId then ChunkMesher.refresh(mapId) end
-end)
-
--- The event above is the ANNOUNCED edit -- OverworldState:replaceBlock
--- emits it, which is the path Victory Road's barriers and a script's
--- replaceBlock take. Several edits do not go through it:
---
---   Cut          swaps the tree block and rebuilds the 2D renderer
---   the regrowth restores those blocks when the map is re-entered
---   card-key doors are stamped closed on floor load
---
--- all of them writing the block layer directly. Meshes derived from that
--- layer went stale with no announcement -- the cut tree stayed standing,
--- and after a round trip through a door the stump stayed cut because this
--- map's mesh survives in the cache (that is what prevLive is for).
---
--- The engine could announce each of those, and an earlier cut of this
--- work changed it to. That is the wrong place: it edits the game for one
--- mod's benefit, and every future path that writes a block has to
--- remember to do the same. They all funnel through ONE choke point --
--- Map:setBlock -- so wrap that from here instead. Map is a plain
--- metatable shared by every map instance, so this covers all of them,
--- including paths written after this mod.
---
--- Read back rather than trust the argument: setBlock silently ignores an
--- out-of-bounds write, and a stamp that rewrites a block with the value
--- it already held (the door code guards for this, the regrowth does not)
--- is not a change and must not throw the mesh away.
-do
-  local Map = require("src.world.Map")
-  if not Map.dramaticShapeBlockHook then
-    local setBlock = Map.setBlock
-    Map.setBlock = function(self, bx, by, block)
-      local before = self:blockAt(bx, by)
-      setBlock(self, bx, by, block)
-      if self.id and self:blockAt(bx, by) ~= before then
-        ChunkMesher.refresh(self.id)
-      end
-    end
-    Map.dramaticShapeBlockHook = true
-  end
-end
+-- Keep the current terrain drawable and drop only changed props immediately.
+V.require("BlockMeshRefresh").install(ChunkMesher, mod.events)
 
 -- A reloaded map is rebuilt from scratch (warps that re-enter the same map,
 -- hot reload), so its mesh is stale for the same reason -- with one
@@ -1914,7 +1873,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.1.0"
+mod.exports.version = "2.1.1"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,
