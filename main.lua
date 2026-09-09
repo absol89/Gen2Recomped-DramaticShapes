@@ -168,6 +168,7 @@ end
 local Voxel = V.require("VoxelState")
 local Voxel3D = V.require("Voxel3D")
 local VoxelScene = V.require("VoxelScene")
+local RenderDistance = V.require("RenderDistance")
 local TiltShift = V.require("TiltShift")
 local ChunkMesher = V.require("ChunkMesher")
 local VoxelPrecache = V.require("VoxelPrecache")
@@ -672,6 +673,11 @@ local function setVoxelOption(game, level)
 end
 
 local SETTINGS = {
+  { RenderDistance.setting,
+    "Limit connected-map terrain, water, figures and distant characters. "
+    .. "SHORT/MEDIUM/FAR cover 16/32/64 movement cells. MEDIUM is the default; "
+    .. "FULL restores uncapped rendering. The current map always stays visible.",
+    full = true },
   { RamPrecacheSetting,
     "Compressed voxel cache retained for CONTINUE and nearby-area loading. "
     .. "Choose FULL to retain every precached record; larger values use more "

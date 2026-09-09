@@ -33,6 +33,7 @@ local WorldUnderlay = V.require("WorldUnderlay")
 local WorldFillProps = V.require("WorldFillProps")
 local Gen2WorldAdapter = V.require("Gen2WorldAdapter")
 local ModSetting = V.require("ModSetting")
+local RenderDistance = V.require("RenderDistance")
 local PaletteFX = require("src.render.PaletteFX")
 local Map = require("src.world.Map")
 
@@ -483,6 +484,7 @@ local lastLiveKey = nil
 function VoxelScene.prefetch(state)
   local Voxel = V.require("VoxelState")
   Gen2WorldAdapter.prepareWorld(state)
+  state = RenderDistance.view(state)
 
   -- The live set is the current map plus its rendered neighbours. When
   -- it changes, everything outside it (and the previous set, which
@@ -507,7 +509,7 @@ function VoxelScene.prefetch(state)
   -- masks: where connected neighbour BODIES sit, so the border ring is
   -- suppressed under them (see runGeometry)
   local masks = {}
-  for _, nb in ipairs(state.neighbors or {}) do
+  for _, nb in ipairs(state._distanceNeighbors or state.neighbors or {}) do
     masks[#masks + 1] = { nb.ox, nb.oy,
                           nb.ox + nb.map.def.width * 32,
                           nb.oy + nb.map.def.height * 32 }
@@ -963,6 +965,7 @@ end
 -- pose capture and glint step.
 function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   Gen2WorldAdapter.prepareWorld(state)
+  state = RenderDistance.view(state)
   -- With nothing cached at all (the first frame of a fresh toggle),
   -- return nil: the engine keeps the 2D path for the frame and
   -- Voxel.ready holds the camera tween at flat, so the switch waits
@@ -1004,6 +1007,13 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   end
 
   local posed, me = posesOf(state, spriteColors)
+  local visiblePoses = {}
+  for _, p in ipairs(posed) do
+    if p == me or RenderDistance.point(p.px + 8, p.py + 8, state.player) then
+      visiblePoses[#visiblePoses + 1] = p
+    end
+  end
+  posed = visiblePoses
 
   -- The first-person rig, built (or blended) for this frame and handed to
   -- Voxel3D BEFORE either pass runs: the sun's box is fitted around this

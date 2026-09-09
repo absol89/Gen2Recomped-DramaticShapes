@@ -29,6 +29,11 @@
 
 ## Unreleased
 
+- Add R.DIST from Gen 1: SHORT (16 cells), MEDIUM (32, default), FAR (64),
+  and FULL. Limit connected-map mesh requests and all world render passes,
+  plus distant character drawing. Keep the current map, connection border masks,
+  engine world state, and gameplay intact.
+
 ### Fixed
 
 - **Nothing indoors had a shape.** Not one of Generation 2's twenty-odd
