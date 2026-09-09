@@ -12,6 +12,10 @@
 -- observe directly.
 
 local V = ...
+local traceOK, CacheTrace = pcall(V.require, "CacheTrace")
+if not traceOK or type(CacheTrace) ~= "table" or type(CacheTrace.log) ~= "function" then
+  CacheTrace = { log = function() end }
+end
 
 local Budget = V.require("BuildBudget")
 local StaticGeometry = V.require("StaticGeometry")
@@ -802,6 +806,8 @@ local function fingerprintDifference(actual, expected)
 end
 
 local function reportMismatch(map, path, actual, expected, detail)
+  CacheTrace.log("reject-fingerprint", map and map.id,
+    path .. " " .. (detail or fingerprintDifference(actual, expected)))
   StaticGeometry.record(map and map.id, "cache.record", path,
     detail or fingerprintDifference(actual, expected))
 end
@@ -959,14 +965,16 @@ local function streamRecord(blob, pos)
 end
 
 local function readValidated(path, fp, map)
-  if not available() then return nil end
+  if not available() then CacheTrace.log("cache-unavailable", map and map.id, path); return nil end
   local blob = ramFiles[path]
   if blob then
+    CacheTrace.log("ram-hit", map and map.id, path)
     ramNote(path)
   else
-    if sessionActive and ramRejected[path] then return nil end
+    if sessionActive and ramRejected[path] then CacheTrace.log("cache-rejected-session", map and map.id, path); return nil end
     local ok, loaded = pcall(storage.readBytes, storage, path)
-    if not ok or not loaded then return nil end
+    if not ok or not loaded then CacheTrace.log("disk-miss", map and map.id, path .. " read=" .. tostring(loaded)); return nil end
+    CacheTrace.log("disk-hit", map and map.id, path .. " bytes=" .. #loaded)
     blob = loaded
     knownSizes[path] = #blob
     if sessionActive then
@@ -1007,7 +1015,7 @@ local function readSpans(blob, pos)
 end
 
 function Disk.loadTerrain(map, slot, masks)
-  if not Disk.staticEligible(map) then return nil end
+  if not Disk.staticEligible(map) then CacheTrace.log("cache-ineligible", map.id, "terrain " .. slot .. " modified/nonstatic map"); return nil end
   local path = pathFor(map, slot, "terrain")
   local fp = Disk.fingerprint(map, slot, masks, "terrain")
   local blob, pos = readValidated(path, fp, map)
@@ -1018,6 +1026,7 @@ function Disk.loadTerrain(map, slot, masks)
   local spans, finalPos
   if afterWater then spans, finalPos = readSpans(blob, afterWater) end
   if not terrain or not water or not spans or finalPos ~= #blob + 1 then
+    CacheTrace.log("reject-corrupt", map.id, path)
     discard(path, true)
     return nil
   end
@@ -1031,7 +1040,7 @@ local function float4(blob, pos)
 end
 
 function Disk.loadAux(map)
-  if not Disk.staticEligible(map) then return nil end
+  if not Disk.staticEligible(map) then CacheTrace.log("cache-ineligible", map.id, "aux modified/nonstatic map"); return nil end
   local path = pathFor(map, "aux", "aux")
   local fp = Disk.fingerprint(map, "aux", nil, "aux")
   local blob, pos = readValidated(path, fp, map)

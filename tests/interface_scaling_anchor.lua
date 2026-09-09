@@ -138,12 +138,21 @@ G.newShader=function() error('no GPU') end
 love.filesystem={getInfo=function() return nil end}
 local S2=require('src.ui.gen2.SummaryMenu')
 local D2=require('src.ui.gen2.PokedexMenu')
+local originalSummaryUpdate=S2.update
 Interface.installGen2()
 interfaceMode='battle_art';mode='full'
 local s2=setmetatable({mon={species='SMALL'},pokemon={SMALL={spriteFront='rom'}}},{__index=S2})
 s2:drawPic()
 check(draw.y+env.metrics[draw.image].y0==36,'real Silver Summary replaces portrait and bottom-aligns small first pose')
 check(mark.x==draw.x and mark.y==draw.y,'Gen 2 true-color coordinates match portrait')
+local firstSummaryImage=draw.image
+for i=1,7 do originalSummaryUpdate(s2,1/60) end
+s2:drawPic()
+check(draw.image~=firstSummaryImage,'original Silver update advances replacement summary animation')
+local secondSummaryImage=draw.image
+for i=1,7 do S2.update(s2,1/60) end
+s2:drawPic()
+check(draw.image==firstSummaryImage,'Summary update advances once per tick and loops')
 local d2=setmetatable({pokemon=s2.pokemon},{__index=D2})
 d2:drawPic({species='SMALL',seen=true},1,1,true)
 check(draw.y+env.metrics[draw.image].y0==26,'real Silver Dex replaces portrait at its tile origin')

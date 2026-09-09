@@ -747,7 +747,16 @@ function InterfaceSprites.installGen2()
         return drawGen2Portrait(state, summary and 0 or tx * 8,
           summary and 0 or ty * 8, colors, summary)
       end
-      if update then
+      if summary and type(Menu.stepPicAnim) == "function" then
+        -- Gen 2's Summary owns a fixed-step portrait tick. Hook that seam so
+        -- callers retaining the original update method still advance our art.
+        local step = Menu.stepPicAnim
+        Menu.stepPicAnim = function(self, ...)
+          local result = step(self, ...)
+          advance(states[self], require("src.core.FixedStep").STEP)
+          return result
+        end
+      elseif update then
         Menu.update = function(self, dt, ...)
           local result = update(self, dt, ...)
           advance(states[self], dt)

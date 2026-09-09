@@ -14,7 +14,9 @@ local original = World.replaceBlock
 local M = assert(loadfile(root .. "/lib/BlockMeshRefresh.lua"))({
   generation = function() return 2 end,
 })
-M.install({ refresh = function(...) calls[#calls + 1] = {...} end }, events)
+local invalidated = {}
+M.install({ refresh = function(...) calls[#calls + 1] = {...} end,
+  invalidate = function(id) invalidated[#invalidated + 1] = id end }, events)
 local oldTiles, newTiles = {}, {}
 for i = 1, 16 do oldTiles[i], newTiles[i] = 1, 1 end
 newTiles[1] = 2
@@ -49,4 +51,12 @@ T.eq(#calls, 4, "partially applied engine edit still refreshes its mesh")
 handlers["world.block_replaced"]({mapId = "ROUTE_30"})
 T.eq(#calls, 5, "exception clears event suppression")
 World.replaceBlock = original
+world.maps = {ROUTE_30 = map.def}
+world.dropMapImages = function() end
+T.check(world:restoreBlocks(), "real map re-entry restores edited blocks")
+T.eq(blocks[4], 0, "tree block regrows")
+T.same(invalidated, {"ROUTE_30"}, "restored route drops retained cut geometry")
+T.eq(world.blockEdits.ROUTE_30, nil, "engine consumes regrowth records")
+world:restoreBlocks()
+T.eq(#invalidated, 1, "unedited routes do not invalidate geometry")
 T.finish("Gen 2 block mesh refresh")

@@ -34,6 +34,10 @@ local WorldFillProps = V.require("WorldFillProps")
 local Gen2WorldAdapter = V.require("Gen2WorldAdapter")
 local ModSetting = V.require("ModSetting")
 local RenderDistance = V.require("RenderDistance")
+local traceOK, CacheTrace = pcall(V.require, "CacheTrace")
+if not traceOK or type(CacheTrace) ~= "table" or type(CacheTrace.log) ~= "function" then
+  CacheTrace = { log = function() end }
+end
 local PaletteFX = require("src.render.PaletteFX")
 local Map = require("src.world.Map")
 
@@ -499,6 +503,7 @@ function VoxelScene.prefetch(state)
     liveKey = liveKey .. "|" .. nb.map.id
   end
   if liveKey ~= lastLiveKey then
+    CacheTrace.log("live-set", state.map.id, "from=" .. tostring(lastLiveKey) .. " to=" .. liveKey)
     lastLiveKey = liveKey
     ChunkMesher.setLive(live)
     -- RED++ bakes one atlas per map, so its animated copy is per map too

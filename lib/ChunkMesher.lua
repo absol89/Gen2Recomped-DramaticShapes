@@ -56,6 +56,10 @@ local TileShape = V.require("TileShape")
 local Voxel3D = V.require("Voxel3D")
 local Budget = V.require("BuildBudget")
 local MeshDisk = V.require("VoxelMeshDisk")
+local traceOK, CacheTrace = pcall(V.require, "CacheTrace")
+if not traceOK or type(CacheTrace) ~= "table" or type(CacheTrace.log) ~= "function" then
+  CacheTrace = { log = function() end }
+end
 local MapAprons = V.require("MapAprons")
 
 local ffi = nil
@@ -1406,6 +1410,8 @@ local function jobKey(id, slot)
 end
 
 local function finishJob(job, ok, err)
+  CacheTrace.log(ok and "job-done" or "job-failed", job.id,
+    "slot=" .. job.slot .. " error=" .. tostring(err))
   local key = jobKey(job.id, job.slot)
   jobIndex[key] = nil
   for i, j in ipairs(jobs) do
@@ -1431,6 +1437,7 @@ end
 -- job was queued under -- invalidate/evict bump it to cancel in-flight
 -- work whose inputs went stale.
 local function runJob(job)
+  CacheTrace.log("job-start", job.id, "slot=" .. job.slot .. " generation=" .. tostring(job.gen))
   local map = job.map
   local c = entry(job.id)
   local function current()
@@ -1442,6 +1449,7 @@ local function runJob(job)
     if MeshDisk.available() then
       local aux = MeshDisk.loadAux(map)
       if not aux then
+        CacheTrace.log("build-aux", job.id, "cache miss; generate grass/flowers/figures")
         aux = buildRawAux(map)
         if not current() then return end
         local saved, saveErr = MeshDisk.saveAux(map, aux)
@@ -1480,10 +1488,12 @@ local function runJob(job)
   local mesh, water, spans
   local cached = MeshDisk.loadTerrain(map, job.slot, job.masks)
   if cached then
+    CacheTrace.log("upload-cached", job.id, "slot=" .. job.slot .. " no terrain rebuild")
     mesh = meshFromRaw(cached.terrain)
     water = meshFromRaw(cached.water)
     spans = cached.spans
   else
+    CacheTrace.log("build-terrain", job.id, "slot=" .. job.slot)
     local sink, waterSink = newSink(), newSink()
     runGeometry(map, job.slot == "body", job.masks, sink, waterSink)
     local terrainRaw = sink.raw and sink.raw() or nil
@@ -1546,6 +1556,7 @@ function ChunkMesher.request(map, bodyOnly, masks, priority)
   local job = jobIndex[key]
   local requested = priorityValue(priority)
   if not job then
+    CacheTrace.log("queue", map.id, "slot=" .. slot .. " stale=" .. tostring(stale) .. " priority=" .. requested)
     jobFailures[key] = nil
     job = { id = map.id, map = map, slot = slot, masks = masks,
             priority = requested, gen = gen[map.id] or 0 }
@@ -1839,6 +1850,7 @@ end
 -- the mesh outright, and until the async rebuild landed the scene fell
 -- to the flat 2D path, a whole-world blink for a one-block edit.
 function ChunkMesher.refresh(mapId, bx, by, map, before)
+  CacheTrace.log("refresh", mapId, "block=" .. tostring(bx) .. "," .. tostring(by) .. " before=" .. tostring(before))
   if not mapId then return ChunkMesher.invalidate() end
   local c = cache[mapId]
   -- nothing drawable cached: the plain drop costs nothing visible
@@ -1878,6 +1890,7 @@ local prevLive = {}
 function ChunkMesher.setLive(live)
   for id, c in pairs(cache) do
     if not live[id] and not prevLive[id] then
+      CacheTrace.log("evict-gpu", id, "outside current/previous live set; disk records retained")
       releaseEntry(c)
       cache[id] = nil
       gen[id] = (gen[id] or 0) + 1
@@ -1899,6 +1912,7 @@ end
 -- so precaching does not retain a GPU copy of the complete game.
 function ChunkMesher.evictRuntime(mapId)
   local function evict(id)
+    CacheTrace.log("evict-runtime", id, "explicit runtime eviction; disk records retained")
     local c = cache[id]
     if c then releaseEntry(c) end
     cache[id] = nil
@@ -1926,7 +1940,8 @@ end
 -- Structures' analysis is derived from the same block layer, so it drops
 -- in the same breath; in-flight builds of the map are cancelled through
 -- the generation counter.
-function ChunkMesher.invalidate(mapId)
+function ChunkMesher.invalidate(mapId, reason)
+  CacheTrace.log("invalidate", mapId, reason or "unspecified caller; cancels queued jobs")
   Structures.invalidate(mapId)
   if mapId then
     local c = cache[mapId]
@@ -1947,12 +1962,12 @@ function ChunkMesher.invalidate(mapId)
   end
 end
 
-Assets.register(function() ChunkMesher.invalidate() end)
+Assets.register(function() ChunkMesher.invalidate(nil, "Assets reset/hot reload") end)
 
 -- Explicit CACHE / DROP: discard runtime meshes and delete this game
 -- version's persistent CPU records. Missing/read-only storage fails open.
 function ChunkMesher.purgeCache()
-  ChunkMesher.invalidate()
+  ChunkMesher.invalidate(nil, "explicit CACHE / DROP; persistent cache purge follows")
   if MeshDisk and MeshDisk.purge then pcall(MeshDisk.purge) end
 end
 

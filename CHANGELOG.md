@@ -29,6 +29,11 @@
 
 ## Unreleased
 
+- Add desktop-only bounded cache tracing for live map sets, runtime eviction,
+  invalidation, record hits/rejections, cached uploads and live mesh builds.
+- Advance replacement Summary artwork from Gen 2's portrait animation tick,
+  including callers retaining the original menu update method. Invalidate only
+  restored maps' voxel meshes when route transitions regrow cut trees.
 - Add R.DIST from Gen 1: SHORT (16 cells), MEDIUM (32, default), FAR (64),
   and FULL. Limit connected-map mesh requests and all world render passes,
   plus distant character drawing. Keep the current map, connection border masks,

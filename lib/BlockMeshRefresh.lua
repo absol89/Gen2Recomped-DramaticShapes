@@ -28,6 +28,27 @@ function M.install(mesher, events)
 
   if V.generation() ~= 2 then return end
   local World = require("src.world.gen2.World")
+  local originalRestore = World.restoreBlocks
+  if originalRestore then
+    World.restoreBlocks = function(self, ...)
+      local edited = {}
+      for id, edits in pairs(self.blockEdits or {}) do
+        local def = self.maps and self.maps[id]
+        local blocks = def and def.blocks
+        if blocks then
+          for index, original in pairs(edits) do
+            if blocks[index] ~= original then edited[id] = true; break end
+          end
+        end
+      end
+      local ok, result = pcall(originalRestore, self, ...)
+      -- Restored blocks need pristine geometry, not the retained cut mesh.
+      -- Cancel in-flight cut builds too; immutable disk snapshots remain valid.
+      for id in pairs(edited) do mesher.invalidate(id, "World.restoreBlocks: regrowth/map re-entry") end
+      if not ok then error(result, 0) end
+      return result
+    end
+  end
   local originalReplace = World.replaceBlock
   World.replaceBlock = function(self, index, block, ...)
     local map = self.map
