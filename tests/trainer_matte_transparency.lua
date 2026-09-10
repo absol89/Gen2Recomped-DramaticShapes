@@ -57,3 +57,17 @@ assert(BattlePics.outsideTransparent(image) == out,
   "trainer matte result was not cached")
 
 print("trainer matte transparency regression: ok")
+
+-- The ROM can also key shade-zero pixels inside the trainer's shirt.
+-- After outside matte removal, restore that indexed paper without making
+-- the surrounding arena opaque. Keep one surviving shade-zero highlight.
+data:setPixel(2, 1, 1, 1, 1, 1)
+data:setPixel(2, 2, 1, 1, 1, 0)
+local filled = BattlePics.filled(image, true)
+assert(filled ~= image, "ROM trainer's keyed shirt was not restored")
+local r, g, b, a = data:getPixel(2, 2)
+assert(a == 1 and r == 1 and g == 1 and b == 1,
+  "ROM trainer shirt must use surviving shade-zero paper")
+local _, _, _, outside = data:getPixel(4, 0)
+assert(outside == 0, "ROM reconstruction filled the outside background")
+print("ROM trainer keyed paper restoration: ok")

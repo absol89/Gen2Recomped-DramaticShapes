@@ -1130,12 +1130,18 @@ local OFF = {
 
 -- Render one side's pics layer into its canvas and report where the pic's
 -- feet ended up, in canvas coordinates.
-function OverworldBattle.gen2EnemyAnchorY(image)
+function OverworldBattle.gen2EnemyAnchorY(image, staticPadding)
   -- Gen 2 drawPic top-pins oversized fronts instead of bottom-aligning them
   -- to row 56. Keep the atlas's transparent foot margin and animated motion;
   -- anchoring each opaque pose would make flying mons stand on the floor.
   local _, height = image:getDimensions()
-  return math.max(56, height)
+  return math.max(56, height) - (staticPadding or 0)
+end
+
+function OverworldBattle.gen2StaticPadding(image, scale)
+  if BattleArt.setting:get() ~= "static" or not BattleArt.isExternal(image) then return 0 end
+  local metric = BattleArt.metrics(image)
+  return metric and metric.padBottom * (scale or 1) or 0
 end
 
 function OverworldBattle.sideTexture(battle, side)
@@ -1222,9 +1228,19 @@ function OverworldBattle.sideTexture(battle, side)
       and battle.playerBackImage then
     trainerImageField = "playerBackImage"
   end
+  if trainerImageField and BattleArt.isExternal(battle[trainerImageField]) then
+    trainerImageField = nil
+  end
   if trainerImageField then
     savedTrainerImage = battle[trainerImageField]
-    battle[trainerImageField] = BattlePics.outsideTransparent(savedTrainerImage)
+    local portrait = BattlePics.outsideTransparent(savedTrainerImage)
+    -- Indexed ROM backs key painted shade zero as well as the background.
+    -- Reconstruct their shirt/face paper only; authored RGBA art never enters
+    -- this branch and must retain its deliberate transparent holes.
+    if trainerImageField == "playerBackImage" then
+      portrait = BattlePics.filled(portrait, true)
+    end
+    battle[trainerImageField] = portrait
   end
   if gen2 and side == "enemy" and battle.showEnemyTrainer
       and battle.winSlide ~= nil then
@@ -1289,7 +1305,7 @@ function OverworldBattle.sideTexture(battle, side)
   -- authored facing the foe, so BattleScene must not mirror it a second time.
   local playerNoMirror = side == "player"
                          and not BattleArt.mirrorsPlayerSprite()
-  if gen2 and side == "enemy" and not trainer then
+  if gen2 and not trainer then
     local anim = battle.animPicState and battle:animPicState(side)
     local substitute = anim and anim.pic
     if substitute == nil then
@@ -1298,8 +1314,16 @@ function OverworldBattle.sideTexture(battle, side)
       substitute = substitute == "substitute"
     end
     if not substitute then
-      local image = battle:pic(mon, false)
-      if image then ay = OverworldBattle.gen2EnemyAnchorY(image) end
+      local image, _, path = battle:pic(mon, side == "player")
+      if image then
+        local scale = battle.picScale and battle:picScale(path, mon, side == "player") or 1
+        local padding = OverworldBattle.gen2StaticPadding(image, scale)
+        if side == "enemy" then
+          ay = OverworldBattle.gen2EnemyAnchorY(image, padding)
+        else
+          ay = ay - padding
+        end
+      end
     end
   end
   return { canvas = canvas, ax = ax, ay = ay, trainer = trainer,
