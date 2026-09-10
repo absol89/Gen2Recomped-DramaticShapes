@@ -1882,6 +1882,9 @@ end)
 mod.exports.version = "2.1.2"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
+-- Read-only producer contract for standalone diagnostics mods. The consumer
+-- owns capture/reporting; Battle Art only exposes domain-specific counters.
+mod.exports.performance = V.require("PerformanceExport").export(mod.exports.version)
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,
 -- effects mods) read the same battler identity Battle Art staged.
 mod.exports.battleArt = BattleArt

@@ -1572,6 +1572,50 @@ function ChunkMesher.pending()
   return #jobs
 end
 
+-- Lightweight, read-only runtime state for external diagnostics. Do not expose
+-- meshes, maps or coroutine objects: consumers only need queue/cache pressure.
+function ChunkMesher.stats()
+  local out = {
+    maps = 0,
+    settled = { full = 0, body = 0, aux = 0 },
+    staleMaps = 0,
+    pending = #jobs,
+    unconsumedFailures = 0,
+    queue = { current = 0, visible = 0, speculative = 0 },
+    jobs = {},
+    jobsTruncated = #jobs > 32,
+  }
+  for _, c in pairs(cache) do
+    out.maps = out.maps + 1
+    if c.full ~= nil then out.settled.full = out.settled.full + 1 end
+    if c.body ~= nil then out.settled.body = out.settled.body + 1 end
+    if c.grass ~= nil and c.flowers ~= nil and c.figures ~= nil then
+      out.settled.aux = out.settled.aux + 1
+    end
+    if c.stale then out.staleMaps = out.staleMaps + 1 end
+  end
+  for _ in pairs(jobFailures) do
+    out.unconsumedFailures = out.unconsumedFailures + 1
+  end
+  for i, job in ipairs(jobs) do
+    local priority = tonumber(job.priority) or 0
+    if priority >= 2 then
+      out.queue.current = out.queue.current + 1
+    elseif priority > 0 then
+      out.queue.visible = out.queue.visible + 1
+    else
+      out.queue.speculative = out.queue.speculative + 1
+    end
+    if i <= 32 then
+      out.jobs[#out.jobs + 1] = {
+        id = tostring(job.id or ""), slot = tostring(job.slot or ""),
+        priority = priority,
+      }
+    end
+  end
+  return out
+end
+
 function ChunkMesher.jobPending(mapId, bodyOnly)
   return jobIndex[jobKey(mapId, bodyOnly and "body" or "full")] ~= nil
 end

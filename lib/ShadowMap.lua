@@ -151,6 +151,7 @@ ShadowMap._source = function() return SHADER end   -- named for the suite
 local shader = nil            -- nil = untried, false = unavailable
 local canvas = nil            -- nil = untried, false = unavailable
 local canvasRes = 0           -- the edge `canvas` was made at
+local canvasAllocations = 0   -- successful session allocations/resizes
 local blank = nil             -- 1x1 stand-in so the sampler is never unbound
 local drawing = false
 local ready = false
@@ -208,6 +209,7 @@ local function getCanvas(res)
   pcall(c.setWrap, c, "clamp", "clamp")
   if canvas and canvas.release then pcall(canvas.release, canvas) end
   canvas, canvasRes = c, res
+  canvasAllocations = canvasAllocations + 1
   ready = false
   return canvas
 end
@@ -290,6 +292,13 @@ end
 function ShadowMap.active()
   if Shadows.off() then return false end
   return ready and canvas ~= nil and canvas ~= false
+end
+
+-- Read-only session counters. Reading these never allocates or resizes a
+-- target, which keeps profiler sampling from perturbing the render path.
+function ShadowMap.stats()
+  return { allocations = canvasAllocations, size = canvasRes,
+           active = ready and canvas ~= nil and canvas ~= false }
 end
 
 -- The direction the light TRAVELS, normalized. The shear is the shadow a
