@@ -9,8 +9,11 @@ this repository: loading, world state, scripts, UI, and render adapters differ.
 
 1. Read this guide, `README.md`, `CHANGELOG.md`, and the relevant `docs/` notes.
    Start with `docs/2.1.1-port-validation.md`, `docs/render-distance-port.md`,
-   and `docs/cache-tracing.md`. `docs/precache-differences.md` contains historical
-   planning; verify implementation before treating its proposals as current.
+   and `docs/cache-tracing.md`. `docs/precache-differences.md` is an obsolete
+   implementation plan from the earlier porting work; do not use its proposed
+   modules, branch model, or implementation sequence as the current design.
+   For current cache behavior, read `lib/VoxelMeshDisk.lua`,
+   `lib/VoxelPrecache.lua`, `lib/VoxelPrecacheScreen.lua`, and the cache tests.
 2. Inspect the current branch, Git status, manifest, and affected files. Preserve
    user edits. This checkout was on `main` during the 2026-09-15 audit; do not
    inherit Gen 1's Legendary-Additions branch instruction or switch blindly.
@@ -85,7 +88,7 @@ Paths in this table are relative to the engine root unless prefixed `lib/`.
 | Game service | Treat `src.core.Game` as the live singleton in an external driver | `main.lua` creates `src.core.Game2.new()`; use the driver's passed `game`. |
 | World | Push `src.world.OverworldController` onto the state stack | `game.world` is `src.world.gen2.World`; normal free roam has an EMPTY screen stack and `game.phase == "play"`. |
 | Teleport | Call `tests/drivers/util.lua`'s `U.teleport` | Use live `world:setMap` for a geometry fixture or `world:warpToMapId` for Gen 2 map-setup effects. |
-| Current coordinates | Read `game.save.player.map/x/y` or stack top as the overworld | Read `game.world.map.id` and `world.player.cellX/cellY/facing`; saved location lives in `save.position`. |
+| Current coordinates | Read `game.save.player.map/x/y` or stack top as the overworld | Read `game.world.map.id` and `world.player.cellX/cellY/facing`; the saved map is `save.player.map`. Do not substitute `save.position` for the current Gen 2 save schema. |
 | Continue/save | Use Gen 1 restore methods or manually assign a raw table | `src.core.gen2.Save` and `Game2:continueGame`; this applies migrations, mod save adoption, options, and rebuilds the world. |
 | UI screens | Assume Gen 1 menu/state constructors | `src.ui.gen2.*`, screen registry, and Game2 compositor; screen-stack top can be a menu/dialog/battle, not the world. |
 | Battle | Patch only Gen 1 BattleState draw paths | `src.ui.gen2.BattleState`, `src.battle.gen2.*`, and `lib/Gen2BattleAdapter.lua`. |
@@ -430,9 +433,18 @@ behavior. Never claim a visual pass without seeing the image/window.
 
 ## Caches and acceptance matrix
 
-- Preserve version-specific geometry identities: Silver and Crystal captures
-  and cache results must not be mixed. Inspect current `StaticGeometry`,
-  `VoxelPrecache`, and `VoxelMeshDisk` implementation for actual namespaces.
+- The persistent voxel cache supports **Gold, Silver, and Crystal**. Preserve
+  version-specific geometry identities: cache results from one selected game
+  version must never be reused by another. `VoxelMeshDisk.bind()` derives the
+  storage namespace from the selected save/game version, so Crystal is a first-
+  class cache target rather than a Silver-only or Gold/Silver-only exception.
+  Inspect current `StaticGeometry`, `VoxelPrecache`, and `VoxelMeshDisk`
+  implementation for the authoritative namespace and lifecycle behavior.
+- `VoxelPrecache.startupMapIds(data, save)` reads the saved map from
+  `save.player.map` and may add `save.lastOutdoor.id` for indoor recovery. The
+  live overworld location is a different concern: use `world.map.id` and
+  `world.player.cellX/cellY/facing`. Do not document or implement startup
+  precaching against a nonexistent `save.position` field.
 - Canonical Gen 2 maps need the same adapter/roof preparation as live maps.
   Runtime palette changes should not be mistaken for changed geometry. Keep
   immutable canonical records separate from transient Cut/Whirlpool/regrowth.
