@@ -29,6 +29,20 @@
 
 ## Unreleased
 
+- Port authored Gen 2 building, traditional roof, interior fixture, furniture,
+  stair/wall finish, nature and National Park presentation improvements. Keep
+  native gameplay data and the existing cave implementation separate.
+- Add Park perimeter hoops, bench/sign/flower-bed geometry, raised pond rim
+  profiles and an open pond center. Apply cached prop presentation offsets
+  without changing native event coordinates.
+- Bake map-specific interior floor and wall finishes into existing atlases;
+  retain native grass and omit the imported Legendary ground package.
+- Bump geometry cache revision to 23 to rebuild older cached meshes.
+- Document and regression-test the existing optional LWS host integration;
+  no companion source, assets, or new weather effects are bundled.
+- Add portable geometry regressions. Combined Silver/Crystal GPU and device
+  acceptance is pending; see `docs/voxel-upgrades-validation.md`.
+
 - Add desktop-only bounded cache tracing for live map sets, runtime eviction,
   invalidation, record hits/rejections, cached uploads and live mesh builds.
 - Advance replacement Summary artwork from Gen 2's portrait animation tick,

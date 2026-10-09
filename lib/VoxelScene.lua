@@ -210,6 +210,9 @@ local function groundAt(map, cellX, cellY)
   -- so indexing the tile shapes with it read some unrelated tile's box and
   -- stood every character 16px above the ground they were walking on
   local tx, ty = cellX * 2, cellY * 2 + 1
+  local propGround = Structures.propGroundHeight
+    and Structures.propGroundHeight(map, tx, ty)
+  if propGround ~= nil then return propGround end
   local s = TileShape.at(map, shapes, map:tileAt(tx, ty), tx, ty)
   if not s then return 0 end
   -- a box the walker passes THROUGH rather than onto: Gen 2 pins its
@@ -568,6 +571,10 @@ local function posesOf(state, spriteColors)
   local colors = spriteColors(state.map)
   local posed = {}
   local me = nil
+  local function propOffset(map, entity)
+    return Structures.propVisualZ
+      and Structures.propVisualZ(map, entity.cellX, entity.cellY) or 0
+  end
   local function poseOf(entity)
     if entity.pose then return entity:pose() end
     -- Gen1Recomp's Gold/Silver player uses the same public sprite state as
@@ -580,7 +587,8 @@ local function posesOf(state, spriteColors)
   for _, g in ipairs(state.ghosts or {}) do
     local sprite, vx, vy, facing, phase, flip = poseOf(g.npc)
     posed[#posed + 1] = {
-      sprite = sprite, px = vx + g.ox, py = g.npc.py + g.oy,
+      sprite = sprite, px = vx + g.ox,
+      py = g.npc.py + g.oy + propOffset(g.map or state.map, g.npc),
       facing = facing, phase = phase, flip = flip,
       gh = groundAt(g.map or state.map, g.npc.cellX, g.npc.cellY),
       lift = g.npc.py - vy, colors = spriteColors(g.map or state.map),
@@ -590,7 +598,7 @@ local function posesOf(state, spriteColors)
     if not (state.flyAnim and e == state.player) then
       local sprite, vx, vy, facing, phase, flip = poseOf(e)
       posed[#posed + 1] = {
-        sprite = sprite, px = vx, py = e.py,
+        sprite = sprite, px = vx, py = e.py + propOffset(state.map, e),
         facing = facing, phase = phase, flip = flip,
         gh = groundAt(state.map, e.cellX, e.cellY),
         lift = e.py - vy, colors = colors,

@@ -8,6 +8,11 @@ first-person, third-person and VR.
 
 ## Controls
 
+For the Gen 2 visual upgrade scope and verification limits, see
+[voxel upgrade validation](docs/voxel-upgrades-validation.md). Optional
+[Lightweight Weather & Skies compatibility](docs/lws-compatibility.md) uses
+existing host hooks; the companion is not bundled or required.
+
 Every key is free-roam only, and each one is also a row on the OPTIONS
 menu.
 
