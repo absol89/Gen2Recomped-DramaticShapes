@@ -56,6 +56,7 @@ local TileShape = V.require("TileShape")
 local Voxel3D = V.require("Voxel3D")
 local Budget = V.require("BuildBudget")
 local RoomBackfaces = V.require("RoomBackfaces")
+local MeshBounds = V.require("MeshBounds")
 local MeshDisk = V.require("VoxelMeshDisk")
 local traceOK, CacheTrace = pcall(V.require, "CacheTrace")
 if not traceOK or type(CacheTrace) ~= "table" or type(CacheTrace.log) ~= "function" then
@@ -303,7 +304,7 @@ local function newFfiSink()
   return sink
 end
 
-local function newSink()
+local function selectSink()
   if MeshDisk.available() and MeshDisk.legacy() and ffi
      and love and love.data and love.data.newByteData
      and love.graphics and love.graphics.newMesh then
@@ -322,6 +323,40 @@ local function newSink()
     return newPackedSink()
   end
   return newTableSink()
+end
+
+-- Track each emitted corner once, before triangle expansion. Custom props,
+-- border rings and ceiling geometry need no guessed platform/map envelope.
+local function newSink()
+  local sink = selectSink()
+  local push, finish, raw = sink.push, sink.finish, sink.raw
+  local box
+  sink.push = function(c, uv, shade)
+    for i = 1, 4 do
+      local p = c[i]
+      local x, y, z = p[1], p[2], p[3]
+      if not box then box = {x,y,z,x,y,z} else
+        if x < box[1] then box[1] = x end
+        if y < box[2] then box[2] = y end
+        if z < box[3] then box[3] = z end
+        if x > box[4] then box[4] = x end
+        if y > box[5] then box[5] = y end
+        if z > box[6] then box[6] = z end
+      end
+    end
+    push(c, uv, shade)
+  end
+  sink.finish = function()
+    local mesh = finish()
+    MeshBounds.set(mesh, box)
+    return mesh
+  end
+  if raw then sink.raw = function()
+    local record = raw()
+    record.bounds = box
+    return record
+  end end
+  return sink
 end
 
 -- Reconstruct one cached CPU stream into a session-local GPU Mesh. Decoded
@@ -347,6 +382,7 @@ local function meshFromRaw(record)
       end
       return result
     end)
+    if ok then MeshBounds.set(mesh, record.bounds) end
     return ok and mesh or nil
   end
   if not record.chunks then return nil end
@@ -373,6 +409,7 @@ local function meshFromRaw(record)
     return result
   end)
   record.chunks = nil
+  if ok then MeshBounds.set(mesh, record.bounds) end
   return ok and mesh or nil
 end
 

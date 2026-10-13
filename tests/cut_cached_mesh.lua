@@ -17,6 +17,7 @@ local disk={available=function() return true end,
   loadAux=function() return {grass=record(),flowers=record(),figures={}} end,
   loadTerrain=function() return {terrain=record(),water={n=0},spans=record().spans} end}
 local modules={VoxelMeshDisk=disk, Voxel3D={FORMAT={}},
+  MeshBounds=assert(loadfile('lib/MeshBounds.lua'))({require=function()return {} end}),
   Structures={invalidate=function() end},
   BuildBudget={begin=function() end,finish=function() end,check=function() end}}
 local M=assert(loadfile('lib/ChunkMesher.lua'))({require=function(n) return modules[n] or {} end})

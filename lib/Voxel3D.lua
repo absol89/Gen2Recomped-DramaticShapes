@@ -26,6 +26,8 @@
 local V = ...
 
 local Mat4 = V.require("Mat4")
+local MeshBounds = V.require("MeshBounds")
+local WorldRenderScope = V.require("WorldRenderScope")
 local Voxel = V.require("VoxelState")
 local ShadowMap = V.require("ShadowMap")
 local Shadows = V.require("Shadows")
@@ -1486,6 +1488,9 @@ end
 -- upright transform or it reads its own shadow as falling on itself.
 function Voxel3D.draw(mesh, texture, model, pull, sunModel)
   if not (active and mesh) then return end
+  -- Curved geometry is displaced after projection; its flat box is unsafe.
+  if WorldRenderScope.active() and (Voxel3D.curveK or 0) <= 0
+     and MeshBounds.hidden(mesh, Voxel3D.vp, model) then return end
   -- the variant beginScene actually bound, not whichever one is default:
   -- sending a uniform to the other shader would go nowhere
   local sh = activeShader

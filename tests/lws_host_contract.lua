@@ -42,6 +42,8 @@ sky.paint = function(w, h, palette, horizon, cell, body, top, axis, ray)
 end
 local modules = {
   Mat4 = Mat4, VoxelState = {},
+  MeshBounds = assert(loadfile(root .. '/lib/MeshBounds.lua'))({require=function()return Mat4 end}),
+  WorldRenderScope = assert(loadfile(root .. '/lib/WorldRenderScope.lua'))(),
   ShadowMap = {active = function() return false end, texture = noop, res = 64},
   Shadows = {off = function() return true end},
   VoxelGrid = {enabled = function() return false end},

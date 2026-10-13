@@ -126,7 +126,7 @@ local STATIC_PLAYTHROUGH = "bavc_g2_static_mesh_v1"
 -- neighbour, changing baked vertex shades along every connected map seam.
 -- Revision 21 shortens the two Route 32 trees northwest of the Pokemon Center.
 -- Revision 22 adds prop ownership spans to terrain and auxiliary records.
-Disk.CACHE_REVISION = 24
+Disk.CACHE_REVISION = 25
 Disk.CACHE_FAMILY = "g2r-v1"
 local BASE_DIRECTORY = "cache/static-mesh-g2-v1"
 local LOGICAL_DIRECTORY = BASE_DIRECTORY .. "/unbound"
@@ -1017,6 +1017,19 @@ local function readSpans(blob, pos)
   return spans, pos
 end
 
+local function readBounds(blob, pos)
+  local count = readU32(blob, pos)
+  if count == 0 then return false, pos + 4 end
+  if count ~= 6 or pos + 27 > #blob then return nil end
+  local a,b,c,d,e,f,nextPos = love.data.unpack("<ffffff", blob, pos + 4)
+  local box = {a,b,c,d,e,f}
+  for _, value in ipairs(box) do
+    if value ~= value or math.abs(value) == math.huge then return nil end
+  end
+  if a > d or b > e or c > f then return nil end
+  return box, nextPos
+end
+
 function Disk.loadTerrain(map, slot, masks)
   if not Disk.staticEligible(map) then CacheTrace.log("cache-ineligible", map.id, "terrain " .. slot .. " modified/nonstatic map"); return nil end
   local path = pathFor(map, slot, "terrain")
@@ -1028,11 +1041,16 @@ function Disk.loadTerrain(map, slot, masks)
   if nextPos then water, afterWater = streamRecord(blob, nextPos) end
   local spans, finalPos
   if afterWater then spans, finalPos = readSpans(blob, afterWater) end
-  if not terrain or not water or not spans or finalPos ~= #blob + 1 then
+  local terrainBounds, waterBounds
+  if finalPos then terrainBounds, finalPos = readBounds(blob, finalPos) end
+  if finalPos then waterBounds, finalPos = readBounds(blob, finalPos) end
+  if not terrain or not water or not spans or terrainBounds == nil
+     or waterBounds == nil or finalPos ~= #blob + 1 then
     CacheTrace.log("reject-corrupt", map.id, path)
     discard(path, true)
     return nil
   end
+  terrain.bounds, water.bounds = terrainBounds or nil, waterBounds or nil
   return { terrain = terrain, water = water, spans = spans }
 end
 
@@ -1253,6 +1271,12 @@ local function writeSpans(file, spans)
   end
 end
 
+local function writeBounds(file, record)
+  local b = record and record.bounds
+  write(file, u32(b and 6 or 0))
+  if b then write(file, love.data.pack("string", "<ffffff", unpack(b))) end
+end
+
 function Disk.saveTerrain(map, slot, masks, terrain, water)
   if not Disk.staticEligible(map) then return false end
   local path = pathFor(map, slot, "terrain")
@@ -1261,6 +1285,8 @@ function Disk.saveTerrain(map, slot, masks, terrain, water)
     writeChunked(file, terrain)
     writeChunked(file, water)
     writeSpans(file, terrain and terrain.spans)
+    writeBounds(file, terrain)
+    writeBounds(file, water)
   end)
 end
 

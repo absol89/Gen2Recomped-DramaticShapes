@@ -34,6 +34,7 @@ local WorldFillProps = V.require("WorldFillProps")
 local Gen2WorldAdapter = V.require("Gen2WorldAdapter")
 local ModSetting = V.require("ModSetting")
 local RenderDistance = V.require("RenderDistance")
+local WorldRenderScope = V.require("WorldRenderScope")
 local traceOK, CacheTrace = pcall(V.require, "CacheTrace")
 if not traceOK or type(CacheTrace) ~= "table" or type(CacheTrace.log) ~= "function" then
   CacheTrace = { log = function() end }
@@ -976,7 +977,7 @@ end
 -- scene centre -- the same frame is drawn once per entry and the list of
 -- canvases comes back: the VR path, two eyes over one shared shadow map,
 -- pose capture and glint step.
-function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
+local function renderWorld(state, w, h, vw, vh, paletteFor, eyes)
   Gen2WorldAdapter.prepareWorld(state)
   state = RenderDistance.view(state)
   -- With nothing cached at all (the first frame of a fresh toggle),
@@ -1328,6 +1329,12 @@ end
     out[i] = Voxel3D.endScene()
   end
   return out
+end
+
+-- VR world passes can carry battle cards. Keep that path locked as well.
+function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
+  return WorldRenderScope.run(not eyes, renderWorld,
+    state, w, h, vw, vh, paletteFor, eyes)
 end
 
 return VoxelScene

@@ -28,6 +28,8 @@
 local V = ...
 
 local Mat4 = V.require("Mat4")
+local MeshBounds = V.require("MeshBounds")
+local WorldRenderScope = V.require("WorldRenderScope")
 local Voxel = V.require("VoxelState")
 local Shadows = V.require("Shadows")
 
@@ -533,6 +535,8 @@ end
 
 function ShadowMap.draw(mesh, texture, model)
   if not (drawing and mesh) then return end
+  if WorldRenderScope.active()
+     and MeshBounds.hidden(mesh, ShadowMap.clipVP, model) then return end
   local sh = getShader()
   if texture then mesh:setTexture(texture) end
   pcall(sh.send, sh, "model", "row", model or IDENTITY)

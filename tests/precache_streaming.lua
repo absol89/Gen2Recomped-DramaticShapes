@@ -80,9 +80,13 @@ local map = {
               tilesPerRow = 1, blocks = { { 0, 0, 0, 0 } }, walkable = { 0 } },
 }
 local packed = love.data.pack("string", "<ffffff", 1, 2, 3, 0, 0, 1)
-local function record() return { n = 1, chunks = { packed } } end
+local function record() return { n = 1, chunks = { packed }, bounds = {-20,-4,-8,32,64,128} } end
 local function aux() return { grass = record(), flowers = { n = 0 }, figures = {} } end
 assert(Disk.saveTerrain(map, "full", {}, record(), { n = 0 }))
+local restored = assert(Disk.loadTerrain(map, 'full', {}))
+assert(restored.terrain.bounds[1] == -20 and restored.terrain.bounds[6] == 128,
+  'warm cache lost measured mesh bounds')
+assert(restored.water.bounds == nil, 'empty water unexpectedly acquired bounds')
 assert(Disk.saveAux(map, aux()))
 local names = Disk.ramPlan()
 assert(#names == 2, "seeded cache did not persist two products")
