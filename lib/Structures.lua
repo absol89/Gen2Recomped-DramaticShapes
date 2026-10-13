@@ -51,6 +51,42 @@ local TileShape = V.require("TileShape")
 local Budget = V.require("BuildBudget")
 local MapAprons = V.require("MapAprons")
 local TreeOverrides = V.require("TreeOverrides")
+local Nature = V.require("Gen2NatureVisuals")
+local Architecture = V.require("Gen2ArchitectureVisuals")
+local RailVisuals = V.require("Gen2RailVisuals")
+local Furniture = V.require("Gen2FurnitureVisuals")
+local HomeFixtures = V.require("Gen2HomeFixtures")
+local SofaFixtures = V.require("Gen2SofaFixtures")
+local BikeShopFixtures = V.require("Gen2BikeShopFixtures")
+local CounterSkirtCleanup = V.require("Gen2CounterSkirtCleanup")
+local BedroomBed = V.require("Gen2BedroomBed")
+local ShelfVisuals = V.require("Gen2ShelfVisuals")
+local ElectronicsVisuals = V.require("Gen2ElectronicsVisuals")
+local DeskVisuals = V.require("Gen2DeskVisuals")
+local SmallProps = V.require("Gen2SmallProps")
+local MartEquipment = V.require("Gen2MartEquipment")
+local LabEquipment = V.require("Gen2LabEquipment")
+local ElmHealer = V.require("Gen2ElmHealingMachine")
+local InteriorSeats = V.require("Gen2InteriorSeats")
+local RadioFixtures = V.require("Gen2RadioFixtures")
+local RadioEquipment = V.require("Gen2RadioEquipment")
+local ExactNorthCaps = V.require("Gen2ExactNorthCaps")
+local SeatingVisuals = V.require("Gen2SeatingVisuals")
+local CenterEquipment = V.require("Gen2CenterEquipment")
+local CenterUpperFixtures = V.require("Gen2CenterUpperFixtures")
+local TransitionFixtures = V.require("Gen2TransitionFixtures")
+local SharedStairs = V.require("Gen2SharedStairs")
+local GateFixtures = V.require("Gen2GateFixtures")
+local TowerFixtures = V.require("Gen2TowerFixtures")
+local AuditFixtures = V.require("Gen2AuditFixtures")
+local FurnitureFloorCleanup = V.require("Gen2FurnitureFloorCleanup")
+local RadioFloor = V.require("Gen2RadioFloor")
+local HouseWallFixtures = V.require("Gen2HouseWallFixtures")
+local Rooms = V.require("Gen2RoomVisuals")
+local ExactInteriorDoors = V.require("Gen2ExactInteriorDoors")
+local CeilingFallback = V.require("Gen2CeilingFallback")
+local WallArt = V.require("Gen2WallArt")
+local Gen2ParkBoundary = V.require("Gen2ParkBoundary")
 
 local Structures = {}
 
@@ -243,6 +279,19 @@ end
 -- Entity placement asks this every frame and must never be the thing that
 -- forces a build: before the mesher has been round, every cell answers its
 -- class height, which is what it always did.
+-- Authored Park props are visual objects, not raised walkable terrain.
+-- Read only the existing cache: character placement never builds a map.
+function Structures.propGroundHeight(map, tx, ty)
+  local S = cache[map.id]
+  local s = S and S.shapeAt[keyOf(tx, ty)]
+  if s and s.class == "park_prop" then return 0 end
+end
+
+function Structures.propVisualZ(map, cellX, cellY)
+  local S = cache[map.id]
+  return S and S.parkActorOffsets and S.parkActorOffsets[keyOf(cellX*2, cellY*2+1)] or 0
+end
+
 function Structures.runHeight(map, tx, ty)
   local S = cache[map.id]
   local run = S and S.runs[keyOf(tx, ty)]
@@ -389,7 +438,36 @@ function Structures.forMap(map)
         railFace = TileShape.railFace(tileset.id),
         runs = {}, skip = {}, ground = {}, doorFold = {}, objectQuads = {},
         grassQuads = {}, flowerQuads = {}, roundStamps = {}, figures = {} }
+  RailVisuals.apply(S, map)
+  V.require("ParkProps").build(S, map, pixels(tileset), perRow)
   Buildings.build(S, map, pixels(tileset), perRow)
+  HouseWallFixtures.build(S, map, pixels(tileset), perRow)
+  CenterEquipment.build(S, map, pixels(tileset), perRow)
+  CenterUpperFixtures.build(S, map, pixels(tileset), perRow)
+  SeatingVisuals.build(S, map, pixels(tileset), perRow)
+  ShelfVisuals.build(S, map, pixels(tileset), perRow)
+  ElectronicsVisuals.build(S, map, pixels(tileset), perRow)
+  SmallProps.build(S, map, pixels(tileset), perRow)
+  MartEquipment.build(S, map, pixels(tileset), perRow)
+  LabEquipment.build(S, map, pixels(tileset), perRow)
+  ElmHealer.build(S, map, pixels(tileset), perRow)
+  RadioFixtures.build(S, map, pixels(tileset), perRow)
+  RadioEquipment.build(S, map, pixels(tileset), perRow)
+  DeskVisuals.build(S, map, pixels(tileset), perRow)
+  HomeFixtures.build(S, map, pixels(tileset), perRow)
+  SofaFixtures.build(S, map, pixels(tileset), perRow)
+  BikeShopFixtures.build(S, map, pixels(tileset), perRow)
+  BedroomBed.build(S, map, pixels(tileset), perRow)
+  Furniture.build(S, map, pixels(tileset), perRow)
+  InteriorSeats.build(S, map, pixels(tileset), perRow)
+  TransitionFixtures.build(S, map, pixels(tileset), perRow)
+  SharedStairs.build(S, map, pixels(tileset), perRow)
+  GateFixtures.build(S, map, pixels(tileset), perRow)
+  TowerFixtures.build(S, map, pixels(tileset), perRow)
+  AuditFixtures.build(S, map, pixels(tileset), perRow)
+  CounterSkirtCleanup.build(S, map)
+  FurnitureFloorCleanup.build(S, map, pixels(tileset), perRow)
+  RadioFloor.build(S, map, pixels(tileset), perRow)
 
   -- Fold doors into their buildings. A door cell is WALKABLE (the player
   -- steps onto it to warp), so it resolves to ground and punches a hole in
@@ -689,6 +767,24 @@ function Structures.forMap(map)
     if g == false then S.ground[k] = best end
   end
 
+  -- Mounted art and exact wall/run corrections depend on all authored
+  -- fixtures having made their render-only claims first.  These modules
+  -- existed in the package but were accidentally omitted from this newer
+  -- assembly, leaving their individually-tested fixes unreachable.
+  if map.def and map.def.generation == 2 then
+    S.gen2MountedWallArt = WallArt.apply(S, map, pixels(tileset), perRow)
+  end
+  Architecture.decorateRoom(S, map, pixels(tileset), perRow)
+  RadioEquipment.correctWallRuns(S, map)
+  ExactNorthCaps.build(S, map, pixels(tileset), perRow)
+  Rooms.build(S, map, pixels(tileset), perRow)
+  ExactInteriorDoors.build(S, map, pixels(tileset), perRow)
+  CeilingFallback.build(S, map, pixels(tileset), perRow)
+  -- Native-pattern Park hoops and pond rim are presentation only.
+  Gen2ParkBoundary.build(S, map, pixels(tileset))
+  S.gen2Visuals = { architecture = S.architectureDetailQuads or 0,
+    station = S._gen2StationVisuals, furniture = S.furnitureVisuals,
+    room = S.roomVisuals, revision = 1 }
   cache[map.id] = S
   return S
 end
@@ -1576,6 +1672,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
   end
 
   local function cellUsesTreeCrown(cx, cy)
+    if Nature.treeCell(map, S, cx, cy) then return true end
     if not treeCrownTiles then return false end
     local hits = 0
     for dy = 0, 1 do
@@ -1587,6 +1684,11 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
     end
     return hits >= 2
   end
+  -- Prism/Naljo's taller tree walls are identified by their authored foot
+  -- course rather than Johto's planter_tree_crown flag. They need the same
+  -- four-sided silhouette treatment; otherwise only the front looks like a
+  -- tree and the side remains a striped cylinder.
+  local planterTreeGeometry=planterTreeCrown or columnFoot~=nil
 
   -- cells consumed by a 2x2 `canopy` group; the scan runs north to
   -- south, west to east, so an anchor always claims its partners
@@ -1604,7 +1706,8 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                -- Letting the near-body pass carve their courses into round
                -- trees creates holes at apron edges and makes the form change
                -- when another map becomes the render root.
-               and not MapAprons.continuousWallAt(map, cx * 2, cy * 2)
+               and (Nature.treeArchetype(map)=="urban"
+                 or not MapAprons.continuousWallAt(map, cx * 2, cy * 2))
       if s and s.art == "canopy" and near then
         -- ONE 32px hull over the 2x2-cell drawing. The partner cells
         -- must be round-pinned too, or the drawing is partial (a map
@@ -1632,6 +1735,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
             if not tpl then
               local tq, tbg = roundTemplate(S, map, data, cx, cy,
                                             groundTiles, 32)
+              tq = Nature.tree(map, data, tq)
               tpl = { quads = tq, bg = tbg }
               roundCache[sig] = tpl
             end
@@ -1707,7 +1811,8 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
               local tq, tbg = roundTemplate(S, map, data, cx, cy,
                                             groundTiles, 16, nil, nil, nil,
                                             nil, nil, nil, nil, nil,
-                                            cellUsesTreeCrown(cx, cy))
+                                            cellUsesTreeCrown(cx, cy)or planterTreeGeometry)
+              if cellUsesTreeCrown(cx, cy)or planterTreeGeometry then tq = Nature.tree(map, data, tq) end
               tpl = { quads = tq, bg = tbg }
               roundCache[sig] = tpl
             end
@@ -1729,7 +1834,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                 end
               end
               local sig = tsid .. "|tree32|scale=" .. treeScale .. "|"
-                          .. (planterTreeCrown and "crown|" or "")
+                          .. (planterTreeGeometry and "crown|" or "")
                           .. gsig .. "|"
                           .. table.concat(ids, ":")
               local tpl = roundCache[sig]
@@ -1738,7 +1843,8 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                                               groundTiles, 16, nil, 32,
                                               planterSpray, nil, nil, nil,
                                               nil, { crownCY, footCY },
-                                              planterTreeCrown)
+                                              planterTreeGeometry)
+                if planterTreeGeometry then tq = Nature.tree(map, data, tq) end
                 tq = TreeOverrides.scaleQuads(tq, treeScale)
                 tpl = { quads = tq, bg = tbg }
                 roundCache[sig] = tpl
@@ -1763,7 +1869,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
         S.planterColumns = S.planterColumns or {}
         S.planterColumns[L] = (S.planterColumns[L] or 0) + 1
 
-      elseif s and s.art == "cylinder" and near then
+      elseif s and (s.art == "cylinder" or Nature.treeCell(map,S,cx,cy)) and near then
         -- a `stump`-class cell is the same hull with a cut face: its
         -- top capRows of drawing project onto the round top. A `can`-class
         -- cell is that hull cut at BOTH ends -- lid on top, base circle on
@@ -1776,7 +1882,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
         local taper = s.class == "can" and canTaper or nil
         local ground = false
         if data then
-          local treeCrown = cellUsesTreeCrown(cx, cy)
+          local treeCrown = cellUsesTreeCrown(cx, cy) or Nature.treeCell(map,S,cx,cy)
           local sig = tsid .. (treeCrown and "|tree" or "")
             .. (cap and ("|c" .. cap) or "")
             .. (base and ("|b" .. base) or "")
@@ -1793,6 +1899,7 @@ function Structures.buildCylinders(S, map, x0, x1, y0, y1, groundTiles)
                                           groundTiles, 16, cap, nil, nil,
                                           base, tall, well, taper, nil,
                                           treeCrown)
+            if treeCrown then tq = Nature.tree(map, data, tq) end
             tpl = { quads = tq, bg = tbg }
             roundCache[sig] = tpl
           end
@@ -4128,6 +4235,8 @@ function Structures.buildGrass(S, map, x0, x1, y0, y1, data)
         local tpl = templates[tileId]
         if not tpl then
           tpl = grassTemplate(map, data, tileId)
+          -- Keep native grass. The Lab12 clump redesign was rejected;
+          -- any future grass experiment must be a separate opt-in task.
           templates[tileId] = tpl
         end
         local wx, wz = tx * 8, ty * 8
@@ -4361,6 +4470,7 @@ function Structures.buildFlowers(S, map, tw, th, x0, x1, y0, y1, data)
           local tpl = templates[tileId]
           if not tpl then
             tpl = flowerTemplate(map, data, tileId)
+            tpl = Nature.flower(map, data, tileId, tpl)
             templates[tileId] = tpl
           end
           local wx, wz = tx * 8, ty * 8
@@ -4389,6 +4499,8 @@ function Structures.invalidate(mapId)
     cache = {}
     atlasData = {}
     roundCache = {}
+    Nature.invalidate()
+    Gen2ParkBoundary.invalidate()
     Buildings.invalidate()
   end
 end

@@ -35,11 +35,14 @@ local TileRenderer = require("src.render.TileRenderer")
 local PaletteFX = require("src.render.PaletteFX")
 local GbcPalette = require("src.render.GbcPalette")
 local Gen2WorldAdapter = V.require("Gen2WorldAdapter")
+local SurfaceMaterials = V.require("Gen2SurfaceMaterials")
+local RoomPaper = V.require("Gen2RoomPaper")
 
 local TerrainAtlas = {}
 
 local cache = {}
 local cacheData = {}    -- the pixels behind the atlases we baked ourselves
+local materialOwners = {} -- map-specific ground finish follows live terrain
 local borderColorCache = {} -- atlas -> { blockId -> dominant border color }
 local animated = {}     -- key -> one map's private, mutable animated atlas
                         -- false = given up on; nil = not built (or retrying)
@@ -91,7 +94,7 @@ local function gen2Atlas(map)
     keyParts[slot] = paletteKey(colors)
   end
   local sourceKey = map._battleArtGen2AtlasKey or map.tileset.image
-  local key = sourceKey .. "#gen2#" .. table.concat(keyParts, "|")
+  local key = sourceKey .. "#gen2-housepaper3#" .. tostring(map.id) .. "#" .. table.concat(keyParts, "|")
   if cache[key] ~= nil then return cache[key] or nil, cacheData[key] end
 
   local data
@@ -112,6 +115,8 @@ local function gen2Atlas(map)
         end
       end
     end
+    SurfaceMaterials.bake(map, out)
+    RoomPaper.bake(map, out, src)
     local img = love.graphics.newImage(out)
     img:setFilter("nearest", "nearest")
     data = out
@@ -119,6 +124,7 @@ local function gen2Atlas(map)
   end)
   cache[key] = ok and image or false
   cacheData[key] = (ok and data) or false
+  materialOwners[key] = map.id
   return cache[key] or nil, cacheData[key]
 end
 
@@ -637,9 +643,10 @@ function TerrainAtlas.animate(map, colors, base, baked)
   -- has to be evicted with the meshes (setLive below); the shared paths key
   -- on the tileset and palette alone, which is bounded by how many of those
   -- exist at all.
-  local perMap = map.renderer and map.renderer.gbcAtlas and map.id or nil
+  local gen2 = map.def and map.def.generation == 2 and baked
+  local perMap = (gen2 or (map.renderer and map.renderer.gbcAtlas)) and map.id or nil
   local key = map.tileset.image .. "#a#" .. paletteKey(colors or {})
-    .. (perMap or "")
+    .. (perMap or "") .. (gen2 and tostring(base) or "")
   local entry = animated[key]
   if entry == nil then
     entry = newEntry(map, base, baked)
@@ -743,7 +750,17 @@ function TerrainAtlas.setLive(live)
       if entry.image and entry.image.release then
         pcall(entry.image.release, entry.image)
       end
+      if entry.data and entry.data.release then pcall(entry.data.release, entry.data) end
       animated[key] = nil
+    end
+  end
+  for key, mapId in pairs(materialOwners) do
+    if not live[mapId] then
+      local image, data = cache[key], cacheData[key]
+      if image and image.release then pcall(image.release, image) end
+      if data and data.release then pcall(data.release, data) end
+      borderColorCache[image or false] = nil
+      cache[key], cacheData[key], materialOwners[key] = nil, nil, nil
     end
   end
 end
@@ -802,6 +819,7 @@ function TerrainAtlas.borderBlockColor(map, colors, blockId)
 end
 
 function TerrainAtlas.invalidate()
+  materialOwners = {}
   cache = {}
   cacheData = {}
   borderColorCache = {}

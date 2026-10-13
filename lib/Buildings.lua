@@ -50,8 +50,11 @@
 local V = ...
 
 local Budget = V.require("BuildBudget")
+local Architecture = V.require("Gen2ArchitectureVisuals")
 
 local Buildings = {}
+local BuildingVisuals = V.require("Gen2BuildingVisuals")
+local TraditionalBuildings = V.require("Gen2TraditionalBuildings")
 
 -- The four GB shades, lightest first (same cutoffs as Structures.shadeClass,
 -- which reasons about the same art).
@@ -896,6 +899,55 @@ end
 -- are trimmed to its underside so nothing pokes through the surface.
 local function model(sp, pr, t)
   if t.parts then return deskSetModel(sp, pr, t) end
+  if t.id == "park_gatehouse" then
+    local W,D=sp.W,pr.D
+    local wall=pr.ground-t.roofRows
+    -- Door colours come from the native bottom timber course, not brick.
+    local doorInk={}
+    for sy=sp.H-8,sp.H-1 do for sx=0,W-1 do
+      local i=sy*W+sx
+      if doorInk[sp.col[i]]==nil then doorInk[sp.col[i]]=i end
+    end end
+    local function door(u,y,width)
+      local c=GREY
+      if u<2 or u>=width-2 or y<2 or y>=30 or math.abs(u-width/2)<1 then c=BLACK
+      elseif y==4 or y==16 or y==28 then c=DARK
+      elseif (y>=6 and y<=13) or (y>=19 and y<=26) then
+        local leaf=u%(width/2)
+        if leaf>=4 and leaf<width/2-4 then c=DARK end
+      end
+      if y>=14 and y<=16 and (u==math.floor(width/2)-3 or u==math.floor(width/2)+2)then c=WHITE end
+      return doorInk[c] or doorInk[GREY] or ((t.roofRows-1)*W+1)
+    end
+
+    local function at(x,y,z)
+      if x<0 or x>=W or z<0 or z>=D then return nil end
+      if y<32 then
+        if t.parkEntrance=="west" and x<3 and z>=64 and z<D-2 then return nil end
+        if t.parkEntrance=="north" and z<3 and x>=32 and x<64 then return nil end
+        if (t.parkEntrance=="west" and x==3 and z>=64 and z<D-2)
+          or (t.parkEntrance=="north" and z==3 and x>=32 and x<64) then
+          return door(t.parkEntrance=="west" and z-64 or x-32,y,t.parkEntrance=="west" and D-66 or 32)
+        end
+      end
+      local rise=math.floor(16*(1-math.abs(2*z/(D-1)-1)))
+      local roof=wall+3+rise
+      if y>roof then return nil end
+      if y>=roof-3 then
+        local sy=2+math.floor(z*41/math.max(1,D-1))
+        return sy*W+x
+      end
+      if y>=wall then
+        return (t.roofRows+8+(y%8))*W+8+(z%8)
+      end
+      local sy=pr.ground-1-y
+      local sx=x
+      if x==0 or x==W-1 then sx=8+(z%8) end
+      return sy*W+sx
+    end
+    return {at=at,W=W,ytop=wall+19,zmin=0,zmax=D-1}
+  end
+
   local W, H, D = sp.W, sp.H, pr.D
   local slab, roofRows = t.slab, t.roofRows
   local top, ytop, ground = pr.top, pr.ytop, pr.ground
@@ -1245,6 +1297,12 @@ function Buildings.build(S, map, data, perRow)
           -- list order below is the priority order -- the tower's own
           -- templates come first precisely so they take those cells.
           local free = S.tileAt[keyOf(tx, ty)] == first
+          if free and t.parkEntrance=="west" then
+            free=S.tileAt[keyOf(tx-1,ty+8)]==0x4F
+          elseif free and t.parkEntrance=="north" then
+            free=S.tileAt[keyOf(tx+4,ty-1)]==0x4F
+          end
+
           if free then
             for r = 0, bh - 1 do
               for c = 0, bw - 1 do
@@ -1270,7 +1328,8 @@ function Buildings.build(S, map, data, perRow)
                 else
                   local sp = read(t, data, perRow)
                   local pr = measure(sp, t)
-                  models[key] = emit(model(sp, pr, t), sp, atlasW, atlasH)
+                  models[key] = emit(TraditionalBuildings.wrapModel(BuildingVisuals.wrapModel(model(sp, pr, t), sp, pr, t), sp, pr, t), sp, atlasW, atlasH)
+                  Architecture.decorateModel(models[key], t, sp, pr, atlasW, atlasH)
                 end
               end
               built = models[key]
