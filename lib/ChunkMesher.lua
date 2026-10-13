@@ -1899,7 +1899,10 @@ function ChunkMesher.setLive(live)
   end
   for i = #jobs, 1, -1 do
     local job = jobs[i]
-    if not live[job.id] and not prevLive[job.id] then
+    -- Retain completed previous-area meshes for return trips, but do not
+    -- spend this area's frame budget completing invisible old neighbours.
+    -- Re-entering an unfinished map will request it again normally.
+    if not live[job.id] then
       jobIndex[jobKey(job.id, job.slot)] = nil
       table.remove(jobs, i)
     end

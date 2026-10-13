@@ -192,6 +192,9 @@ local function engineAtLeast(value, cutoff)
 end
 
 function Disk.precachePolicy(engineVersion, osName)
+  -- Source builds advertise this sentinel, not an ancient released version.
+  -- bindStorage still verifies byte writes with a round-trip before use.
+  if engineVersion == "0.0.0-dev" then return true, "storage" end
   local legacy = engineAtMost(engineVersion, 83)
   local allowed = legacy or engineAtLeast(engineVersion, 84)
   return allowed, legacy and "legacy" or "storage"

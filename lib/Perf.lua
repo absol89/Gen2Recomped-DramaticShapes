@@ -70,7 +70,11 @@ local function segmentEntry()
   if not name then return nil end
   local s = Perf.segments[name]
   if not s then
-    s = { name = name, frames = {}, labels = {}, order = {} }
+    if #Perf.segments >= 64 then
+      local oldest = table.remove(Perf.segments, 1)
+      Perf.segments[oldest.name] = nil
+    end
+    s = { name = name, frames = {}, frameCount = 0, labels = {}, order = {} }
     Perf.segments[name] = s
     Perf.segments[#Perf.segments + 1] = s   -- array half preserves order
   end
@@ -161,7 +165,10 @@ function Perf.frame()
     Perf.frameCount = n
     Perf.frames[(n - 1) % Perf.RING + 1] = dt
     local seg = segmentEntry()
-    if seg then seg.frames[#seg.frames + 1] = dt end
+    if seg then
+      seg.frameCount = seg.frameCount + 1
+      seg.frames[(seg.frameCount - 1) % Perf.RING + 1] = dt
+    end
   end
   lastFrame = t
 end
@@ -322,8 +329,8 @@ function Perf.write(name, meta)
   local body = Perf.toJson(meta)
   if love and love.filesystem then
     pcall(love.filesystem.createDirectory, "ds_bench")
-    local ok = pcall(love.filesystem.write, "ds_bench/" .. name .. ".json", body)
-    if ok then
+    local ok, result = pcall(love.filesystem.write, "ds_bench/" .. name .. ".json", body)
+    if ok and result then
       print("[perf] wrote " .. tostring(love.filesystem.getSaveDirectory())
             .. "/ds_bench/" .. name .. ".json")
       return true

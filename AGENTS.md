@@ -46,26 +46,34 @@ this repository: loading, world state, scripts, UI, and render adapters differ.
 
 ## Paths, identity, and preflight
 
-| Path | Role |
+Ask the user where their Gen1Recomp LÖVE2D engine is located before
+running engine commands. If they already supplied the location in this
+conversation, use it without asking again. Keep the answer in session
+variables only; never document the engine location or other machine-specific
+installation paths in any `AGENTS.md`. Verify the mod checkout, installed
+mod folder, packaged runtime and LÖVE executable separately when needed.
+
+| Location | Role |
 | --- | --- |
-| `D:\gen1recomp` | Engine source root; source launch working directory. |
-| `D:\gen1recomp\dev\BattleArtGen2` | Authoritative mod checkout and separate Git repository. |
-| `D:\gen1recomp\mods\BATTLE_ART_VOXEL_GEN2_PORT` | Engine-facing junction to this checkout as audited on 2026-09-15. Verify each session. |
-| `D:\games\gen1recompwin64` | User-named packaged install; absent in the earlier 2026-09-15 audit. Verify existence, executable, and capabilities before use. |
-| `D:\gen1recomp\tmp\battle-art-gen2\<case>\<version>\<run>` | Suggested scratch driver/log/image directory. |
+| User-confirmed engine checkout | Engine source root and source-run working directory. |
+| This mod checkout | Authoritative mod source and separate Git repository. |
+| Installed mod folder (verify for this session) | Check its resolved target; do not assume a junction or installation layout. |
+| Packaged installation (verify for this session) | Inspect executable/archive, runtime DLLs and version before testing. |
+| Fresh scratch directory | Drivers, logs and captures; do not commit them. |
 
 The manifest ID is **BATTLE_ART_VOXEL_GEN2**, without `_PORT`. The installed
 folder is not the ID. `DRAMATIC_SHAPE` and `BATTLE_ART_VOXEL_FORK` are not this
 mod's export key. The audited manifest targets `gen2` and lists its conflicts.
 
 ```powershell
-$engineRoot = 'D:\gen1recomp'
-$modRoot = Join-Path $engineRoot 'dev\BattleArtGen2'
-$packageRoot = 'D:\games\gen1recompwin64'
+$engineRoot = Read-Host "Where is your Gen1Recomp LÖVE2D engine?"
+$modRoot = Read-Host "Where is this mod checkout?"
+$packageRoot = Read-Host "Where is the packaged installation, if used?"
 git -C $modRoot status --short
 git -C $modRoot branch --show-current
 Get-Content (Join-Path $modRoot 'manifest.json')
-Get-Item (Join-Path $engineRoot 'mods\BATTLE_ART_VOXEL_GEN2_PORT') |
+$installedModRoot = Read-Host "Where is the installed mod folder?"
+Get-Item -LiteralPath $installedModRoot |
     Select-Object FullName, LinkType, Target
 Get-Command love, lovec, luajit, python -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $packageRoot) {
@@ -78,6 +86,8 @@ without loader errors. Inspect actual loaded exports/diagnostics. A package may
 load an older installed or save-directory shadow copy. Editing this checkout
 only affects a runtime that resolves to it or has received a deliberate test
 deployment. Do not replace an existing install or junction blindly.
+
+For the shared stateful reproduction sequence, see the engine [shared reproduction workflow](../../AGENTS.md#shared-reproduction-workflow). This guide supplies the generation-specific recipe.
 
 ## Gen 1 versus Gen 2: the runtime map
 
@@ -214,9 +224,9 @@ events, script memory, party, and Crystal state through the native save path.
 
 ## Source-run recipe: automate setup, then inspect with Computer Use
 
-Use a discovered compatible LÖVE runtime with working directory
-`D:\gen1recomp`, passing the engine directory. `lovec.exe` is convenient for
-logs. The mod directory is not a standalone LÖVE application.
+Run a discovered compatible LÖVE runtime from the user-confirmed engine root,
+passing that directory. `lovec.exe` is convenient for logs. The mod directory
+is not a standalone LÖVE application.
 
 Create a scratch `repro-gen2.lua` from the template below. It validates the
 generation, actual mod ID, world, map, and live location. The default Cherrygrove
@@ -287,10 +297,10 @@ options; protect the test profile and restore settings afterward.
 PowerShell launch (use a dedicated shell and a new run directory):
 
 ```powershell
-$engineRoot = 'D:\gen1recomp'
+$engineRoot = Read-Host "Where is your Gen1Recomp LÖVE2D engine?"
 $testVersion = 'silver' # repeat with crystal in a fresh run
 $runDir = Join-Path $engineRoot "tmp\battle-art-gen2\cherrygrove\$testVersion\before-01"
-$loveExe = 'C:\REPLACE_WITH_DISCOVERED_LOVE_DIRECTORY\lovec.exe'
+$loveExe = Read-Host "Where is the compatible LÖVE executable?"
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 # Save the template as $runDir\repro-gen2.lua before launching.
 if (-not (Test-Path -LiteralPath $loveExe)) { throw 'Locate LÖVE first' }
@@ -319,22 +329,27 @@ exit; errors log `driver error:` and exit 1. This template deliberately stays
 alive. Close only the test instance, then restore environment/options or close
 the dedicated shell. Do not launch duplicates while caches are building.
 
-### Do not run the inherited survey unchanged
+### Gen 2 voxel survey
 
-`tests/voxel_survey.lua` and `tools/voxel-survey.md` retain Gen 1 assumptions:
+`tests/voxel_survey.lua` is now a genuine Gen 2 survey. It uses the passed
+`Game2` instance and `game.world`, asserts Silver or Crystal plus the
+`BATTLE_ART_VOXEL_GEN2` export, validates an explicit Gen 2 map and cell bounds,
+and uses `world:setMap` for a geometry fixture. It never calls Gen 1 `U.teleport`.
 
-- `U.teleport` imports the Gen 1 overworld controller.
-- Default `REDS_HOUSE_2F` is not a verified Gen 2 starting map.
-- DAYTIME lookup uses `exports.DRAMATIC_SHAPE`, not this mod's ID.
-- Old comments map levels 1/2/3 to 15/35/50; current FULL shifts these to 2/3/4.
-  Always resolve labels from Pipelines/`lib/VoxelState.lua`.
-- Flat capture happens only for the first spot, and capture writes are not checked.
+The survey defaults to `CHERRYGROVE_CITY` and levels `2,3,4`, but resolves and
+validates levels through `Pipelines.levelLabel`/`maxLevel` so numeric camera
+assumptions cannot silently drift. It mirrors each pipeline level into
+`game.options.pipelines` in memory, captures a flat reference for EVERY spot, and
+waits for real draw frames while polling each PNG until a non-empty file exists
+(or a bounded failure is raised). Use a fresh `SHOT_DIR`.
 
-Use the Gen 2 template or adapt a scratch survey deliberately. For a batch,
-iterate validated positions, capture flat and each relevant angle at EVERY
-position, and return only after the last capture has flushed. Many inherited
-`*_shots.lua` files also require inspection before use; a filename is not proof
-of Gen 2 compatibility.
+`world:setMap` is deliberately only a geometry fixture. It does not prove a real
+door, connection, fall, scripted arrival, encounter, or scene transition. The
+survey does not disable scenes, encounters, NPCs, or scripts and does not force
+the clock. For a real gameplay bug, restore a suitable copied save/slot and
+start near the trigger, then perform the native action. Many other `*_shots.lua`
+drivers also require source review before use; a filename is never proof of
+compatibility or visual correctness.
 
 ## Teleport versus real scene reproduction
 
@@ -409,7 +424,7 @@ backtick console or F5 reload. Do not send `warp ...` to an imagined console.
 Avoid F1 unless intentionally testing save writes in a disposable profile.
 Restart the process for final before/after comparisons.
 
-For `D:\games\gen1recompwin64`:
+For a user-provided packaged installation:
 
 1. Verify the directory and discover the executable/archive. Distinguish a fused
    game EXE from LÖVE plus a `.love` archive; do not invent an executable name.
@@ -482,16 +497,16 @@ the test header before running. Do not run every test from one assumed root.
 Engine-root SDK smoke (the audited test explicitly selects SILVER):
 
 ```powershell
-Set-Location 'D:\gen1recomp'
-$env:DS_MOD_PATH = 'dev/BattleArtGen2'
-$env:DS_ENGINE_ROOT = 'D:\gen1recomp'
-luajit dev/BattleArtGen2/tests/gen2_port_load.lua
+Set-Location $engineRoot
+$env:DS_MOD_PATH = $modRoot
+$env:DS_ENGINE_ROOT = $engineRoot
+luajit (Join-Path $modRoot 'tests/gen2_port_load.lua')
 ```
 
 Mod-root examples:
 
 ```powershell
-Set-Location 'D:\gen1recomp\dev\BattleArtGen2'
+Set-Location $modRoot
 luajit tests/gen2_world_adapter.lua
 luajit tests/gen2_voxel_option_scope.lua
 luajit tests/cherrygrove_apron.lua

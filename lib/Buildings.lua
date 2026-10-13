@@ -163,7 +163,7 @@ local function read(t, data, perRow)
   local W, H = bw * 8, bh * 8
   local col, ax, ay = {}, {}, {}
   for sy = 0, H - 1 do
-    Budget.tick()
+    Budget.check()
     local row = tiles[math.floor(sy / 8) + 1]
     for sx = 0, W - 1 do
       local tile = row[math.floor(sx / 8) + 1]
@@ -455,7 +455,7 @@ local function deskSetModel(sp, pr, t)
   local ytop = 0
   local function buildParts(plane)
     for _, p in ipairs(t.parts) do
-      Budget.tick()
+      Budget.check()
       local x0, x1 = p.x[1], p.x[2]
       if p.kind == "flat" then
         -- drawn row = depth row by default; `z` renames the origin when
@@ -687,7 +687,7 @@ local function deskSetModel(sp, pr, t)
       return lo + math.floor((z - 1) * (hi - lo) / span)
     end
     for sx = bx0, bx1 do
-      Budget.tick()
+      Budget.check()
       for z = 0, D - 1 do
         local hollow = sx >= ix0 and sx <= ix1 and z > 0 and z < D - 1
         for y = 0, (hollow and floor or plane - 1) do
@@ -792,7 +792,7 @@ local function deskSetModel(sp, pr, t)
     local cn = c1 - c0 + 1
     local wx = wl.x or 0
     for y = 0, wl.h - 1 do
-      Budget.tick()
+      Budget.check()
       local sy = c0 + (wl.h - 1 - y) % cn
       for sx = 0, W - 1 do
         for z = 0, wl.depthPx - 1 do
@@ -804,7 +804,7 @@ local function deskSetModel(sp, pr, t)
 
   -- the base band, extruded exactly like every lab table's
   for sy = b0, b1 do
-    Budget.tick()
+    Budget.check()
     local y = deskG - 1 - sy
     for sx = dx0, dx1 do
       if inside[sy * W + sx] then
@@ -826,7 +826,7 @@ local function deskSetModel(sp, pr, t)
 
   -- the slab: fascia rows wrap every side
   for sy = f0, f1 do
-    Budget.tick()
+    Budget.check()
     local y = plane - 1 - (sy - f0)
     for sx = dx0, dx1 do
       for z = dz0, dz1 do put(sx, y, z, sy * W + sx) end
@@ -845,7 +845,7 @@ local function deskSetModel(sp, pr, t)
     -- rule every synthesized lid follows.
     local tr0, tr1 = t.desk.top[1], t.desk.top[2]
     for z = dz0, dz1 do
-      Budget.tick()
+      Budget.check()
       local sy = z == dz1 and f0 or math.min(tr0 + (z - dz0), tr1)
       for sx = dx0, dx1 do
         local px = sx
@@ -1079,7 +1079,7 @@ local function emit(m, sp, atlasW, atlasH)
     return cell[(y * zn + (z - zmin)) * W + x]
   end
   for y = 0, ytop do
-    Budget.tick()
+    Budget.check()
     for z = zmin, zmax do
       local base = (y * zn + (z - zmin)) * W
       for x = 0, W - 1 do
@@ -1093,7 +1093,7 @@ local function emit(m, sp, atlasW, atlasH)
   -- derived from the quads because it is the number
   -- tools/building_voxels.py checks this build against.
   for y = 0, ytop do
-    Budget.tick()
+    Budget.check()
     for z = zmin, zmax do
       for x = 0, W - 1 do
         if ci(x, y, z) and not (ci(x + 1, y, z) and ci(x - 1, y, z)
@@ -1150,7 +1150,7 @@ local function emit(m, sp, atlasW, atlasH)
   for _, d in ipairs({ 1, -1 }) do
     local shade = d == 1 and SHADE.south or SHADE.north
     for y = 0, ytop do
-      Budget.tick()
+      Budget.check()
       for z = zmin, zmax do
         local x = 0
         while x < W do
@@ -1180,7 +1180,7 @@ local function emit(m, sp, atlasW, atlasH)
   for _, d in ipairs({ 1, -1 }) do
     local shade = d == 1 and SHADE.top or SHADE.bottom
     for y = 0, ytop do
-      Budget.tick()
+      Budget.check()
       -- the underside of the bottom layer is the ground it stands on
       if not (d == -1 and y == 0) then
         for z = zmin, zmax do
@@ -1280,14 +1280,32 @@ function Buildings.build(S, map, data, perRow)
   local tw, th = map.def.width * 4, map.def.height * 4
   local quads = S.objectQuads
 
+  -- Index only template starting tiles once. Dense neighborhoods otherwise
+  -- rescan every cell for every template, even when that drawing is absent.
+  -- Row-major candidates preserve placement order and first-claim priority.
+  local starts = {}
+  for _, t in ipairs(list) do
+    if type(t.tiles) == "table" and #t.tiles > 0 and t.tiles[1][1] ~= nil then
+      starts[t.tiles[1][1]] = starts[t.tiles[1][1]] or {}
+    end
+  end
+  for ty = 0, th - 1 do
+    Budget.check()
+    for tx = 0, tw - 1 do
+      local positions = starts[S.tileAt[keyOf(tx, ty)]]
+      if positions then positions[#positions + 1] = ty * tw + tx end
+    end
+  end
+
   for index, t in ipairs(list) do
     if type(t.tiles) == "table" and #t.tiles > 0 then
       local bh, bw = #t.tiles, #t.tiles[1]
       local first = t.tiles[1][1]
       local built = nil
-      for ty = 0, th - bh do
-        Budget.tick()
-        for tx = 0, tw - bw do
+      for _, position in ipairs(starts[first] or {}) do
+        Budget.check()
+        local tx, ty = position % tw, math.floor(position / tw)
+        if tx <= tw - bw and ty <= th - bh then
           -- A placement never stamps into cells another template already
           -- claimed. Templates are matched independently, and one
           -- drawing can satisfy two grids: the Pokemon Tower's upper
@@ -1302,6 +1320,7 @@ function Buildings.build(S, map, data, perRow)
           elseif free and t.parkEntrance=="north" then
             free=S.tileAt[keyOf(tx+4,ty-1)]==0x4F
           end
+
 
           if free then
             for r = 0, bh - 1 do

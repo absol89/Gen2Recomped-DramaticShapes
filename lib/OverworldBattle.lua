@@ -105,14 +105,15 @@ OverworldBattle.setting = ModSetting.new(OverworldBattle.KEY,
                                          OverworldBattle.LABEL,
                                          { true, false }, { "ON", "OFF" })
 
--- Whether the VR row is ON -- read lazily, because VR requires modules
--- that sit above this one. While it is, this mode stops being optional:
+-- Whether a headset session is active -- read lazily, because VR requires
+-- modules that sit above this one. A stored ON value without a running
+-- session must keep the desktop battle settings. In a live session:
 -- the headset's battle seat, the pokedex screen and the effects plane
 -- all assume a fight standing on the world, and a white-field battle
 -- inside a headset is exactly the flat screen VR exists to replace.
 local function vrOn()
   local ok, vr = pcall(V.require, "VR")
-  return ok and vr and vr.enabled and vr.enabled() or false
+  return ok and vr and vr.active and vr.active() or false
 end
 
 function OverworldBattle.enabled()

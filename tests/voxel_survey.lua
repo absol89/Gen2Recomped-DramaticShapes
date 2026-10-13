@@ -1,40 +1,56 @@
--- Driver: voxel-accuracy survey of one map.
+-- Driver: Gen 2 voxel-accuracy survey of one map.
 --
--- Teleports to a map, walks a list of stand points, and screenshots each
--- one flat (2D ground truth) and at every voxel camera pitch, tilt-shift
--- forced off.  The shots are the evidence an agent (or a human) reads to
--- find sprites whose 3D shape does not match what the object is -- a bed
--- extruded into a wall, a flat stool, stairs drawn as a box.
+-- Uses the passed Game2/world, asserts Silver or Crystal, loads an explicit
+-- Gen 2 map as a geometry fixture, and captures every spot flat plus each
+-- requested voxel camera label. Direct setMap is NOT a real transition test.
 --
---   POKEPORT_DRIVER=mods/DRAMATIC_SHAPE/tests/voxel_survey.lua love .
+--   POKEPORT_DRIVER=dev/BattleArtGen2/tests/voxel_survey.lua
 --
 -- knobs (env):
---   SURVEY_MAP     map id                          (default REDS_HOUSE_2F)
---   SURVEY_SPOTS   "x,y[,facing][@label]; ..."     (default centre of map)
+--   REPRO_VERSION  silver or crystal; required and asserted against GameVersion
+--   SURVEY_MAP     Gen 2 map id (default CHERRYGROVE_CITY)
+--   SURVEY_SPOTS   "x,y[,facing][@label]; ..." (default centre of map)
 --                  cell coordinates, facing up/down/left/right
---   SURVEY_LEVELS  comma list of voxel levels 1..3 (default "1,2,3";
---                  15/35/50 degrees)
---   SURVEY_TIME    day/night/dusk/dawn pin         (default day)
---   SHOT_DIR       output directory, must exist    (default "shots")
+--   SURVEY_LEVELS  comma list of valid voxel levels OR current labels
+--                  (default "2,3,4" = 15/35/50 degrees)
+--   SHOT_DIR       absolute writable output directory; must be fresh
+--   POKEPORT_SPEED optional integer; keep at 1 for timing-sensitive work
 --
--- Levels are set through Pipelines.setLevel, not the player hotkey, so the
--- run never writes the player's options.lua and cannot leave tilt-shift on.
+-- Levels are set through Pipelines.setLevel and mirrored into game.options so
+-- the mod's option restore logic sees the same in-memory value as the renderer.
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local Pipelines = require("src.render.Pipelines")
+  local Version = require("src.core.GameVersion")
 
-  -- Under POKEPORT_SPEED=N the driver is resumed N times per RENDERED
-  -- frame, so anything that must span a draw (a capture flush, a camera
-  -- tween) needs its yield count scaled by N or the screenshot lands on a
-  -- later state than the one it names.
   local SPEED = math.max(1, math.floor(tonumber(os.getenv("POKEPORT_SPEED")) or 1))
   local function wait(frames) U.wait(frames * SPEED) end
 
-  local DIR = os.getenv("SHOT_DIR") or "shots"
-  local mapId = os.getenv("SURVEY_MAP") or "REDS_HOUSE_2F"
+  local wanted = assert(os.getenv("REPRO_VERSION"),
+    "Set REPRO_VERSION to silver or crystal")
+  assert(wanted == "silver" or wanted == "crystal",
+    "REPRO_VERSION must be silver or crystal")
+  assert(Version.generation() == 2 and Version.get() == wanted,
+    "Wrong Gen 2 edition: expected " .. wanted .. ", got " .. Version.get())
+  assert(Version.engine() == (wanted == "crystal" and "crystal" or "gs"),
+    "Wrong Gen 2 engine lineage")
 
-  local mapDef = game.data.maps and game.data.maps[mapId]
-  assert(mapDef, "unknown map: " .. tostring(mapId))
+  local exports = game.mods and game.mods.exports
+  assert(exports and exports.BATTLE_ART_VOXEL_GEN2,
+    "BATTLE_ART_VOXEL_GEN2 is not loaded")
+  local world = assert(game.world, "Gen 2 world is unavailable")
+  assert(game.phase == "play" and not game.stack:top(),
+    "Survey requires free-roam Game2 state (not a menu/cinema)")
+
+  local DIR = assert(os.getenv("SHOT_DIR"),
+    "Set SHOT_DIR to an absolute writable directory")
+  assert(DIR:match("^[A-Za-z]:[\\/]") or DIR:match("^/"),
+    "SHOT_DIR must be an absolute path")
+  local mapId = os.getenv("SURVEY_MAP") or "CHERRYGROVE_CITY"
+  local mapDef = world.maps and world.maps[mapId]
+  assert(mapDef, "unknown map in selected Gen 2 version: " .. tostring(mapId))
+  assert(mapDef.width and mapDef.height and mapDef.width > 0 and mapDef.height > 0,
+    "map has invalid dimensions: " .. tostring(mapId))
 
   local spots = {}
   local spec = os.getenv("SURVEY_SPOTS")
@@ -44,60 +60,105 @@ return function(game)
       body = body or entry
       local x, y, facing = body:match("^%s*(%d+)%s*,%s*(%d+)%s*,?%s*(%a*)")
       assert(x, "bad SURVEY_SPOTS entry: " .. entry)
+      facing = (facing ~= "" and facing) or "up"
+      assert(facing == "up" or facing == "down" or facing == "left" or facing == "right",
+        "bad facing in SURVEY_SPOTS entry: " .. entry)
       spots[#spots + 1] = {
-        x = tonumber(x), y = tonumber(y),
-        facing = (facing ~= "" and facing) or "up",
+        x = tonumber(x), y = tonumber(y), facing = facing,
         label = label or (x .. "x" .. y),
       }
     end
   else
-    spots[1] = { x = math.floor(mapDef.width * 2 / 2),
-                 y = math.floor(mapDef.height * 2 / 2),
-                 facing = "up", label = "centre" }
+    spots[1] = {
+      x = math.floor(mapDef.width * 2 / 2),
+      y = math.floor(mapDef.height * 2 / 2),
+      facing = "up", label = "centre",
+    }
   end
+  assert(#spots > 0, "SURVEY_SPOTS produced no positions")
 
   local levels = {}
-  for n in (os.getenv("SURVEY_LEVELS") or "1,2,3"):gmatch("%d") do
-    levels[#levels + 1] = tonumber(n)
+  for token in (os.getenv("SURVEY_LEVELS") or "2,3,4"):gmatch("[^,]+") do
+    local raw = token:gsub("^%s+", ""):gsub("%s+$", "")
+    local level = tonumber(raw)
+    if not level then
+      for candidate = 0, Pipelines.maxLevel("voxel") do
+        if Pipelines.levelLabel("voxel", candidate) == raw then
+          level = candidate
+          break
+        end
+      end
+    end
+    assert(level and level >= 0 and level <= Pipelines.maxLevel("voxel"),
+      "invalid SURVEY_LEVELS entry: " .. raw)
+    levels[#levels + 1] = level
+  end
+  assert(#levels > 0, "SURVEY_LEVELS must contain at least one valid level")
+
+  local maxX, maxY = mapDef.width * 2 - 1, mapDef.height * 2 - 1
+  for _, s in ipairs(spots) do
+    assert(s.x >= 0 and s.x <= maxX and s.y >= 0 and s.y <= maxY,
+      ("spot %s,%s is outside %s cell bounds 0..%s,0..%s"):format(
+        s.x, s.y, mapId, maxX, maxY))
+  end
+
+  local function setLevel(id, level)
+    game.options.pipelines = game.options.pipelines or {}
+    game.options.pipelines[id] = level
+    assert(Pipelines.setLevel(id, level) == level,
+      "failed to set pipeline " .. id .. " to " .. tostring(level))
   end
 
   local function shot(name)
     local path = ("%s/%s_%s.png"):format(DIR, mapId, name)
+    local existing = io.open(path, "rb")
+    if existing then
+      existing:close()
+      error("capture already exists; use a fresh SHOT_DIR: " .. path)
+    end
     game.capturePath = path
-    wait(3) -- let the capture flush through a real draw
-    print("[survey] shot " .. path)
+    for _ = 1, 120 do
+      wait(1) -- capture is requested during an actual Game2 draw frame
+      local f = io.open(path, "rb")
+      if f then
+        local size = f:seek("end") or 0
+        f:close()
+        if size > 0 then
+          print("[survey] capture ready " .. path)
+          return path
+        end
+      end
+    end
+    game.capturePath = nil
+    error("capture did not reach disk within 120 driver frames: " .. path)
   end
 
-  -- the survey's whole point is reading the voxel geometry: the miniature
-  -- blur would soften exactly the edges under inspection
-  Pipelines.setLevel("tiltshift", 0)
+  setLevel("tiltshift", 0)
 
-  -- and reading it under a night palette is reading it through a blue filter
-  local exports = game.mods and game.mods.exports
-  local lib = exports and exports.DRAMATIC_SHAPE and exports.DRAMATIC_SHAPE.lib
-  if lib then
-    local DayNight = lib.require("DayNight")
-    DayNight.setting:sync(os.getenv("SURVEY_TIME") or "day")
-    DayNight.update(0)
-  end
-
-  for i, s in ipairs(spots) do
-    U.teleport(game, mapId, s.x, s.y, s.facing)
+  for _, s in ipairs(spots) do
+    -- Direct relocation is deliberately a geometry fixture. It does not claim
+    -- to exercise a door/connection/fall/scripted arrival transition.
+    assert(world:setMap(mapId, s.x, s.y, s.facing),
+      world.status or "failed to position survey spot")
     wait(20)
+    assert(world.map.id == mapId, "fixture moved away from requested map")
+    assert(world.player.cellX == s.x and world.player.cellY == s.y,
+      "fixture did not reach requested cell")
 
-    Pipelines.setLevel("voxel", 0)
+    setLevel("voxel", 0)
     wait(25)
-    if i == 1 then shot(s.label .. "_flat") end
+    shot(s.label .. "_flat")
 
     for _, level in ipairs(levels) do
-      Pipelines.setLevel("voxel", level)
-      wait(25) -- outlast the 0.25s camera tween
-      shot(("%s_v%s"):format(s.label,
-        Pipelines.levelLabel("voxel", level) or level))
+      setLevel("voxel", level)
+      wait(25) -- outlast the 0.25s camera tween; readiness remains draw-driven
+      shot(("%s_v%s"):format(s.label, Pipelines.levelLabel("voxel", level)))
     end
   end
 
-  Pipelines.setLevel("voxel", 0)
+  setLevel("voxel", 0)
+  setLevel("tiltshift", 0)
   wait(5)
-  print("[survey] done: " .. #spots .. " spots")
+  print(("[survey] done: edition=%s engine=%s map=%s spots=%d"):format(
+    wanted, Version.engine(), mapId, #spots))
 end

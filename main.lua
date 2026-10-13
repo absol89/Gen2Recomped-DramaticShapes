@@ -383,8 +383,7 @@ mod.content.render_pipelines:register("voxel", {
       -- through CACHE / SAVE so ordinary play never performs surprise I/O.
       pcall(VoxelPrecache.update, Game)
     end
-    ChunkMesher.pump(Game and Game.stack
-                     and Game.stack:top() ~= ow)
+    ChunkMesher.pump(V.require("BuildBudget").covered(Game, ow))
   end,
 
   drawWorld = function(ctx)
@@ -1350,6 +1349,9 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         continue = function(_, menu) menu:choose("continue") end
       end
       if continue then item.onSelect = function(_, menu)
+        -- Some menu hosts call injected callbacks without arguments. Capture
+        -- the owning menu now, before a RAM loader can cover it on the stack.
+        menu = menu or (game.stack and game.stack:top())
         VoxelMeshDisk.beginSession()
         -- OFF disables precache entirely: no preload, no RAM limit
         local preload = applyRamPrecacheBudget()
@@ -1397,6 +1399,7 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
         newGame = function(_, menu) menu:choose("new") end
       end
       if newGame then item.onSelect = function(_, menu)
+        menu = menu or (game.stack and game.stack:top())
         newGame(game, menu)
         VoxelMeshDisk.bind(game, false)
         VoxelMeshDisk.beginSession()
@@ -1879,7 +1882,7 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "2.1.2"
+mod.exports.version = "2.1.3"
 mod.exports.battleStage = BattleStage.export(OverworldBattle)
 mod.exports.battlePresentation = BattlePresentation.export()
 -- Species art ownership + metrics, so companion mods (Stadium 2 importer,

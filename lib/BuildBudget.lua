@@ -21,6 +21,13 @@ local clock = (love and love.timer and love.timer.getTime) or os.clock
 local deadline = math.huge
 local buildCo = nil
 
+-- Gen2 free roam has an empty screen stack. Only an actual covering screen
+-- qualifies for the larger hidden-world slice; Gen1 keeps its world on top.
+function B.covered(game, world)
+  local top = game and game.stack and game.stack:top()
+  return top ~= nil and top ~= world or false
+end
+
 -- Enter/leave a pumped slice. `co` is the coroutine being resumed, so
 -- tick() can tell the build apart from any other coroutine the engine
 -- happens to be running (drivers are coroutines too).

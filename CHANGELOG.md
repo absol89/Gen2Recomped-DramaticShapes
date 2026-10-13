@@ -27,7 +27,11 @@
 - Port PR #38's player/NPC water reflections, preserving Gen 2's variable-width
   sprite anchors and the existing water OFF/unsupported-renderer fallbacks.
 
-## Unreleased
+## 2.1.3
+
+- Preserve the title menu context when a host invokes Continue/New Game
+  callbacks without arguments, including delayed RAM preload completion.
+  Reproduce and cover issue #3's nil-menu error on eager and streaming paths.
 
 - Port authored Gen 2 building, traditional roof, interior fixture, furniture,
   stair/wall finish, nature and National Park presentation improvements. Keep
@@ -42,6 +46,20 @@
   no companion source, assets, or new weather effects are bundled.
 - Add portable geometry regressions. Combined Silver/Crystal GPU and device
   acceptance is pending; see `docs/voxel-upgrades-validation.md`.
+
+- Correct Gen2 free roam's build budget classification: an empty screen stack
+  is visible gameplay. Cancel unfinished builds for neighbors outside the live
+  set while retaining completed previous-area meshes. Index building template
+  starts once per map and check coarse row/part budgets every iteration.
+- Recognize the source engine version sentinel for modern cache byte storage,
+  retaining the write/read self-test. Keep desktop battle settings when VR is
+  enabled without an active headset; bound performance segment histories and
+  report failed telemetry writes correctly.
+- Add an isolated Silver/Crystal route/city budget probe and record the
+  17-neighbor FULL stress case exceeding a test-only Lua heap guard. Remaining
+  cold-build spikes and mobile qualification are documented in
+  `docs/transition-resource-review.md`.
+
 
 - Add desktop-only bounded cache tracing for live map sets, runtime eviction,
   invalidation, record hits/rejections, cached uploads and live mesh builds.

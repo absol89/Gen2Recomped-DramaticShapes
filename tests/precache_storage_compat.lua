@@ -58,6 +58,7 @@ policy("0.1.83", "legacy")
 policy("0.1.84", "storage")
 policy("0.2.20", "storage")
 policy("0.7.34", "storage")
+policy("0.0.0-dev", "storage")
 
 Disk._setCompatibilityForTests("0.1.83", "Windows")
 assert(Disk.bind({ save = { version = "silver" } }, true),

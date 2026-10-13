@@ -1,7 +1,7 @@
 # Voxel accuracy survey
 
-A repeatable procedure -- runnable by an agent or a human -- for finding
-map objects the DRAMATIC_SHAPE mod voxelizes into the wrong shape (a bed
+A repeatable Gen 2 procedure -- runnable by an agent or a human -- for finding
+map objects the Battle Art voxel renderer turns into the wrong shape (a bed
 extruded to wall height, a table merged into the wall, stairs lying flat)
 and for fixing them so each object gets the 3D shape it depicts.
 
@@ -9,29 +9,58 @@ The loop is: **survey → diagnose → pin → re-survey → spot-check**.
 
 ## 1. Survey a location
 
-`mods/DRAMATIC_SHAPE/tests/voxel_survey.lua` teleports to a map, walks a
-list of stand points and screenshots each one flat (the 2D ground truth)
-and at every voxel camera pitch, with tilt-shift forced off (it would blur
-exactly the edges under inspection).  Levels are set through
-`Pipelines.setLevel`, so the run never writes the player's options.
+`tests/voxel_survey.lua` is a Gen 2 survey. It receives the live `Game2`
+instance, asserts the selected Silver or Crystal edition and the
+`BATTLE_ART_VOXEL_GEN2` export, then uses `game.world:setMap()` for a geometry
+fixture. It does not use Gen 1 `U.teleport`, and direct relocation does not test
+a real transition.
+
+Use a fresh scratch directory and select the edition explicitly:
 
 ```powershell
-$env:POKEPORT_DRIVER = "mods/DRAMATIC_SHAPE/tests/voxel_survey.lua"
-$env:SHOT_DIR   = "<absolute scratch dir, must exist>"
-$env:SURVEY_MAP = "REDS_HOUSE_2F"
-$env:SURVEY_SPOTS = "3,4,up@centre; 2,6,left@bed; 5,2,right@stairs"
-$env:POKEPORT_SPEED = "4"          # optional; the driver scales its waits
+$env:POKEPORT_DRIVER = "dev/BattleArtGen2/tests/voxel_survey.lua"
+$env:REPRO_VERSION = "silver"     # repeat separately with crystal
+$env:SHOT_DIR = "<absolute writable scratch dir>"
+$env:SURVEY_MAP = "CHERRYGROVE_CITY"
+$env:SURVEY_SPOTS = "15,10,up@centre; 14,10,left@nearby"
+$env:SURVEY_LEVELS = "2,3,4"
+$env:POKEPORT_SPEED = "1"
 & lovec.exe .
 ```
 
-- `SURVEY_SPOTS` is `x,y[,facing][@label]` in cell coordinates, `;`
-  separated. Pick the room centre plus one spot near each object of
-  interest, so every object is seen close up and from more than one
-  parallax.
-- `SURVEY_LEVELS` defaults to `1,2,3` (15/35/50 degrees). All three
-  matter: tall-object errors scream at 35/50, thin-object errors (a prop
-  with no body) only show near top-down at 15.
-- The run quits by itself and names shots `<map>_<label>_<flat|v15|v35|v50>.png`.
+`CHERRYGROVE_CITY` is the explicit validated example map in the current Gen 2
+data. Spot coordinates are zero-based movement cells and are checked against
+the selected map's live block dimensions. Replace the example spots with the
+reported object/viewing positions after checking the actual map and walkability.
+For progression-dependent bugs, restore a copied known save/slot through the
+native Gen 2 save path before the survey; this geometry driver itself is not a
+Continue/save test.
+
+### Camera labels and captures
+
+The current voxel ladder is defined by `lib/VoxelState.lua` and exposed through
+`src/render/Pipelines.lua`: `0=OFF`, `1=FULL`, `2=15`, `3=35`, `4=50`, followed by
+experimental 75/1ST/3RD rungs. The driver accepts numeric levels or exact current
+labels, then validates the result against `Pipelines.maxLevel`. Never infer the
+meaning of an old numeric level from historical comments.
+
+For EVERY spot the driver captures `_flat` first, then every requested voxel
+level. It mirrors levels into `game.options.pipelines` as well as the live
+pipeline so generation-scoped option restore logic sees consistent in-memory
+state. It waits for actual draw frames and polls the requested output path for up
+to 120 driver frames, requiring a non-empty file and rejecting an existing path.
+This proves the capture reached disk; it does not prove that a human or native
+Computer Use inspected the image.
+
+The driver does not disable scenes, encounters, NPCs, or scripts and does not
+force RTC/daytime. If normal Gen 2 scene machinery changes the state, choose a
+better fixture/save/approach rather than suppressing native gameplay.
+
+For the shared stateful sequence, follow the engine's [shared reproduction workflow](../../AGENTS.md#shared-reproduction-workflow):
+**edition -> runtime/lineage -> persistence root -> copied save/known slot or
+fresh fixture -> live state -> approach position -> real trigger -> native
+observation -> captured evidence -> cleanup**. This survey covers only the fixture
+and capture portions.
 
 ## 2. Diagnose against the flat shot
 
@@ -67,8 +96,8 @@ big.save("<scratch>/atlas_ids.png")
 
 ## 3. Pin shapes in the profile
 
-`mods/DRAMATIC_SHAPE/data/voxel_heights.lua` maps tile ids to classes per
-tileset id; a pinned tile bypasses detection entirely. The classes:
+The Gen 2 profile in `data/voxel_heights.lua` maps tile ids to shape classes per
+tileset id; the classes below are the current Battle Art taxonomy:
 
 - `bed` (h7, art on top) -- anything drawn from above that lies low.
   Also the fallback for a drawing that depicts furniture WITH someone on
@@ -124,13 +153,13 @@ and no single class covers that, so buildings go in the profile's
 (`mods/DRAMATIC_SHAPE/lib/Buildings.lua`; the pipeline is
 `mods/DRAMATIC_SHAPE/assets/docs/buidling_to_voxel/sprite_to_voxel_methodology.md`).
 A template is matched by its exact tile grid, which
-`mods/DRAMATIC_SHAPE/assets/docs/buildings/` catalogues per building along
+`assets/docs/buildings/` catalogues per building along
 with every map that places it, so one entry covers all of them. Author only what needs a human to read the drawing -- which rows are
 roof, how the roof's depth maps onto them, the slab, the eave, an awning
 band -- because the silhouette, the taper rate (the slope), the eave
 height and every window are measured off the pixels.
 
-Verify a new template against `mods/DRAMATIC_SHAPE/tools/building_voxels.py`,
+Verify a new template against `tools/building_voxels.py`,
 which builds the same model offline and renders isometric previews: the
 voxel and shell counts it prints must match the runtime's (the mod's
 `Buildings.stats()`), and it asserts the intent -- symmetric profile,
@@ -156,7 +185,7 @@ change region shapes, so neighbours can shift.
 - A change to the shared analysis (anything in `lib/Structures.lua`
   rather than the data file) affects every map of that kind; survey one
   unrelated busy interior (e.g. `OAKS_LAB`) to prove nothing regressed.
-- `luajit mods/DRAMATIC_SHAPE/tests/dramatic_shape_test.lua` for the headless
+- `luajit tests/dramatic_shape_test.lua` for the headless
   invariants.
 
 ## Gameplay is out of bounds

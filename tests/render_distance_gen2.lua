@@ -28,6 +28,7 @@ local f=assert(io.open('lib/VoxelScene.lua'));local source=f:read('*a');f:close(
 local body=assert(source:match('(function VoxelScene.prefetch.-)\n%-%- Capture every entity'))
 local requests,live,masks={},nil,nil
 local env=setmetatable({VoxelScene={},RenderDistance=R,
+  CacheTrace={log=function() end},
   V={require=function() return {} end},Gen2WorldAdapter={prepareWorld=function() end},
   TerrainAtlas={setLive=function() end},ChunkMesher={
     setLive=function(set) live=set end,
