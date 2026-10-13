@@ -414,7 +414,7 @@ mod.content.render_pipelines:register("voxel", {
     -- these two lines knows: every pass in the frame measures itself in the
     -- canvas it was handed, so the sky's dither, the water's march and the
     -- camera itself all come out the same picture at a higher sample rate.
-    local rw, rh = AntiAlias.expand(sw, sh)
+    local rw, rh = AntiAlias.expand(sw, sh, true)
     local canvas = VoxelScene.render(ctx.state, rw, rh,
                                      ctx.vw, ctx.vh, ctx.paletteFor)
     if not canvas then

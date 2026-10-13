@@ -43,6 +43,7 @@
 
 -- the mod namespace (see main.lua): V.require loads a sibling module
 local V = ...
+local WorldQuality = V.require("WorldQuality")
 
 local ModSetting = V.require("ModSetting")
 
@@ -66,14 +67,14 @@ AntiAlias.setting = ModSetting.new(AntiAlias.KEY, AntiAlias.LABEL,
 -- reader gets on a frame that never opened a pass at all.
 local live = 1
 
-function AntiAlias.samples()
-  return tonumber(AntiAlias.setting:get()) or 0
+function AntiAlias.samples(world)
+  return WorldQuality.clamp("aa", tonumber(AntiAlias.setting:get()) or 0, world)
 end
 
 -- What the row ASKS for. The scale in force is `factor()`, which is this
 -- clamped to what the driver will actually allocate.
-local function wanted()
-  local n = AntiAlias.samples()
+local function wanted(world)
+  local n = AntiAlias.samples(world)
   if n <= 1 then return 1 end
   return math.sqrt(n)
 end
@@ -97,8 +98,8 @@ end
 -- overlay's sprite scale are both quoted in DISPLAY pixels and have to be
 -- multiplied up into canvas ones, and the honest multiplier is the one this
 -- returned rather than the one the row asked for.
-function AntiAlias.expand(w, h)
-  local s = wanted()
+function AntiAlias.expand(w, h, world)
+  local s = wanted(world)
   local max = textureLimit()
   if max and max > 0 then
     -- clamped rather than abandoned: a window too big for 4X can usually

@@ -26,6 +26,7 @@
 
 -- the mod namespace (see main.lua): V.require loads a sibling module
 local V = ...
+local WorldQuality = V.require("WorldQuality")
 
 local Mat4 = V.require("Mat4")
 local MeshBounds = V.require("MeshBounds")
@@ -270,7 +271,7 @@ end
 -- where the canvas cannot be made -- VoxelScene then keeps the flat decal
 -- shadows, which need nothing but a quad.
 function ShadowMap.available()
-  if Shadows.off() then return false end
+  if Shadows.off() or WorldQuality.caps().shadows == false then return false end
   if not (love.graphics and love.graphics.newCanvas
           and love.graphics.setDepthMode) then
     return false
@@ -284,13 +285,14 @@ end
 -- has a shader at all, because an unbound sampler is a driver-dependent
 -- crash rather than a driver-dependent fallback.
 function ShadowMap.texture()
+  if WorldQuality.caps().shadows == false then return getBlank() end
   if ready and canvas then return canvas end
   return getBlank()
 end
 
 -- True while the map holds a frame the main pass can read.
 function ShadowMap.active()
-  if Shadows.off() then return false end
+  if Shadows.off() or WorldQuality.caps().shadows == false then return false end
   return ready and canvas ~= nil and canvas ~= false
 end
 
@@ -385,6 +387,7 @@ local function fit(cx, cy, vw, vh)
       break
     end
   end
+  res = WorldQuality.clamp("shadowRes", res)
   ShadowMap.res = res
 
   -- the box's SIZE is fixed (the sun and the view size are), so snapping

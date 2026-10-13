@@ -75,6 +75,7 @@
 
 -- the mod namespace (see main.lua): V.require loads a sibling module
 local V = ...
+local WorldQuality = V.require("WorldQuality")
 
 local ModSetting = V.require("ModSetting")
 local Sky = V.require("Sky")
@@ -101,8 +102,7 @@ Water.setting = ModSetting.new(Water.KEY, Water.LABEL,
 function Water.level()
   local v = Water.setting:get()
   if v == "off" then return 0 end
-  if v == "sky" then return 1 end
-  return 2
+  return WorldQuality.clamp("water", v == "sky" and 1 or 2)
 end
 
 -- Whether the reflective pass should run at all (either rung above OFF).

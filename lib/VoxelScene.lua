@@ -11,6 +11,7 @@
 
 -- the mod namespace (see main.lua): V.require loads a sibling module
 local V = ...
+local WorldQuality = V.require("WorldQuality")
 
 local Mat4 = V.require("Mat4")
 local Voxel3D = V.require("Voxel3D")
@@ -895,6 +896,7 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
                            atlasFor, water, nbWater, battleCards, battleToken)
   if not ShadowMap.available() then return end
   local sig = shadowSignature(terrain, nbMesh, posed, cx, cy, vw, vh)
+    .. "|quality=" .. WorldQuality.name()
   -- a staged fight's pics move every frame the animation does, and the sun
   -- has to follow them (VR frames only; see render)
   if battleToken then sig = sig .. "|btl" .. tostring(battleToken) end
