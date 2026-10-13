@@ -6,7 +6,7 @@ local Quality = {}
 local tried, performance
 local CAPS = {
   high = {},
-  balanced = {shadowRes = 1024, water = 1, aa = 2},
+  balanced = {shadowRes = 1024, shadowFrames = 3, water = 1, aa = 2},
   low = {shadows = false, water = 0, aa = 0},
 }
 function Quality.name(world)

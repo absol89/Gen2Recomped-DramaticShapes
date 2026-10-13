@@ -36,6 +36,7 @@ local Gen2WorldAdapter = V.require("Gen2WorldAdapter")
 local ModSetting = V.require("ModSetting")
 local RenderDistance = V.require("RenderDistance")
 local WorldRenderScope = V.require("WorldRenderScope")
+local ShadowCadence = V.require("ShadowCadence")
 local traceOK, CacheTrace = pcall(V.require, "CacheTrace")
 if not traceOK or type(CacheTrace) ~= "table" or type(CacheTrace.log) ~= "function" then
   CacheTrace = { log = function() end }
@@ -892,6 +893,7 @@ end
 -- Runs BEFORE Voxel3D.beginScene, because canvases do not nest. Grass is
 -- left out on purpose: thousands of tufts would cast a speckle no bigger
 -- than the pixels it lands on, at the cost of the mesh being drawn twice.
+local shadowCadence, lastWorldShadow
 local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
                            atlasFor, water, nbWater, battleCards, battleToken)
   if not ShadowMap.available() then return end
@@ -901,6 +903,17 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
   -- has to follow them (VR frames only; see render)
   if battleToken then sig = sig .. "|btl" .. tostring(battleToken) end
   if not ShadowMap.stale(sig) then return end
+  local interval = WorldQuality.caps().shadowFrames
+  local staticSig
+  if interval and not battleToken then
+    staticSig = shadowSignature(terrain, nbMesh, {}, cx, cy, vw, vh)
+      .. "|quality=" .. WorldQuality.name()
+    shadowCadence = shadowCadence or ShadowCadence.new()
+    -- A battle or another renderer may have replaced the shared shadow map.
+    -- Only defer when it still contains this world's last completed pass.
+    local valid = lastWorldShadow and not ShadowMap.stale(lastWorldShadow)
+    if not shadowCadence.due(staticSig, interval, valid) then return end
+  end
   if not ShadowMap.begin(cx, cy, vw, vh) then return end
 
   ShadowMap.draw(terrain, atlasFor(state.map), nil)
@@ -971,6 +984,10 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
   ShadowMap.sprites(false)
 
   ShadowMap.finish(sig)
+  if staticSig then
+    shadowCadence.committed(staticSig)
+    lastWorldShadow = sig
+  end
 end
 
 -- Render the world. Without `eyes`, one frame into one canvas -- the flat

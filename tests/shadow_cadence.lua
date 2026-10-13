@@ -1,0 +1,12 @@
+local C=assert(loadfile('lib/ShadowCadence.lua'))().new()
+assert(C.due('cameraA',3,false));C.committed('cameraA')
+assert(not C.due('cameraA',3,true))
+assert(not C.due('cameraA',3,true))
+assert(C.due('cameraA',3,true));C.committed('cameraA')
+assert(C.due('cameraB',3,true),'camera/mesh/sun changes must draw immediately')
+C.committed('cameraB')
+assert(C.due('cameraB',3,false),'invalidated or battle-owned shadow must redraw')
+assert(C.due('cameraB',nil,true),'uncapped/battle path must draw immediately')
+assert(C.due('cameraC',3,true)) -- failed allocation: do not commit
+assert(C.due('cameraC',3,true),'failed shadow build must retry immediately')
+print('PASS shadow cadence: two-frame delay only for cast movement; static/invalid/battle changes bypass')
