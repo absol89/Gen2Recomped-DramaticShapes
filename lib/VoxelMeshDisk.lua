@@ -126,7 +126,7 @@ local STATIC_PLAYTHROUGH = "bavc_g2_static_mesh_v1"
 -- neighbour, changing baked vertex shades along every connected map seam.
 -- Revision 21 shortens the two Route 32 trees northwest of the Pokemon Center.
 -- Revision 22 adds prop ownership spans to terrain and auxiliary records.
-Disk.CACHE_REVISION = 23
+Disk.CACHE_REVISION = 24
 Disk.CACHE_FAMILY = "g2r-v1"
 local BASE_DIRECTORY = "cache/static-mesh-g2-v1"
 local LOGICAL_DIRECTORY = BASE_DIRECTORY .. "/unbound"

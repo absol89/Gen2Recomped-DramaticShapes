@@ -143,7 +143,7 @@ function M.apply(S,map,data,perRow)
   for c=0,#grid[1]-1 do for r=0,1 do
    local xx,yy=(x+c)*8,r*8
    out[#out+1]={{xx,yy,16},{xx+8,yy,16},{xx+8,yy+8,16},{xx,yy+8,16},
-    uv=backing,shade=1,own=true,roomRole='wall_art_backing'}
+    uv=backing,shade=1,own=true,oneSided=true,roomRole='wall_art_backing'}
   end end
   for r,row in ipairs(grid)do for c,tile in ipairs(row)do
    local ax,ay=tile%perRow*8,floor(tile/perRow)*8
@@ -152,7 +152,7 @@ function M.apply(S,map,data,perRow)
    out[#out+1]={{xx,yy,16.15},{xx+8,yy,16.15},{xx+8,yy+8,16.15},{xx,yy+8,16.15},
     uv={{(ax+.025)/w,(ay+7.975)/h},{(ax+7.975)/w,(ay+7.975)/h},
      {(ax+7.975)/w,(ay+.025)/h},{(ax+.025)/w,(ay+.025)/h}},
-    shade=1,own=true,roomRole='mounted_chalkboard'}
+    shade=1,own=true,oneSided=true,roomRole='mounted_chalkboard'}
   end end
   if #out>M.MAX_MOUNTED_QUADS then return end
   return out,floorTile

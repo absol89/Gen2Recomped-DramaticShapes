@@ -14,7 +14,7 @@ for _,id in ipairs({'CIANWOOD_GYM','ECRUTEAK_GYM','ECRUTEAK_TIN_TOWER_ENTRANCE'}
  local n=M.build(S,map,data)
  assert(n==116 and #S.objectQuads==116 and S.ceilingFallback.height==48 and S.ceilingFallback.wallQuads==36 and S.roomVisuals.ceilingFallback)
  local ceilings,walls=0,0
- for _,q in ipairs(S.objectQuads)do if q.roomRole=='ceiling_fallback'then ceilings=ceilings+1;assert(q[1][2]==48 and q[3][2]==48)
+ for _,q in ipairs(S.objectQuads)do assert(q.oneSided,'room fallback must be inward-only'); if q.roomRole=='ceiling_fallback'then ceilings=ceilings+1;assert(q[1][2]==48 and q[3][2]==48)
   elseif q.roomRole=='wall_fallback'then walls=walls+1;assert(q[1][2]==16 and q[3][2]==48)else error('unknown fallback role')end end
  assert(ceilings==80 and walls==36)
 end

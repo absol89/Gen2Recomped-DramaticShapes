@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Render Gen2 room ceilings, wall finishes, door panels and native perimeter
+  wall columns from their inward side only. Outside cameras can see the room
+  without changing furniture, sprites, collision or warp data. Natural caves
+  keep their existing rock geometry and do not gain room ceilings.
+- Align the sky's screen/ray coordinates with the raw Gen2 scene on LÖVE 12
+  Metal before world presentation flips it. Preserve desktop/VR paths and
+  the shaderless gradient fallback. Physical iOS confirmation remains pending.
+- Advance mesh cache revision to 24 so cached room geometry receives the
+  inward-face markers. Add native GPU room-facing and sky-flip regressions.
+
 ## 2.1.1
 
 - Center oversized FULL Dex poses vertically without clamping their top edge;

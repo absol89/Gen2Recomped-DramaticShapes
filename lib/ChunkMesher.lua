@@ -55,6 +55,7 @@ local Structures = V.require("Structures")
 local TileShape = V.require("TileShape")
 local Voxel3D = V.require("Voxel3D")
 local Budget = V.require("BuildBudget")
+local RoomBackfaces = V.require("RoomBackfaces")
 local MeshDisk = V.require("VoxelMeshDisk")
 local traceOK, CacheTrace = pcall(V.require, "CacheTrace")
 if not traceOK or type(CacheTrace) ~= "table" or type(CacheTrace.log) ~= "function" then
@@ -411,6 +412,8 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
   local perRow = tileset.tilesPerRow or 16
   local atlasW = tileset.imageWidth or (perRow * 8)
   local atlasH = tileset.imageHeight or 48
+  local roomColumn = false
+  local roomCenter = {tw * 4, 8, th * 4}
 
   -- ------------------------------------------------------------- ledge lips
   --
@@ -651,10 +654,13 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
   -- surface is the only caller that ever does (see runGeometry's header).
   local function topQuad(x0, z0, h, tile, shade, to)
     local u0, u1, v0, v1 = uvRect(tile, 0, 8)
-    ;(to or push)({ { x0, h, z0 }, { x0 + 8, h, z0 },
-                    { x0 + 8, h, z0 + 8 }, { x0, h, z0 + 8 } },
-                  { { u0, v0 }, { u1, v0 }, { u1, v1 }, { u0, v1 } },
-                  aoShades(x0 / 8, z0 / 8, h, shade))
+    local c = { { x0, h, z0 }, { x0 + 8, h, z0 },
+                { x0 + 8, h, z0 + 8 }, { x0, h, z0 + 8 } }
+    local shades = aoShades(x0 / 8, z0 / 8, h, shade)
+    if roomColumn and not to then
+      c.oneSided = true; shades = RoomBackfaces.shade(c, shades, roomCenter)
+    end
+    ;(to or push)(c, { { u0, v0 }, { u1, v0 }, { u1, v1 }, { u0, v1 } }, shades)
   end
 
   -- vertical quad for face direction `d` of the tile column at (x0, z0),
@@ -675,6 +681,7 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
       c = { { x0, y0, z0 }, { x0, y0, z1 }, { x0, y1, z1 }, { x0, y1, z0 } }
     end
     local u0, u1, v0, v1 = uvRect(tile, vTop, vBot)
+    if roomColumn then c.oneSided = true; shade = RoomBackfaces.shade(c, shade, roomCenter) end
     push(c, { { u0, v1 }, { u1, v1 }, { u1, v0 }, { u0, v0 } }, shade)
   end
 
@@ -710,6 +717,10 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
       Budget.tick()
       local k = keyOf(tx, ty)
       local s, tile = S.shapeAt[k], S.tileAt[k]
+      roomColumn = not S.outdoor and (S.ceilingFallback
+        or (S.roomVisuals and S.roomVisuals.ceiling)) and s and not s.authored
+        and not S.skip[k] and (s.class == "wall" or s.class == "shell")
+        and (tx < 2 or ty < 2 or tx >= tw - 2 or ty >= th - 2)
       local inBody = tx >= 0 and ty >= 0 and tx < tw and ty < th
       if not inBody
          and maskedOpen(tx * 8, ty * 8, tx * 8 + 8, ty * 8 + 8) then
@@ -1054,6 +1065,7 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
     end)
   end
 
+  roomColumn = false
   for _, qi in ipairs(objectOrder) do
     local q = S.objectQuads[qi]
     Budget.tick()
@@ -1069,7 +1081,8 @@ local function runGeometry(map, bodyOnly, masks, sink, waterSink)
     if q.own or outwardOnEdge(q, x0, z0, x1, z1)
        or keepQuad(x0, z0, x1, z1) then
       ownCell(x0, z0, x1, z1)
-      push({ q[1], q[2], q[3], q[4] }, quadUV(q), groundShades(q, q.shade))
+      push({ q[1], q[2], q[3], q[4] }, quadUV(q),
+           RoomBackfaces.shade(q, groundShades(q, q.shade)))
     end
   end
 

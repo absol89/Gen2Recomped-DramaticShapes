@@ -198,6 +198,8 @@ uniform vec3 rayDv;     // base + u*du + v*dv, world axes -- so each pixel
 uniform float raySpan;  // radians of elevation the gradient covers
 uniform vec2 invSize;   // 1/w, 1/h: canvas pixels to fractions
 uniform float useRay;   // 0 = the flat screen's frame-linear gradient
+uniform float canvasYFlip; // align 2D sky with the raw 3D scene canvas
+uniform float canvasHeight;
 uniform float cellAng;  // one checker cell in RADIANS (ray path): the
                         // dither's own grid, laid on azimuth/elevation so
                         // the pattern is glued to the SKY -- a screen-cell
@@ -221,6 +223,7 @@ vec3 bandAt(float i) {
 }
 
 vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+  sc.y = mix(sc.y, canvasHeight - sc.y, canvasYFlip);
   float tn;
   float parity;
   float glowD = 2.0;                                  // past the reach
@@ -596,7 +599,7 @@ end
 -- Returns false when there is nothing to paint, in which case the caller's flat
 -- fill is the whole sky. That fill is the palest band, so a frame that declines
 -- this looks like a hazy day rather than like a bug.
-function Sky.paint(w, h, sky, horizonY, cell, body, top, axis, ray)
+function Sky.paint(w, h, sky, horizonY, cell, body, top, axis, ray, canvasYFlip)
   local bands = sky and sky.bands
   if not (bands and bands[1]) then return false end
   if not (w and h and w > 0 and h > 0) then return false end
@@ -666,6 +669,8 @@ function Sky.paint(w, h, sky, horizonY, cell, body, top, axis, ray)
       sh:send("axisX", axis and axis[1] or 0)
       sh:send("axisY", axis and axis[2] or 1)
       sh:send("useRay", ray and 1 or 0)
+      sh:send("canvasYFlip", canvasYFlip and 1 or 0)
+      sh:send("canvasHeight", h)
       if ray then
         sh:send("rayBase", ray.base)
         sh:send("rayDu", ray.du)
@@ -705,7 +710,7 @@ function Sky.paint(w, h, sky, horizonY, cell, body, top, axis, ray)
       g.setColor(1, 1, 1, 1)
       -- tilted or rayed, the sky's reach is not a row: the full frame
       -- goes through the shader and the discard is the boundary
-      local rectH = (axis or ray) and h or math.min(h, math.ceil(edge))
+      local rectH = (axis or ray or canvasYFlip) and h or math.min(h, math.ceil(edge))
       g.rectangle("fill", 0, 0, w, rectH)
       g.setShader()
     else
@@ -713,8 +718,22 @@ function Sky.paint(w, h, sky, horizonY, cell, body, top, axis, ray)
     end
   end
   if not sh then
-    paintFlat(w, h, bands, (axis or ray) and math.min(h, edge) or edge,
-              alpha, cell, math.min(top or 0, edge - 1))
+    if canvasYFlip then
+      g.push(); g.translate(0,h); g.scale(1,-1)
+      local painted, err = pcall(paintFlat, w, h, bands,
+        (axis or ray) and math.min(h, edge) or edge,
+        alpha, cell, math.min(top or 0, edge - 1))
+      g.pop()
+      if not painted then
+        if g.setBlendMode and blend then g.setBlendMode(blend, blendAlpha) end
+        if g.setDepthMode then g.setDepthMode(cmp or "always", write or false) end
+        if g.setShader then g.setShader(prevShader) end
+        error(err, 0)
+      end
+    else
+      paintFlat(w, h, bands, (axis or ray) and math.min(h, edge) or edge,
+                alpha, cell, math.min(top or 0, edge - 1))
+    end
   end
   -- the disc goes over the glow, under nothing: plain rectangles, so it is
   -- there whether or not the shader built. NOT under an axis or a ray fan:

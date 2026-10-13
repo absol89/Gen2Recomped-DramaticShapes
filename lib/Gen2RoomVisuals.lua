@@ -478,7 +478,12 @@ function M.build(S,map,data,perRow)
   local phaseLimit=M.MAX_QUADS
   local function quad(a,b,c,d,uv,shade,role)
     if #out-before>=phaseLimit then return false end
-    out[#out+1]={a,b,c,d,uv=uv,shade=shade,own=true,roomRole=role}
+    out[#out+1]={a,b,c,d,uv=uv,shade=shade,own=true,roomRole=role,
+      oneSided=role=='ceiling' or role=='ceiling_detail'
+        or role=='upper_wall' or role=='lower_blank_wall'
+        or role=='wallpaper' or role=='native_dado'
+        or role=='rear_prop_closure' or role=='bike_alcove_return'
+        or role=='exit_door' or role=='stair_header_return'}
     return true
   end
   local function down(x0,z0,x1,z1,y,uv,shade,role)

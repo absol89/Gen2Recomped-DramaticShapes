@@ -73,6 +73,7 @@ Voxel3D.FACE_SHADE = {
 
 local SHADER = [[
   varying float vShade;
+  varying float vRoomFacing;
   varying vec3 vSun;          // this fragment's place in the sun's view
   varying vec3 vModelSun;     // this fragment in Stadium's model-shadow view
 #ifdef VOXEL_GRID
@@ -102,6 +103,20 @@ local SHADER = [[
     vGrid = vertex_position.xyz;
 #endif
     vec4 w = model * vertex_position;
+    vRoomFacing = 1.0;
+    vec3 roomNormal = vec3(0.0);
+    if (VertexShade < 0.0) {
+      float side = floor(-VertexShade / 4.0);
+      vShade = -VertexShade - side * 4.0;
+      vec3 normal = vec3(0.0);
+      if (side < 1.5) normal.x = 1.0;
+      else if (side < 2.5) normal.x = -1.0;
+      else if (side < 3.5) normal.y = 1.0;
+      else if (side < 4.5) normal.y = -1.0;
+      else if (side < 5.5) normal.z = 1.0;
+      else normal.z = -1.0;
+      roomNormal = (model * vec4(normal, 0.0)).xyz;
+    }
     // The shadow lookup runs off `sunModel`, not `model`. For terrain the
     // two are the same matrix, but a character is drawn as a slab LEANING
     // back by the camera's pitch -- a trick played on the viewer, which
@@ -124,7 +139,9 @@ local SHADER = [[
     if (curve.z > 0.0) {
       vec2 cd = w.xz - curve.xy;
       w.y -= dot(cd, cd) * curve.z;
+      roomNormal.xz += 2.0 * curve.z * cd * roomNormal.y;
     }
+    if (VertexShade < 0.0) vRoomFacing = dot(eye - w.xyz, roomNormal);
     // camera-ward pull: move the vertex along ITS OWN ray to the eye.
     // This is a pure depth bias -- the projection of a point moved along
     // its eye ray is bit-identical, so there is no screen drift at all.
@@ -241,6 +258,9 @@ local SHADER = [[
   uniform float glassOn;      // 0 for sprite-sheet draws (see Voxel3D.glass)
 
   vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+    // Room shells are inward-facing, independent of canvas winding/Metal's
+    // clip Y and mirrored sprite transforms. Discard also prevents depth writes.
+    if (vRoomFacing < 0.0) discard;
     vec4 p = Texel(tex, tc);
     // sprite sheets key GB OBJ color 0 to alpha 0; discarding rather than
     // blending keeps those texels out of the depth buffer, so a model never
@@ -921,6 +941,11 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot, modelShadow)
   -- hangs in the WORLD (drawWorldDisc). Without one -- the orbit, whose
   -- pitch is the rung's -- the classic frame-hung painting stands.
   local skyRay = Voxel3D.skyRayLive
+  -- Metal's final Gen2 world presentation reverses the raw 3D canvas Y.
+  -- The 2D sky must use that same raw orientation, or its ray elevations
+  -- move opposite the terrain and the above-horizon region can all discard.
+  local skyFlip = RendererOrientation.metalRenderer and RendererOrientation.metalRenderer()
+    and not (Voxel3D.camera and Voxel3D.camera.metalFlipY)
   local hy = Voxel3D.horizonY(h)
   -- where the sky's bottom edge lands, which is what the reflection
   -- reads its bands against (see Water). nil when nothing painted bands.
@@ -939,11 +964,11 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot, modelShadow)
     -- through this very camera); a flat sky has no bands and hangs nothing.
     if skyRay and sky.bands then
       Sky.paint(w, h, sky, nil, Voxel3D.cell, Voxel3D.skyBody(w, h),
-                nil, nil, skyRay)
+                nil, nil, skyRay, skyFlip)
       drawWorldDisc(w, h)
     else
       Sky.paint(w, h, sky, hy, Voxel3D.cell,
-                sky.bands and Voxel3D.skyBody(w, h) or nil)
+                sky.bands and Voxel3D.skyBody(w, h) or nil, nil, nil, nil, skyFlip)
     end
   else
     love.graphics.clear(0, 0, 0, 0, true, true)

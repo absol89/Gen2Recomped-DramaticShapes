@@ -46,9 +46,9 @@ function M.build(S,map,data)
  local count=ceilingCount+wallCount;if count>M.MAX_QUADS then return 0 end
  for z=0,th-1,step do for x=0,tw-1,step do
   local x1,z1=min(tw,x+step)*8,min(th,z+step)*8
-  S.objectQuads[#S.objectQuads+1]={{x*8,M.HEIGHT,z*8},{x1,M.HEIGHT,z*8},{x1,M.HEIGHT,z1},{x*8,M.HEIGHT,z1},uv=uv,shade=.91+((x/step+z/step)%2)*.03,own=true,roomRole='ceiling_fallback'}
+  S.objectQuads[#S.objectQuads+1]={{x*8,M.HEIGHT,z*8},{x1,M.HEIGHT,z*8},{x1,M.HEIGHT,z1},{x*8,M.HEIGHT,z1},uv=uv,shade=.91+((x/step+z/step)%2)*.03,own=true,oneSided=true,roomRole='ceiling_fallback'}
  end end
- local function wall(a,b,c,d)S.objectQuads[#S.objectQuads+1]={a,b,c,d,uv=uv,shade=.88,own=true,roomRole='wall_fallback'}end
+ local function wall(a,b,c,d)S.objectQuads[#S.objectQuads+1]={a,b,c,d,uv=uv,shade=.88,own=true,oneSided=true,roomRole='wall_fallback'}end
  for x=0,tw-1,2 do local x0,x1=x*8,min(tw,x+2)*8;local cx=floor(x/2)
   if not blocked(cx,0)then wall({x0,16,0},{x1,16,0},{x1,M.HEIGHT,0},{x0,M.HEIGHT,0})end
   if not blocked(cx,cellH-1)then local z=th*8;wall({x1,16,z},{x0,16,z},{x0,M.HEIGHT,z},{x1,M.HEIGHT,z})end
