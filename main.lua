@@ -165,6 +165,8 @@ end
 
 -- ------- pipelines
 
+V.require("Gen2BorderGuard").install()
+
 local Voxel = V.require("VoxelState")
 local Voxel3D = V.require("Voxel3D")
 local VoxelScene = V.require("VoxelScene")

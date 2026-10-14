@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Guard Gen1Recomp's Gen 2 border draw against released textures. Missing
+  borders stay invisible; an invalid outgoing fade is cleared so a valid
+  replacement draws opaque. Works with existing engine builds, including the
+  SteamOS crash path, without requiring an engine update.
 - Render Gen2 room ceilings, wall finishes, door panels and native perimeter
   wall columns from their inward side only. Outside cameras can see the room
   without changing furniture, sprites, collision or warp data. Natural caves
