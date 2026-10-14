@@ -2,9 +2,14 @@ local draws, made = {}, 0
 local major = 12
 local renderer = { "Metal", "3.1", "Apple", "Apple GPU" }
 local current
+local stack, pops, failDraw = {}, 0, false
 love = {
   getVersion = function() return major, 0, 0 end,
   graphics = {
+    push = function() stack[#stack+1]={canvas=current} end,
+    pop = function() current=table.remove(stack).canvas;pops=pops+1 end,
+    origin = function() end, setScissor = function() end,
+    setDepthMode = function() end, setStencilTest = function() end,
     getRendererInfo = function() return unpack(renderer) end,
     getCanvas = function() return current end,
     setCanvas = function(c) current = c end,
@@ -14,6 +19,7 @@ love = {
     setColor = function() end,
     clear = function() end,
     draw = function(...)
+      if failDraw then error('fixture draw failed') end
       draws[#draws + 1] = { ... }
     end,
   },
@@ -55,6 +61,15 @@ local d = draws[#draws]
 assert(d[1] == source and d[2] == 0 and d[3] == 640
        and d[5] == 1 and d[6] == -1,
   "compatibility copy did not invert the Canvas exactly once")
+assert(pops==1 and #stack==0)
+current=source;failDraw=true
+assert(Orientation.present(source,'world',2)==source)
+assert(current==source and pops==2 and #stack==0,'failed copy leaked graphics state')
+failDraw=false
+for _,engine in ipairs({'0.0.0-dev','0.2.25','0.7.6','1.0.0'})do
+  package.loaded['src.core.Version']={engine=engine}
+  assert(Orientation.needsFlip(2),'unrelated engine semver disabled Gen2 correction')
+end
 
 assert(Orientation.present(source, "world", 1) == source,
   "Gen 1 did not receive its original Canvas")

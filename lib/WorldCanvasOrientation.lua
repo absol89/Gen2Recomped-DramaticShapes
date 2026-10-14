@@ -3,6 +3,8 @@
 -- image upside-down.  Gen 1 goes through Renderer:endFrame instead, which
 -- already owns its iOS correction, so this compatibility copy is deliberately
 -- generation-gated rather than engine-version-gated.
+-- The g2r7 branch's 0.7.6 cutoff belongs to a different compositor/engine.
+-- Do not apply its release numbers to Gen1Recomp/G1R Deluxe or source builds.
 
 local V = ...
 
@@ -41,20 +43,22 @@ function Orientation.present(canvas, slot, generation)
   if not target or target == canvas then return canvas end
 
   local g = love.graphics
-  local prevCanvas = g.getCanvas and g.getCanvas() or nil
-  local prevBlend, prevAlpha = g.getBlendMode()
+  local pushed = false
   local drew = pcall(function()
+    g.push("all")
+    pushed = true
+    g.origin()
     g.setCanvas(target)
     g.setShader()
+    g.setScissor()
+    g.setDepthMode()
+    g.setStencilTest()
     g.setBlendMode("replace", "premultiplied")
     g.setColor(1, 1, 1, 1)
     g.clear(0, 0, 0, 0)
     g.draw(canvas, 0, h, 0, 1, -1)
   end)
-  if prevCanvas then g.setCanvas(prevCanvas) else g.setCanvas() end
-  g.setShader()
-  g.setBlendMode(prevBlend or "alpha", prevAlpha)
-  g.setColor(1, 1, 1, 1)
+  if pushed then g.pop() end
   return drew and target or canvas
 end
 
