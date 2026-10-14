@@ -9,8 +9,15 @@
 - Align the sky's screen/ray coordinates with the raw Gen2 scene on LÖVE 12
   Metal before world presentation flips it. Preserve desktop/VR paths and
   the shaderless gradient fallback. Physical iOS confirmation remains pending.
-- Advance mesh cache revision to 24 so cached room geometry receives the
-  inward-face markers. Add native GPU room-facing and sky-flip regressions.
+- Advance mesh cache revision to 25 for inward-face markers and measured mesh
+  bounds. Add native GPU room-facing and sky-flip regressions.
+- Cull off-screen overworld meshes in the camera and shadow passes; retain
+  curved-world safety and existing battle/VR rendering behavior.
+- Apply optional host performance-tier caps to overworld AA, water and shadow
+  resolution. Balanced throttles pose-only shadow updates; stored choices stay
+  intact. See `docs/upstream-world-ports.md` for engine ownership and validation.
+- Preserve graphics state when applying the Gen1Recomp Gen 2 canvas correction,
+  including when its copy fails. Keep the side engine's version gate separate.
 
 ## 2.1.1
 
