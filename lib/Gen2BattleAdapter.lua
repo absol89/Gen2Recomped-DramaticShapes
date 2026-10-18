@@ -99,6 +99,8 @@ local function installChromeUiStyle(Chrome, textboxModeAt)
     paletteBox = Chrome.paletteBox,
     print = Chrome.print,
     printRight = Chrome.printRight,
+    printThrough = Chrome.printThrough,
+    printRightThrough = Chrome.printRightThrough,
     cursorThrough = Chrome.cursorThrough,
   }
 
@@ -238,6 +240,31 @@ local function installChromeUiStyle(Chrome, textboxModeAt)
     return native.paletteBox(tx, ty, tw, th, styledPalette(palette, boxInk))
   end
 
+  -- Newer hosts batch printThrough without calling paletteGlyphs. Own the
+  -- positioned text seam as well, retaining font advances and paper handling.
+  local function printStyled(text, tx, ty, palette, invert, raw, right)
+    local codes = Font.encode(text)
+    local width = 0
+    for _, code in ipairs(codes) do width = width + Font.advanceOf(code) end
+    local x, y = tx * 8 - (right and width or 0), ty * 8
+    local pal, glyph, finish = Chrome.paletteGlyphs(palette, invert, raw)
+    local paper = pal[1] or {255, 255, 255}
+    love.graphics.setColor(paper[1]/255, paper[2]/255, paper[3]/255, 1)
+    love.graphics.rectangle("fill", x, y, width, 8)
+    for _, code in ipairs(codes) do
+      glyph(code, x, y)
+      x = x + Font.advanceOf(code)
+    end
+    finish()
+    return width
+  end
+  Chrome.printThrough = function(text, tx, ty, palette, invert, raw)
+    return printStyled(text, tx, ty, palette, invert, raw, false)
+  end
+  Chrome.printRightThrough = function(text, tx, ty, palette, invert, raw)
+    return printStyled(text, tx, ty, palette, invert, raw, true)
+  end
+
   Chrome.print = function(text, tx, ty)
     return Chrome.printThrough(text, tx, ty, Chrome.DEFAULT_BOX_PALETTE)
   end
@@ -264,6 +291,8 @@ local function installChromeUiStyle(Chrome, textboxModeAt)
     Chrome.paletteBox = native.paletteBox
     Chrome.print = native.print
     Chrome.printRight = native.printRight
+    Chrome.printThrough = native.printThrough
+    Chrome.printRightThrough = native.printRightThrough
     Chrome.cursorThrough = native.cursorThrough
   end
 end
@@ -386,6 +415,20 @@ local function withoutOpaqueBattlePaper(state, width, height, body, options)
   -- party-counter's white trailing square is its $5c corner from expBar, so it
   -- is covered here without touching the ball art.
   local hud = state.hud
+  local instanceTile = hud and rawget(hud, "drawTile")
+  local nativeTile = hud and hud.drawTile
+  if type(nativeTile) == "function" and not UiBackplates.arenaWhite() then
+    hud.drawTile = function(self, key, first, tile, tx, ty, colors, mirror)
+      if key ~= "hpBar" and key ~= "expBar"
+          and key ~= "enemyBorder" and key ~= "playerBorder" then
+        return nativeTile(self, key, first, tile, tx, ty, colors, mirror)
+      end
+      local pal = copyPalette(colors or Chrome.DEFAULT_BOX_PALETTE)
+      local ink = UiBackplates.hudUsesColor() and 0 or 255
+      pal[4] = {ink, ink, ink}
+      return nativeTile(self, key, first, tile, tx, ty, pal, mirror)
+    end
+  end
   if hud and type(hud.image) == "function" and type(hud.images) == "table" then
     for _, key in ipairs({ "hpBar", "expBar", "enemyBorder", "playerBorder" }) do
       local path = hud.gfx and hud.gfx[key]
@@ -484,6 +527,7 @@ local function withoutOpaqueBattlePaper(state, width, height, body, options)
   if hud and hud.images then
     for path, image in pairs(hudImages) do hud.images[path] = image end
   end
+  if hud then hud.drawTile = instanceTile end
   Chrome.clear = nativeClear
   Chrome.paletteBox = trackedPaletteBox
   restoreChromeUiStyle()

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix HUD COLOR on hosts whose Gen 2 Chrome batches text without calling
+  paletteGlyphs. Enemy/player labels, HP numbers and battle menus now retain
+  the selected foreground and drop shadow. Style HUD tile ink separately
+  while preserving HP/EXP fill colors and restoring native methods afterward.
 - Guard Gen1Recomp's Gen 2 border draw against released textures. Missing
   borders stay invisible; an invalid outgoing fade is cleared so a valid
   replacement draws opaque. Works with existing engine builds, including the
