@@ -842,7 +842,7 @@ local SETTINGS = {
     "What time it is outdoors: pin the sky to DAY, NIGHT, DUSK or DAWN, "
     .. "let CYCLE run it -- ten minutes of sun, ten of moon, with the "
     .. "shadows, the sky and the light following -- or SYNC it to the "
-    .. "clock on the wall, so Kanto's evening falls when yours does.",
+    .. "Pokegear clock. Gen 2 encounters follow the selected time period.",
     full = true },
   -- Marked `full` for the opposite reason the battle rows are: this is not a
   -- knob on the look at all, it is what the look COSTS. FULL is a preset for
@@ -1873,10 +1873,10 @@ mod.events:on("save.created", function()
   applyPresentationDefaults()
 end)
 
--- The engine's own time-of-day seam. OverworldState:timeOfDay() is an
--- eternal "DAY" until a mod answers here; answering it hands the period to
--- the map.palette hook (ctx.tod) and music.select, so a palette or music
--- pack keyed to night works with this mod's clock for free. next() first: a
+-- The engine's time-of-day seam. Gen 2 World consumes its MORN/DAY/NITE
+-- result for encounters and script time-of-day as well as presentation.
+-- SYNC follows Pokegear's saved RTC; pins/CYCLE override the period without
+-- rewriting that RTC or weekday. next() first: a
 -- mod loaded before this one that already moved the time keeps its answer.
 mod.hooks:wrap("world.tod", function(next, tod, ctx)
   local out = next(tod, ctx)

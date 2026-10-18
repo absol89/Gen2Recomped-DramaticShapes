@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix Gen 2 DAYTIME gameplay periods: use MORN/DAY/NITE so morning/night
+  encounters and time-dependent fishing do not silently fall back to day.
+  SYNC now follows Pokegear's saved RTC offset; pins and CYCLE use the host's
+  time-period boundaries without rewriting the save clock or weekday.
 - Fix HUD COLOR on hosts whose Gen 2 Chrome batches text without calling
   paletteGlyphs. Enemy/player labels, HP numbers and battle menus now retain
   the selected foreground and drop shadow. Style HUD tile ink separately

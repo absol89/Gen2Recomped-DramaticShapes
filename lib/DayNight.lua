@@ -330,6 +330,15 @@ end
 -- fraction. A named seam rather than a bare os.date call, so the suite can
 -- hand it a fixed hour.
 function DayNight.hours()
+  -- Gen 2's Pokegear clock includes the player's saved RTC offset. Reading
+  -- os.date directly would give the sky a different clock from the game.
+  if V.generation and V.generation() == 2 then
+    local ok, Clock = pcall(require, "src.core.gen2.Clock")
+    local game = V.game and V.game()
+    if ok and Clock and type(Clock.minutes) == "function" and game and game.save then
+      return Clock.minutes(game.save) / 60
+    end
+  end
   local d = os.date("*t")
   return d.hour + d.min / 60 + d.sec / 3600
 end
@@ -461,6 +470,13 @@ local TOD = { day = "DAY", golden = "DAY", night = "NIGHT",
               violet = "NIGHT", dawn = "MORNING", dusk = "EVENING" }
 
 function DayNight.tod(t)
+  if V.generation and V.generation() == 2 then
+    -- Gen 2 tables use MORN/DAY/NITE, not the Gen 1 presentation names.
+    -- Invalid names silently select DAY encounters. Use the RTC boundaries
+    -- defined by the host, independent of smooth twilight tint blends.
+    local hour = ((t or DayNight.time()) * 24 / DayNight.CYCLE + 6) % 24
+    return require("src.world.gen2.Palettes").clockDaytime(hour)
+  end
   local mix = DayNight.mix(t or DayNight.time())
   local best, bestW = "day", -1
   for name, w in pairs(mix) do
