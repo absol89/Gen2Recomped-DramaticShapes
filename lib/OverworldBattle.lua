@@ -418,49 +418,44 @@ function OverworldBattle.setGen2PicResolver(resolver)
   gen2InnerPic = type(resolver) == "function" and resolver or nil
 end
 
--- The existing art managers own Gen 1 battlers through their `sprite` field.
--- Gold/Silver resolves its image inside BattleState:pic instead, so expose a
--- battle-lifetime compatibility view and remove every transient field again
--- before the party can be saved.
-local function gen2ArtBattle(state)
-  if not (isGen2BattleState(state) and gen2InnerPic) then return state end
-  local target = {
-    enemy = state:activeMon("enemy"),
-    player = state:activeMon("player"),
-  }
-  for _, entry in ipairs({ { target.enemy, false }, { target.player, true } }) do
-    local mon, back = entry[1], entry[2]
-    if mon then
-      if session then
-        session.gen2Mons = session.gen2Mons or {}
-        session.gen2Mons[mon] = true
-      end
-      if mon.sprite == nil then
-        local ok, image = pcall(gen2InnerPic, state, mon, back)
-        if ok then mon.sprite = image end
-      end
-    end
-  end
-  return target
+-- Presentation belongs to the arena, never to a persistent party record.
+-- Existing art managers can keep their battler-shaped sprite/picAnim API,
+-- while gameplay/evolution only sees the original data-only Pokémon.
+function OverworldBattle.gen2ArtMon(mon)
+  return session and session.gen2Views and session.gen2Views[mon] or nil
 end
 
--- Evolution.apply builds a NEW party record and carries extension fields
--- across. The battle still draws the old record, which is the one finish()
--- tracks, so its sprite/picAnim cleanup cannot reach that copy. Remove only
--- references inherited from our tracked source; keep the source's art alive
--- for the remaining dialogue/fade and leave persistent extension data alone.
-local function releaseInheritedGen2Art(ctx)
-  local evolved = ctx and ctx.mon
-  if not (session and evolved) then return end
-  for source in pairs(session.gen2Mons or {}) do
-    if source ~= evolved and source.species == ctx.fromSpecies then
-      for _, field in ipairs({ "sprite", "picAnim" }) do
-        if source[field] ~= nil and evolved[field] == source[field] then
-          evolved[field] = nil
-        end
-      end
-    end
+local function gen2ArtView(state, mon, back)
+  if not (session and mon) then return nil end
+  session.gen2Views = session.gen2Views or {}
+  local view = session.gen2Views[mon]
+  if view and view.sourceSpecies ~= mon.species then
+    pcall(AnimatedBattleArt.finish, { enemy = view })
+    pcall(BattleArt.releaseSpeciesOverrides, { enemy = view })
+    view = nil
   end
+  if not view then
+    local g = game()
+    local def = g and g.data and g.data.pokemon and g.data.pokemon[mon.species]
+    view = setmetatable({ mon = mon, sourceSpecies = mon.species,
+      artSpecies = BattleArt.speciesAlias((def and (def.dex or def.index)) or mon.species),
+    }, { __index = function(_, key)
+      if key == "sprite" or key == "picAnim" then return nil end
+      return mon[key]
+    end })
+    session.gen2Views[mon] = view
+    local ok, image = pcall(gen2InnerPic, state, mon, back)
+    if ok then view.sprite = image end
+  end
+  return view
+end
+
+local function gen2ArtBattle(state)
+  if not (isGen2BattleState(state) and gen2InnerPic) then return state end
+  return {
+    enemy = gen2ArtView(state, state:activeMon("enemy"), false),
+    player = gen2ArtView(state, state:activeMon("player"), true),
+  }
 end
 
 -- Whether this frame's HUDs went out to the window's edges instead of being
@@ -651,8 +646,9 @@ function OverworldBattle.finish()
   local artBattle = gen2ArtBattle(session.battle)
   pcall(AnimatedBattleArt.finish, artBattle, session.battle)
   pcall(BattleArt.releaseSpeciesOverrides, artBattle)
-  for mon in pairs(session.gen2Mons or {}) do
-    mon.sprite, mon.picAnim = nil, nil
+  for _, view in pairs(session.gen2Views or {}) do
+    pcall(AnimatedBattleArt.finish, { enemy = view })
+    pcall(BattleArt.releaseSpeciesOverrides, { enemy = view })
   end
   StadiumModels.release()
   if session.battle then
@@ -1193,7 +1189,7 @@ function OverworldBattle.sideTexture(battle, side)
   -- sprite after AnimatedBattleArt.update() already chose this frame. Reclaim
   -- the managed image at the consumer boundary, without ticking playback.
   local mon = gen2 and battle:activeMon(side) or battle[side]
-  pcall(AnimatedBattleArt.reassert, mon)
+  pcall(AnimatedBattleArt.reassert, gen2 and OverworldBattle.gen2ArtMon(mon) or mon)
   local sink = 0
   local savedFaintSlide = nil
   if gen2 and battle.faintSlide and battle.faintSlide.side == side
@@ -1407,7 +1403,6 @@ function OverworldBattle.install()
   -- split world/UI canvases.  Its dedicated adapter replaces only that
   -- opaque backdrop; the staging and art code below stays generation-neutral.
   if isGen2BattleState(BattleState) and not BattleState.drawPicsLayer then
-    V.mod.events:on("pokemon.evolved", releaseInheritedGen2Art)
     -- This branch returns before the Gen 1 class wrappers below are installed,
     -- so initialize the animation capture seam here. Leaving innerAnim nil
     -- makes animTexture() return nil every frame: the adapter then suppresses

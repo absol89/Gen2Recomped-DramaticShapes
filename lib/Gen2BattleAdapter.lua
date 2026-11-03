@@ -554,8 +554,9 @@ function Adapter.install(OverworldBattle)
   -- stores an already-selected external image on the transient battler view.
   function BattleState:pic(mon, back)
     local image, trueColor, path = nativePic(self, mon, back)
-    if mon and BattleArt.isExternal(mon.sprite) then
-      return mon.sprite, true, path
+    local view = OverworldBattle.gen2ArtMon(mon)
+    if view and BattleArt.isExternal(view.sprite) then
+      return view.sprite, true, path
     end
     return image, trueColor, path
   end
@@ -566,7 +567,8 @@ function Adapter.install(OverworldBattle)
   local nativeFrontAnim = BattleState.frontAnimFrame
   if type(nativeFrontAnim) == "function" then
     function BattleState:frontAnimFrame(mon)
-      if mon and BattleArt.isExternal(mon.sprite) then return nil end
+      local view = OverworldBattle.gen2ArtMon(mon)
+      if view and BattleArt.isExternal(view.sprite) then return nil end
       return nativeFrontAnim(self, mon)
     end
   end

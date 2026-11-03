@@ -28,7 +28,7 @@ end
 data.pokemon.CHIKORITA.evolutions = { {method="EVOLVE_LEVEL", level=16, into="BAYLEEF"} }
 local modPath = os.getenv("DS_MOD_PATH") or "dev/BattleArtGen2"
 local function noop() end
-local updates, finishes = 0, 0
+local updates, finishes, reassertions = 0, 0, 0
 local texture = newproxy(true) -- stand-in for a LOVE Image, through the real resolver seam
 local animation = { image=texture }
 local game
@@ -38,14 +38,19 @@ local modules = {
   BattleCam={ reset=noop, update=noop },
   BattleScene={ render=function() return nil end }, BattleDOF={}, BattleHud={},
   BattlePics={}, BattlePresentation={}, BattleVisibility={}, UiBackplates={},
-  BattleArt={ apply=noop, releaseSpeciesOverrides=noop, isExternal=function() return false end },
+  BattleArt={ apply=noop, releaseSpeciesOverrides=noop, isExternal=function(image) return image==texture end,
+    speciesAlias=function(id) return ({[152]="CHIKORITA",[153]="BAYLEEF"})[id] or id end },
   AnimatedBattleArt={
     update=function(view)
       updates=updates+1
       view.player.picAnim=animation
     end,
-    finish=function() finishes=finishes+1 end,
+    finish=function(_,trainer) if trainer then finishes=finishes+1 end end,
     ownsFrame=function() return nil end, updateTrainer=noop,
+    reassert=function(view)
+      assert(view and view.mon and view~=view.mon,"reassert received persistent Pokémon")
+      reassertions=reassertions+1
+    end,
   },
   StadiumModels={release=noop}, Voxel3D={available=function() return true end},
   ChunkMesher={pump=noop}, CamControl={tick=noop},
@@ -66,10 +71,8 @@ package.loaded["src.battle.BattleState"] = BattleState
 local ow = assert(loadfile(modPath.."/lib/OverworldBattle.lua"))(V)
 ow.install()
 ow.install()
--- Installation is idempotent, including the evolution subscription.
-if events.listeners["pokemon.evolved"] then
-  assert(#events.listeners["pokemon.evolved"]==1)
-end
+-- No evolution scrubber is needed: rendering never writes party data.
+assert(events.listeners["pokemon.evolved"]==nil)
 ow.setGen2PicResolver(function() return texture end)
 events:on("battle.ended", ow.retire)
 
@@ -94,7 +97,12 @@ for _, version in ipairs({"crystal", "silver", "gold"}) do
   state.onDone = function() stack:pop() end
   assert(ow.begin(game.world,state)); stack:push(state)
   ow.update(1/60)
-  assert(original.sprite==texture and original.picAnim==animation, "art attachment did not run")
+  local view=assert(ow.gen2ArtMon(original),"no separate presentation record")
+  assert(view~=original and view.mon==original and view.artSpecies=="CHIKORITA")
+  assert(view.sprite==texture and view.picAnim==animation,"presentation art attachment did not run")
+  assert(original.sprite==nil and original.picAnim==nil,"art mutated persistent Pokémon")
+  assert(state:pic(original,true)==texture,"native picture consumer did not resolve presentation")
+  assert(require("src.core.SaveSerializer").encode(game:snapshotSave()),"active art polluted snapshot")
   -- The handler must not sanitize another provider's distinct rendering fields.
   local foreign = {species="BAYLEEF",sprite=newproxy(true),picAnim={foreign=true},custom=9}
   local foreignSprite, foreignAnim = foreign.sprite, foreign.picAnim
@@ -113,8 +121,9 @@ for _, version in ipairs({"crystal", "silver", "gold"}) do
     if save.party[1]~=original and stack:top() then
       observedPostEvolution=true
       assert(finishes==baseline,"art retired during evolution/dialogue")
-      assert(original.sprite==texture and original.picAnim==animation,
+      assert(view.sprite==texture and view.picAnim==animation,
         "source art cleared before battle exit")
+      assert(original.sprite==nil and original.picAnim==nil,"source data gained rendering fields")
     end
     if not stack:top() then break end
   end
@@ -122,6 +131,7 @@ for _, version in ipairs({"crystal", "silver", "gold"}) do
   assert(observedPostEvolution,"post-evolution dialogue/fade was not exercised")
   assert(finishes==baseline+1, "battle art teardown did not run exactly once")
   assert(original.sprite==nil and original.picAnim==nil, "original battler was not cleaned")
+  assert(ow.gen2ArtMon(original)==nil,"presentation cache outlived battle")
   local evolved=save.party[1]
   assert(evolved~=original and evolved.species=="BAYLEEF")
   local menu=StartMenu.new(game,{onChoose=function(id) game:pushStartMenuItem(id) end})
@@ -154,10 +164,11 @@ for _, version in ipairs({"crystal", "silver", "gold"}) do
   battle.player = evolved
   assert(ow.begin(game.world,state)); stack:push(state)
   ow.update(1/60)
-  assert(evolved.sprite==texture and evolved.picAnim==animation)
+  assert(ow.gen2ArtMon(evolved).sprite==texture and evolved.sprite==nil and evolved.picAnim==nil)
   stack:clear(); ow.update(1/60)
   assert(evolved.sprite==nil and evolved.picAnim==nil)
   print(version..": evolution -> overworld -> pause-menu save -> reload PASS")
 end
 assert(updates>0,"battle art never updated")
+assert(reassertions>0,"capture never reclaimed presentation ownership")
 Runtime.reset()

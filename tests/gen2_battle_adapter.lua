@@ -29,6 +29,7 @@ local BattleState = {
   drawSceneBody = function() end,
   drawScene = function() end,
   drawHud = function() end,
+  frontAnimFrame = function() return "native-animation" end,
 }
 function BattleState:drawWidescreen(w, h)
   if self.fail then error("native failure") end
@@ -106,9 +107,11 @@ local V = {
 local Adapter = assert(loadfile("lib/Gen2BattleAdapter.lua"))(V)
 local shot = nil
 local nativeResolver = nil
+local artViews = {}
 local OverworldBattle = {
   shot = function() return shot end,
   setGen2PicResolver = function(value) nativeResolver = value end,
+  gen2ArtMon = function(mon) return artViews[mon] end,
 }
 
 assert(Adapter.install(OverworldBattle), "Gen 2 battle adapter did not install")
@@ -144,9 +147,17 @@ stadiumScene = nil
 state.phase = nil
 state.anim = nil
 
-local image, trueColor, path = state:pic({ sprite = "external-image" }, false)
+local mon = { species = "CHIKORITA", name = "localized display name" }
+artViews[mon] = {sprite="external-image"}
+local image, trueColor, path = state:pic(mon, false)
 assert(image == "external-image" and trueColor == true and path == "native-path",
   "external Battle Art did not retain the native Gen 2 asset identity")
+assert(state:frontAnimFrame(mon)==nil,"native animation covered the selected presentation frame")
+local untracked = {sprite="external-image"}
+assert(state:frontAnimFrame(untracked)=="native-animation",
+  "an unrelated Pokémon field suppressed the native animation")
+assert(state:pic(untracked,false)=="native-image","untracked art bypassed the presentation cache")
+assert(mon.sprite==nil,"picture resolution wrote texture data onto the persistent Pokémon")
 
 state.fail = true
 local ok = pcall(state.drawWidescreen, state, 320, 288)

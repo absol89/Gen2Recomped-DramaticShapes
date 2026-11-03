@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-- Fix saving after post-battle evolution in Gen 2. Remove copied Battle Art
-  texture/animation references from the evolved party record while keeping the
-  original battler's art alive through dialogue and exit. Save format and
-  persistent extension data are unchanged. See `docs/evolution-save-issue7.md`.
+- Keep Gen 2 battle textures and animation state in separate presentation
+  records instead of live Pokémon. Resolve English artwork keys from National
+  Dex identifiers, independently of display names. Evolution cannot copy image
+  references into saves; battle dialogue/exit and the save format stay intact.
+  Validated Crystal battle/evolution/pause-save/reload on engine 0.4.0; see
+  `docs/evolution-save-issue7.md`.
 
 - Fix Gen 2 DAYTIME gameplay periods: use MORN/DAY/NITE so morning/night
   encounters and time-dependent fishing do not silently fall back to day.

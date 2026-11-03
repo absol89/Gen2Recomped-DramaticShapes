@@ -14,7 +14,10 @@ local V = {
     end
     error(name)
   end,
-  data = function() return {} end,
+  data = function(name)
+    if name == "battle_species_dex_386" then return dofile("data/battle_species_dex_386.lua") end
+    return {}
+  end,
   mod = { assets = {
     path = function(_, path) return path end,
     info = function() return { type = "file" } end,
@@ -22,6 +25,10 @@ local V = {
 }
 
 local BattleArt = assert(loadfile("lib/BattleArt.lua"))(V)
+assert(BattleArt.speciesFor({artSpecies=152,mon={species="localized-key",name="Folhinha"}})=="CHIKORITA")
+assert(BattleArt.slug(BattleArt.speciesFor({artSpecies=153,mon={name="Portuguese display"}}))=="bayleef")
+assert(BattleArt.speciesAlias("SPECIES_0152")=="CHIKORITA")
+assert(BattleArt.speciesFor({artSpecies="DEOXYS_D"})=="DEOXYS_D","named forms lost their asset key")
 assert(settings.battleArt.values[1] == "animated"
   and settings.battleArt.labels[1] == "ANIMATED",
   "fresh installs do not default Battle Art to animated")

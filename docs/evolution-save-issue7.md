@@ -4,7 +4,9 @@ Investigated against mod `main` at `5ebe9fb` (2.1.4) and engine source at
 `7abe68b1`, with pre-existing engine edits left intact. Issue #7 reports Crystal,
 Portuguese and Android. Inspected error screenshots show
 `SaveSerializer.lua:41: cannot serialize userdata`, followed by the recursive
-serializer and `encode` frames. No player save or extracted assets were used.
+serializer and `encode` frames. The initial headless investigation used no
+player save or extracted assets. The subsequent live validation used copies
+of the user's Crystal import and edited save, with isolated persistence.
 
 ## Confirmed cause
 
@@ -35,13 +37,29 @@ backup/staged/progress bytes. It does not return a successful write.
 
 ## Fix
 
-The Gen 2 installer subscribes to the existing `pokemon.evolved` event, emitted
-after extension fields are copied and before party writeback. While an arena
-session is active, remove only `sprite`/`picAnim` values that are equal by
-reference to fields on a tracked source of `fromSpecies`. Leave different
-provider values, all other extension data, and out-of-session evolution alone.
-Do not change the source record, battle teardown timing, engine serializer or
-save schema. Existing saves need no migration. Installation remains idempotent.
+The first fix (`c22cd11`) removed inherited references at `pokemon.evolved`.
+The requested follow-up replaces that cleanup workaround with separate
+battle-lifetime presentation records, held by `session.gen2Views` and keyed by
+the original Pokémon. Art managers write `sprite` and `picAnim` only on these
+views; gameplay fields are read through to the source without copying them.
+The native Gen 2 picture/animation adapter and the staged capture's reassertion
+read the same view. Nothing is added to a persistent Pokémon.
+
+Each view resolves `artSpecies` from the source definition's National Dex
+number (`dex`, or Gen 2 `index`) through `battle_species_dex_386`. The canonical
+English key, not a localized name or nickname, selects artwork. Existing stable
+species strings and numeric `SPECIES_152` aliases remain supported. This pointer
+is presentation-only; there is no reason to add another field to old saves.
+Native picture resolution still receives the original Pokémon, retaining Unown
+form, shiny and provider context. Front/back art settings remain in their
+existing resolvers.
+
+Views refresh when the source species changes (including Transform-style
+changes). Teardown releases art ownership for every cached view, including
+switched-out Pokémon, then discards the session. The evolved party record has
+no rendering fields to inherit, so the evolution event scrubber is removed.
+Battle teardown timing, engine serializer, save schema and persistent extension
+data are unchanged. Existing saves need no migration.
 
 ## Lifecycle regression
 
@@ -51,9 +69,10 @@ From the engine root (LuaJIT/5.1 semantics):
 luajit dev/BattleArtGen2/tests/gen2_evolution_save.lua
 ```
 
-Optional `DS_MOD_PATH` selects a baseline mod tree. The same final test was run
-against copies of `main`'s `OverworldBattle.lua` and `Gen2BattleAdapter.lua`, then
-the changed checkout. The baseline fails at the real pause-menu writer:
+Optional `DS_MOD_PATH` selects a baseline mod tree. The original regression at
+`c22cd11` was run unchanged against copies of `main`'s `OverworldBattle.lua` and
+`Gen2BattleAdapter.lua`, then the initial fix. The baseline fails at the real
+pause-menu writer:
 
 ```text
 crystal: save.party[1].sprite=userdata, picAnim=table, inherited sprite=true
@@ -74,6 +93,12 @@ mod code attaches it. All persistence is explicitly redirected to the engine's
 memory filesystem. This is a headless lifecycle integration, not a complete
 interactive battle or visual rendering reproduction.
 
+The rewritten regression additionally asserts that source Pokémon never gain
+rendering fields, snapshots serialize while art is active, adapter consumers
+resolve the separate view, capture reasserts ownership on that view, and the
+view cache is gone after exit. Canonical-art tests cover numeric Dex IDs,
+localized display names, English asset slugs and named species aliases.
+
 | Check | Before fix | After fix |
 | --- | --- | --- |
 | Crystal evolution -> dialogue/fade -> overworld -> pause Save | FAIL, same userdata error | PASS |
@@ -81,7 +106,7 @@ interactive battle or visual rendering reproduction.
 | Silver/Gold lifecycle save/reload | Not reached after Crystal failure | PASS |
 | Original art retained until exit; cleanup once | PASS, Crystal | PASS, all three |
 | Interrupted stack cleanup, distinct provider fields, no-session event | Not all reached | PASS, all three |
-| Actual GPU battle appearance | Not run | Not run |
+| Actual GPU battle appearance | Not run | Crystal ROM-art fallback inspected in live engine 0.4.0 |
 
 Reload assertions include species, nickname, level, HP, experience, happiness,
 stat experience, custom persistent data, and world map/cells. Neither transient
@@ -94,6 +119,13 @@ the discovered LÖVE runtime's `lua51.dll`, via a scratch Python ctypes launcher
 (`run_lua.py <test-path>`). This uses the engine's target Lua semantics; no
 standalone `luajit` executable was on PATH. Reproduce with the commands below
 using `luajit`, or substitute that launcher for `luajit`.
+
+After the presentation rewrite, reran the three-edition lifecycle, SDK load,
+Gen 2 save (209) and mod save/serializer (132) suites. Mod adapter, canonical
+art defaults, animated ownership, layer order, effect facing and interface
+summary ownership pass. The source-order checks now reference the presentation
+view rather than a live-mon sprite. A concurrent Windows SDK invocation failed
+directory discovery; its standalone rerun passed.
 
 Engine-root tests (each `luajit <path>`), exit 0:
 
@@ -130,8 +162,62 @@ both untouched `main` and the patch (exit 1); baseline was rechecked, not waived
 from historical notes. `tests/engine/save_file_io_tests.lua` exits 0 but skips
 because generated Gen 1 content is absent. `git diff --check` passes.
 
-Android/device execution, Portuguese gameplay, actual GPU art, native input,
-packaged builds and real-cache tiers remain unverified. No test game process
-was launched; no player saves/options, installed mods or persistent environment
-settings were changed. Scratch logs and issue images remain outside the mod
-repository under the engine's task scratch directory and are not committed.
+## Live Crystal validation after the rewrite
+
+The user's installed launcher is a fused 0.2.41 executable whose updater selects
+`gen1recomp-0.4.0.love`. Extracted that exact 0.4.0 payload into an isolated
+portable test directory and ran it with the discovered compatible Windows
+LÖVE runtime. This validates the updated engine payload, not a claim that the
+older fused bootstrap itself was modified.
+
+Deployed only production mod files to the user-requested AppData Gen 2 mod
+folder, which did not previously exist. The disposable app's mod junction
+points to that exact installed folder. The driver asserted Crystal/Crystal
+lineage, export ID `BATTLE_ART_VOXEL_GEN2`, version 2.1.4, the new `gen2ArtMon`
+API, and a portable persistence root inside the task directory. Deployed/source
+Lua hashes matched. The user's existing running game was left alone.
+
+The copied save was on ROUTE_30, player cell (7,50), facing right, at night.
+The user had edited Chikorita to level 15; the driver changed only the copied
+fixture to EXP 2525, ten below level 16's Crystal growth threshold of 2535,
+and refreshed stats/HP. Camera: voxel 35 degrees; default art settings.
+
+Launched the engine with `--game=crystal --no-sync`, process-local
+`POKEPORT_VERSION=crystal`, speed 1, paced driver, and a separate identity.
+Scratch driver: `tmp/issue7-rewrite-live/repro.lua`.
+
+The fixture calls the real world's `startBattle` with a level-3 Sentret,
+then drives real game A-button input through battle commands/dialogue,
+experience, the full evolution animation and battle exit. It does not fake a
+win, call `Evolution.apply` directly, or teleport during the battle. After
+returning to normal free roam, it opens START, selects SAVE, confirms through
+the real save UI, then loads with `Save.load` and `continueGame`.
+
+Two complete live runs passed. Chikorita became level-16 Bayleef at EXP 2549.
+The runtime reported `ART_VIEW CHIKORITA userdata DATA nil nil`. Save/load
+assertions verified species, level, EXP, HP and absence of rendering fields.
+The second run captured and visually inspected:
+
+- `captures/refined/02-battle-art.png`: Chikorita and Sentret on the staged map.
+- `captures/refined/03-evolution.png`: actual Chikorita evolution silhouette.
+- `captures/refined/05-pause-save.png`: SAVE selected after the overworld return.
+- `captures/refined/08-bayleef-party.png`: reloaded BAYLEEF, level 16, 48/48 HP.
+
+All paths above are inside `tmp/issue7-rewrite-live`; status.log records the
+roots, mod, fixture, captures and final PASS. These private artifacts are not
+committed. This clean mod checkout has no optional species PNG packs, so the
+live battle validates the ROM-art fallback. Canonical English external-image
+routing is covered by headless lookup/adapter tests, not claimed as a live
+custom-atlas pass.
+
+Both disposable game processes auto-quit on successful driver completion.
+The original and edited user saves were backed up in scratch; the actual
+edited main slot's hash remained identical afterward. No main progress or
+options were overwritten. The requested Gen 2 mod deployment remains installed.
+
+Windows Computer Use found the exact user Crystal window, but its screenshot
+capture timed out twice, so no native UI inputs were issued. Live input was
+injected by the engine driver with releases; GPU captures came from actual
+rendered frames and were opened for inspection. Android, Portuguese gameplay,
+native keyboard/focus behavior, optional custom atlas packs, and the fused
+bootstrap path remain unverified.
