@@ -444,6 +444,25 @@ local function gen2ArtBattle(state)
   return target
 end
 
+-- Evolution.apply builds a NEW party record and carries extension fields
+-- across. The battle still draws the old record, which is the one finish()
+-- tracks, so its sprite/picAnim cleanup cannot reach that copy. Remove only
+-- references inherited from our tracked source; keep the source's art alive
+-- for the remaining dialogue/fade and leave persistent extension data alone.
+local function releaseInheritedGen2Art(ctx)
+  local evolved = ctx and ctx.mon
+  if not (session and evolved) then return end
+  for source in pairs(session.gen2Mons or {}) do
+    if source ~= evolved and source.species == ctx.fromSpecies then
+      for _, field in ipairs({ "sprite", "picAnim" }) do
+        if source[field] ~= nil and evolved[field] == source[field] then
+          evolved[field] = nil
+        end
+      end
+    end
+  end
+end
+
 -- Whether this frame's HUDs went out to the window's edges instead of being
 -- drawn in the GB frame. False whenever the composite could not be made, which
 -- is what leaves the in-frame HUD as the fallback rather than no HUD at all.
@@ -1388,6 +1407,7 @@ function OverworldBattle.install()
   -- split world/UI canvases.  Its dedicated adapter replaces only that
   -- opaque backdrop; the staging and art code below stays generation-neutral.
   if isGen2BattleState(BattleState) and not BattleState.drawPicsLayer then
+    V.mod.events:on("pokemon.evolved", releaseInheritedGen2Art)
     -- This branch returns before the Gen 1 class wrappers below are installed,
     -- so initialize the animation capture seam here. Leaving innerAnim nil
     -- makes animTexture() return nil every frame: the adapter then suppresses

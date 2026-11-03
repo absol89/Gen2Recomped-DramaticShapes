@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix saving after post-battle evolution in Gen 2. Remove copied Battle Art
+  texture/animation references from the evolved party record while keeping the
+  original battler's art alive through dialogue and exit. Save format and
+  persistent extension data are unchanged. See `docs/evolution-save-issue7.md`.
+
 - Fix Gen 2 DAYTIME gameplay periods: use MORN/DAY/NITE so morning/night
   encounters and time-dependent fishing do not silently fall back to day.
   SYNC now follows Pokegear's saved RTC offset; pins and CYCLE use the host's
