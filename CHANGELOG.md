@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Preserve Gen 2 forced-shiny flags alongside canonical shiny DVs. Port
+  Pokémon-aware interface artwork and shiny playback-cache selection from
+  Gen 1, so Summary uses the matching shiny image/atlas. Retain species-only
+  Dex behavior, native Unown forms, and MODDED ownership. See
+  `docs/shiny-context-port.md` for validation and live preview details.
+
 - Keep Gen 2 battle textures and animation state in separate presentation
   records instead of live Pokémon. Resolve English artwork keys from National
   Dex identifiers, independently of display names. Evolution cannot copy image

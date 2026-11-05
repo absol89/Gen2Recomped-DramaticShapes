@@ -25,6 +25,12 @@ local V = {
 }
 
 local BattleArt = assert(loadfile("lib/BattleArt.lua"))(V)
+local ordinaryDvs = {attack=15,defense=15,speed=15,special=15,hp=15}
+assert(BattleArt.isShiny({shiny=true,dvs=ordinaryDvs}),"forced Gen 2 shiny flag was ignored")
+assert(BattleArt.isShiny({mon={shiny=true,dvs=ordinaryDvs}}),"presentation view lost forced shiny flag")
+assert(not BattleArt.isShiny({shiny=false,dvs=ordinaryDvs}),"ordinary Pokémon selected shiny art")
+assert(BattleArt.isShiny({shiny=false,dvs={attack=2,defense=10,speed=10,special=10,hp=0}}),
+  "canonical shiny DVs stopped selecting shiny art")
 assert(BattleArt.speciesFor({artSpecies=152,mon={species="localized-key",name="Folhinha"}})=="CHIKORITA")
 assert(BattleArt.slug(BattleArt.speciesFor({artSpecies=153,mon={name="Portuguese display"}}))=="bayleef")
 assert(BattleArt.speciesAlias("SPECIES_0152")=="CHIKORITA")
