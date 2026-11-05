@@ -25,7 +25,8 @@ assert(externalBypass < frontRomBypass and frontRomBypass < romBackFill,
 assert(romBackFill < pinnedBack,
   "ROM back reconstruction no longer retains its pinned-slot behavior")
 local apply = assert(overworld:find("pcall(BattleArt.apply,", sideTexture, true))
-local reassert = assert(overworld:find("pcall(AnimatedBattleArt.reassert, mon)", apply, true))
+local reassert = assert(overworld:find(
+  "pcall(AnimatedBattleArt.reassert, gen2 and OverworldBattle.gen2ArtMon(mon) or mon)", apply, true))
 local pics = assert(overworld:find("innerPics(battle, 0, 0, 0)", reassert, true))
 assert(apply < reassert and reassert < pics,
   "animated ownership is not reclaimed after Battle Art and before capture")
@@ -68,7 +69,7 @@ assert(overworld:find("not battle.enemyTrainerTrueColor", sideTexture, true)
 assert(gen2:find("isScreenFlash", 1, true),
   "Gen 2 staged battles no longer remove the opaque-paper flash")
 assert(gen2:find("function BattleState:frontAnimFrame", 1, true)
-    and gen2:find("BattleArt.isExternal(mon.sprite)", 1, true),
+    and gen2:find("BattleArt.isExternal(view.sprite)", 1, true),
   "Gen 2 native front animation is not suppressed for selected Battle Art")
 assert(gen2:find("UiBackplates.textboxMode()", 1, true),
   "Gen 2 staged textbox fill is not routed through Battle Art")

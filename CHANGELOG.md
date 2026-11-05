@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Keep Gen 2 battle textures and animation state in separate presentation
+  records instead of live Pokémon. Resolve English artwork keys from National
+  Dex identifiers, independently of display names. Evolution cannot copy image
+  references into saves; battle dialogue/exit and the save format stay intact.
+  Validated Crystal battle/evolution/pause-save/reload on engine 0.4.0; see
+  `docs/evolution-save-issue7.md`.
+
 - Fix Gen 2 DAYTIME gameplay periods: use MORN/DAY/NITE so morning/night
   encounters and time-dependent fishing do not silently fall back to day.
   SYNC now follows Pokegear's saved RTC offset; pins and CYCLE use the host's

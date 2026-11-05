@@ -203,6 +203,7 @@ function BattleArt.speciesFor(battler)
   -- battlers wrap their mon as .mon. Accept both shapes, plus the transform
   -- override, so the art managers resolve species on either engine.
   local species = battler and (battler.__battleArtTransformed
+                               or battler.artSpecies
                                or (battler.mon and battler.mon.species)
                                or battler.species) or nil
   return speciesAlias(species)
