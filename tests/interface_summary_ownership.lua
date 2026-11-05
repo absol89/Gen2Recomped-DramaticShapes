@@ -7,6 +7,7 @@ local function image(width, height)
   }
 end
 local replacement, rom = image(56, 56), image(56, 56)
+local shinyReplacement = image(56,56)
 local drawn
 love = { graphics = {
   draw = function(drawable, x, y, rotation, scaleX, scaleY)
@@ -36,6 +37,7 @@ package.loaded["src.ui.SummaryMenu"] = SummaryMenu
 local setting = { get = function() return interfaceMode end }
 local flipFront = true
 local BattleArt = {
+  isShiny = function(mon) return mon and mon.shiny == true or false end,
   setting = { get = function() return "animated" end },
   frontAnimationSetting = { get = function() return "gen4" end },
   displayMode = function() return "color" end,
@@ -43,7 +45,9 @@ local BattleArt = {
   fitPreparedFrames = function(frames) return frames end,
 }
 local AnimatedBattleArt = {
-  interfaceFront = function() return { replacement }, { 100 } end,
+  interfaceFront = function(_,_,_,_,mon)
+    return {mon and mon.shiny and shinyReplacement or replacement}, {100}
+  end,
 }
 local V = {
   require = function(name)
@@ -76,6 +80,12 @@ flipFront = false
 summary:draw()
 assert(drawn[2] == 8 and drawn[5] == 1,
   "DEFAULT did not preserve summary sprite orientation")
+summary.mon.shiny=true
+summary:draw()
+assert(summary.drawn==shinyReplacement,"same-species shiny change reused regular playback")
+summary.mon.shiny=false
+summary:draw()
+assert(summary.drawn==replacement,"same-species regular change reused shiny playback")
 
 interfaceMode = "off"
 summary:draw()

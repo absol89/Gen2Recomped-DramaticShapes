@@ -33,6 +33,7 @@ local sets={SMALL=frames, MEDIUM={pose(20,40)}, LARGE={pose(20,70,80)}}
 local mode,interfaceMode,flip='fit','battle_art',true
 local function setting(get) return {get=get} end
 local battle=env.BattleArt
+battle.isShiny=function() return false end
 battle.metrics=function(image) return env.metrics[image] end
 battle.setting=setting(function() return 'animated' end)
 battle.frontAnimationSetting=setting(function() return 'gen4' end)

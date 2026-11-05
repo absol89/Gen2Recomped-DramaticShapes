@@ -68,11 +68,8 @@ function BattleArt.ownsShinyArt()
   return BattleArt.ownsSpeciesArt()
 end
 
--- Gen 1 already stores the four DVs Gen 2 uses for shininess. Own that
--- stable data contract here instead of asking whichever sprite mod happens
--- to be installed: every shiny encounter mod ultimately has to produce the
--- same DV pattern, while cross-mod image identity APIs are neither universal
--- nor available under every sandbox/IO policy.
+-- Gen 2 preserves forced/scripted shininess independently of DVs. Honor its
+-- explicit flag first, then support canonical DV shinies and older records.
 local SHINY_ATTACK = {
   [2] = true, [3] = true, [6] = true, [7] = true,
   [10] = true, [11] = true, [14] = true, [15] = true,
@@ -80,6 +77,7 @@ local SHINY_ATTACK = {
 
 function BattleArt.isShiny(battler)
   local mon = battler and (battler.mon or battler)
+  if mon and mon.shiny == true then return true end
   local dvs = mon and mon.dvs
   if type(dvs) ~= "table" then return false end
   local attack = tonumber(dvs.attack)
@@ -448,17 +446,17 @@ function BattleArt.generationFrontImage(species, generation, battler)
   return prepare(path, displayMode())
 end
 
--- Non-battle interfaces have their own ownership setting. These regular-form
+-- Non-battle interfaces have their own ownership setting. These mon-aware
 -- helpers deliberately do not consult DUPLICATE FIX, which governs battle
 -- pictures only; InterfaceSprites decides whether it owns the caller.
-function BattleArt.interfaceStaticFrontImage(species, mode)
-  local rel = staticSpeciesRelativePath(species, "front", false)
+function BattleArt.interfaceStaticFrontImage(species, mode, battler)
+  local rel = staticSpeciesRelativePath(species, "front", BattleArt.isShiny(battler))
   local path = rel and V.mod.assets:path(rel)
   return path and prepare(path, mode or displayMode()) or nil
 end
 
-function BattleArt.interfaceGenerationFrontImage(species, generation, mode)
-  local rel = generationRelativePath(species, generation, "front", false)
+function BattleArt.interfaceGenerationFrontImage(species, generation, mode, battler)
+  local rel = generationRelativePath(species, generation, "front", BattleArt.isShiny(battler))
   local path = rel and V.mod.assets:path(rel)
   return path and prepare(path, mode or displayMode()) or nil
 end
